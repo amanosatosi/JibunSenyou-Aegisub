@@ -43,6 +43,7 @@ aegisub_src = files(
     'command/command.cpp',
     'command/edit.cpp',
     'command/grid.cpp',
+    'command/join_adjacent.cpp',
     'command/help.cpp',
     'command/keyframe.cpp',
     'command/recent.cpp',
