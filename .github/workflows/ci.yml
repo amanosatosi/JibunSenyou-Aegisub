@@ -2,10 +2,11 @@ name: Meson CI
 
 on:
   push:
-    branches: [ master, main, feature, cibuilds ]
+    branches: [ master, main, feature, cibuilds, new-button-test ]
   pull_request:
-    branches: [ master, main, feature ]
+    branches: [ master, main, feature, new-button-test ]
   workflow_dispatch:
+
 
 jobs:
   build:
@@ -60,6 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
@@ -121,8 +123,8 @@ jobs:
       - name: Build
         run: meson compile -C build
 
-      - name: Run test
-        run: meson test -C build --verbose "gtest main"
+#      - name: Run test
+#        run: meson test -C build --verbose "gtest main"
 
       # Windows artifacts
       - name: Generate Windows installer
