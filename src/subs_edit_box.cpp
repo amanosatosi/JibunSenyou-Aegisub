@@ -226,6 +226,8 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	bottom_sizer->Add(MakeBottomButton("edit/clear"), wxSizerFlags().Border(wxRIGHT));
 	bottom_sizer->Add(MakeBottomButton("edit/clear/text"), wxSizerFlags().Border(wxRIGHT));
 	bottom_sizer->Add(MakeBottomButton("edit/insert_original"));
+	bottom_sizer->Add(MakeBottomButton("edit/line/join/previous"), wxSizerFlags().Border(wxRIGHT));
+	bottom_sizer->Add(MakeBottomButton("edit/line/join/next"), wxSizerFlags().Border(wxRIGHT));
 	main_sizer->Add(bottom_sizer);
 	main_sizer->Hide(bottom_sizer);
 
