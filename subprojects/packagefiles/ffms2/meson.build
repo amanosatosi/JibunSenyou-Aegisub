@@ -1,5 +1,8 @@
 project('ffms2', 'cpp', version: '2.40.0')
 
+python = import('python').find_installation('python3', 'python')
+run_command(python, files('apply_ffmpeg_compat.py'), meson.current_source_dir(), check: true)
+
 deps = []
 
 opts = ['tests=disabled', 'libdav1d=enabled']
