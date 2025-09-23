@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "command/command.h"          // cmd::Command, cmd::reg, cmd::call
-#include "context.h"                 // agi::Context
+#include "aegisub/context.h"
 #include "selection_controller.h"    // Selection logic helpers
 #include "subs_grid.h"               // Subtitle grid access
 
