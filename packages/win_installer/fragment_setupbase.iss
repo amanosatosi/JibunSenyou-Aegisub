@@ -6,6 +6,16 @@
 
 #include BUILD_ROOT + "\git_version.h"
 
+; --- derive installer version from git_version.h ---
+#ifndef INSTALLER_VERSION
+  #ifdef BUILD_GIT_VERSION_STRING
+    #define INSTALLER_VERSION BUILD_GIT_VERSION_STRING
+  #else
+    #define INSTALLER_VERSION "0.0.0-local"
+  #endif
+#endif
+; -----------------------------------------------
+
 [Setup]
 AppName=Aegisub
 AppVerName=Aegisub {#BUILD_GIT_VERSION_STRING}

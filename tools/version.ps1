@@ -85,5 +85,9 @@ $version.GetEnumerator() | %{
       {"`"$($value.ToString())`""}
     }
   }
-  "`n#define $($_.Key) $($fmtValue)"
+  $lines = "`n#define $($_.Key) $($fmtValue)"
+  if ($_.Key -eq 'BUILD_GIT_VERSION_STRING') {
+    $lines += "`n#define INSTALLER_VERSION \"$($version['INSTALLER_VERSION'])\""
+  }
+  $lines
 } | Out-File -FilePath $gitVersionHeaderPath -Encoding utf8
