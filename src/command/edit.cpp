@@ -814,6 +814,62 @@ struct edit_line_join_keep_first final : public validate_sel_multiple {
 	}
 };
 
+
+struct edit_line_join_previous final : public Command {
+
+
+	CMD_NAME("edit/line/join/previous")
+	STR_MENU("Join Last")
+	STR_DISP("join last")
+	STR_HELP("Join the active line with the previous line")
+
+	void operator()(agi::Context *c) override {
+		AssDialogue *active = c->selectionController->GetActiveLine();
+		if (!active) return;
+		auto it = c->ass->iterator_to(*active);
+		if (it == c->ass->Events.begin() || it == c->ass->Events.end()) return;
+		auto prev_it = it;
+		--prev_it;
+		AssDialogue *prev = &*prev_it;
+		combine_concat(prev, nullptr);
+		combine_concat(prev, active);
+		prev->End = std::max(prev->End, active->End);
+		prev->Start = std::min(prev->Start, active->Start);
+		delete active;
+		c->selectionController->SetSelectionAndActive(Selection{prev}, prev);
+		c->ass->Commit(_("join with previous line"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+	}
+};
+
+
+
+
+
+struct edit_line_join_next final : public Command {
+	CMD_NAME("edit/line/join/next")
+	STR_MENU("Join Next")
+	STR_DISP("join next")
+	STR_HELP("Join the active line with the next line")
+
+	void operator()(agi::Context *c) override {
+		AssDialogue *active = c->selectionController->GetActiveLine();
+		if (!active) return;
+		auto it = c->ass->iterator_to(*active);
+		if (it == c->ass->Events.end()) return;
+		auto next_it = it;
+		++next_it;
+		if (next_it == c->ass->Events.end()) return;
+		AssDialogue *next = &*next_it;
+		combine_concat(active, nullptr);
+		combine_concat(active, next);
+		active->End = std::max(active->End, next->End);
+		active->Start = std::min(active->Start, next->Start);
+		delete next;
+		c->selectionController->SetSelectionAndActive(Selection{active}, active);
+		c->ass->Commit(_("join with next line"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+	}
+};
+
 static bool try_paste_lines(agi::Context *c) {
 	std::string data = GetClipboard();
 	boost::trim_left(data);
@@ -1284,6 +1340,8 @@ namespace cmd {
 		reg(agi::make_unique<edit_line_join_as_karaoke>());
 		reg(agi::make_unique<edit_line_join_concatenate>());
 		reg(agi::make_unique<edit_line_join_keep_first>());
+		reg(agi::make_unique<edit_line_join_previous>());
+		reg(agi::make_unique<edit_line_join_next>());
 		reg(agi::make_unique<edit_line_paste>());
 		reg(agi::make_unique<edit_line_paste_over>());
 		reg(agi::make_unique<edit_line_recombine>());
