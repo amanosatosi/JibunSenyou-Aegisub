@@ -219,6 +219,10 @@ foreach dep: [
     ['uchardet', [], 'uchardet', ['uchardet', 'uchardet_dep'], []],
 ]
     optname = dep[0].split('-')[0]
+    if host_machine.system() == 'windows' and ['libpulse', 'alsa', 'portaudio', 'openal'].contains(optname)
+        # These are POSIX audio stacks which are not available on Windows.
+        continue
+    endif
     if not get_option(optname).disabled()
         # [provide] section is ignored if required is false;
         # must provided define fallback explicitly
