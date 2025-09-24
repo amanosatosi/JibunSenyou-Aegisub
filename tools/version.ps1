@@ -69,6 +69,25 @@ if ($exactGitTag -match $semVerMatch) {
   }
 }
 
+if (-not $version.ContainsKey('INSTALLER_VERSION')) {
+  $projectVersion = $null
+  if ($SourceRoot -ne $null -and $SourceRoot.Trim() -ne '') {
+    $mesonFilePath = Join-Path $SourceRoot 'meson.build'
+    if (Test-Path $mesonFilePath) {
+      $mesonContent = Get-Content $mesonFilePath -Raw
+      $mesonVersionMatch = [regex]::Match($mesonContent, "version\s*:\s*'([^']+)'")
+      if ($mesonVersionMatch.Success) {
+        $projectVersion = $mesonVersionMatch.Groups[1].Value
+      }
+    }
+  }
+  if ([string]::IsNullOrWhiteSpace($projectVersion)) {
+    $projectVersion = '0.0.0'
+  }
+  $version['INSTALLER_VERSION'] = $projectVersion
+}
+
+
 $version['BUILD_GIT_VERSION_NUMBER'] = $gitRevision
 $version['BUILD_GIT_VERSION_STRING'] = $gitVersionString
 
