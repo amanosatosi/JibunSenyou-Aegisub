@@ -844,9 +844,9 @@ struct edit_line_join_keep_first final : public validate_sel_multiple {
 
 struct edit_line_join_next final : public Command {
 	CMD_NAME("edit/line/join/next")
-	STR_MENU("Join Next (timing)")
+	STR_MENU("Join Next (normal)")
 	STR_DISP("join next")
-	STR_HELP("Expand the current line's timing to include the next line and copy combined text into the original text field")
+	STR_HELP("Join the current line with the next line, merging text and timing and removing the next line")
 	CMD_TYPE(COMMAND_VALIDATE)
 
 	bool Validate(const agi::Context *c) override {
@@ -861,10 +861,21 @@ struct edit_line_join_next final : public Command {
 
 		line->Start = std::min(line->Start, next->Start);
 		line->End = std::max(line->End, next->End);
+		line->Text = build_joined_text(line->Text.get(), next->Text.get());
 
-		c->initialLineState->SetInitialText(line, build_joined_text(line->Text.get(), next->Text.get()));
+		Selection new_sel = c->selectionController->GetSelectedSet();
+		new_sel.erase(next);
+		new_sel.insert(line);
 
-		c->ass->Commit(_("join with next (timing)"), AssFile::COMMIT_DIAG_TIME, -1, line);
+		auto it = c->ass->iterator_to(*next);
+		c->ass->Events.erase(it);
+		delete next;
+
+		c->selectionController->SetSelectionAndActive(new_sel, line);
+
+		c->initialLineState->SetInitialText(line, line->Text.get());
+
+		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
 	}
 };
 
@@ -908,7 +919,7 @@ struct edit_line_join_next_normal final : public Command {
 struct edit_line_join_last final : public Command {
 	CMD_NAME("edit/line/join/last")
 	STR_MENU("Join Previous (normal)")
-	STR_DISP("Join Previous (normal)")
+	STR_DISP("join last")
 	STR_HELP("Join the current line with the previous line, merging text and timing and removing the previous line")
 	CMD_TYPE(COMMAND_VALIDATE)
 
