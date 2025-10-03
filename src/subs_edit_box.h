@@ -98,6 +98,8 @@ class SubsEditBox final : public wxPanel {
 	wxRadioButton *by_frame;
 	wxTextCtrl *char_count;
 	wxCheckBox *split_box;
+	wxButton *join_next_button;
+	wxButton *join_last_button;
 
 	wxSizer *top_sizer;
 	wxSizer *middle_right_sizer;
@@ -156,6 +158,7 @@ class SubsEditBox final : public wxPanel {
 	void OnSize(wxSizeEvent &event);
 	void OnSplit(wxCommandEvent&);
 	void DoOnSplit(bool show_original);
+	void UpdateJoinButtons();
 
 	void SetPlaceholderCtrl(wxControl *ctrl, wxString const& value);
 

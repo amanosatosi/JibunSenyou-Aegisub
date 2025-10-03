@@ -30,6 +30,7 @@ class InitialLineState {
 public:
 	InitialLineState(agi::Context *c);
 
+	void SetInitialText(AssDialogue *line, std::string text);
 	std::string const& GetInitialText() const { return initial_text; }
 	DEFINE_SIGNAL_ADDERS(InitialStateChanged, AddChangeListener)
 };

@@ -225,10 +225,15 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	bottom_sizer->Add(MakeBottomButton("edit/revert"), wxSizerFlags().Border(wxRIGHT));
 	bottom_sizer->Add(MakeBottomButton("edit/clear"), wxSizerFlags().Border(wxRIGHT));
 	bottom_sizer->Add(MakeBottomButton("edit/clear/text"), wxSizerFlags().Border(wxRIGHT));
-	bottom_sizer->Add(MakeBottomButton("edit/insert_original"));
+	bottom_sizer->Add(MakeBottomButton("edit/insert_original"), wxSizerFlags().Border(wxRIGHT));
+	join_next_button = MakeBottomButton("edit/line/join/next");
+	bottom_sizer->Add(join_next_button, wxSizerFlags().Border(wxRIGHT));
+	join_last_button = MakeBottomButton("edit/line/join/last");
+	bottom_sizer->Add(join_last_button);
 	main_sizer->Add(bottom_sizer);
 	main_sizer->Hide(bottom_sizer);
 
+	UpdateJoinButtons();
 	SetSizerAndFit(main_sizer);
 
 	edit_ctrl->Bind(wxEVT_STC_MODIFIED, &SubsEditBox::OnChange, this);
@@ -311,6 +316,15 @@ wxButton *SubsEditBox::MakeBottomButton(const char *cmd_name) {
 	return btn;
 }
 
+void SubsEditBox::UpdateJoinButtons() {
+	if (!join_next_button || !join_last_button) return;
+	cmd::Command *next_cmd = cmd::get("edit/line/join/next");
+	cmd::Command *last_cmd = cmd::get("edit/line/join/last");
+	join_next_button->Enable(next_cmd->Validate(c));
+	join_last_button->Enable(last_cmd->Validate(c));
+}
+
+
 wxComboBox *SubsEditBox::MakeComboBox(wxString const& initial_text, int style, void (SubsEditBox::*handler)(wxCommandEvent&), wxString const& tooltip) {
 	wxString styles[] = { "Default" };
 	wxComboBox *ctrl = new wxComboBox(this, -1, initial_text, wxDefaultPosition, wxDefaultSize, 1, styles, style | wxTE_PROCESS_ENTER);
@@ -387,6 +401,7 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 		actor_box->ChangeValue(to_wx(line->Actor));
 		actor_box->SetStringSelection(to_wx(line->Actor));
 	}
+	UpdateJoinButtons();
 }
 
 void SubsEditBox::PopulateList(wxComboBox *combo, boost::flyweight<std::string> AssDialogue::*field) {
@@ -593,6 +608,7 @@ void SubsEditBox::SetControlsState(bool state) {
 		wxEventBlocker blocker(this);
 		edit_ctrl->SetTextTo("");
 	}
+	UpdateJoinButtons();
 }
 
 void SubsEditBox::OnSplit(wxCommandEvent&) {
@@ -613,6 +629,7 @@ void SubsEditBox::DoOnSplit(bool show_original) {
 
 	if (show_original)
 		secondary_editor->SetValue(to_wx(c->initialLineState->GetInitialText()));
+	UpdateJoinButtons();
 }
 
 void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {

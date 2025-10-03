@@ -781,6 +781,34 @@ static void combine_concat(AssDialogue *first, AssDialogue *second) {
 
 static void combine_drop(AssDialogue *, AssDialogue *) { }
 
+static AssDialogue *get_adjacent_line(agi::Context const *c, AssDialogue *line, int step) {
+	if (!line || step == 0) return line;
+	auto it = c->ass->iterator_to(*line);
+	if (step > 0) {
+		while (step-- > 0) {
+			++it;
+			if (it == c->ass->Events.end())
+				return nullptr;
+		}
+	}
+	else {
+		while (step++ < 0) {
+			if (it == c->ass->Events.begin())
+				return nullptr;
+			--it;
+		}
+	}
+	return &*it;
+}
+
+static std::string build_joined_text(std::string const& first, std::string const& second) {
+	std::string lhs = boost::trim_copy(first);
+	std::string rhs = boost::trim_copy(second);
+	if (lhs.empty()) return rhs;
+	if (rhs.empty()) return lhs;
+	return lhs + ' ' + rhs;
+}
+
 struct edit_line_join_as_karaoke final : public validate_sel_multiple {
 	CMD_NAME("edit/line/join/as_karaoke")
 	STR_MENU("As &Karaoke")
@@ -811,6 +839,95 @@ struct edit_line_join_keep_first final : public validate_sel_multiple {
 
 	void operator()(agi::Context *c) override {
 		combine_lines(c, combine_drop, _("join lines"));
+	}
+};
+
+struct edit_line_join_next final : public Command {
+	CMD_NAME("edit/line/join/next")
+	STR_MENU("Join Next (timing)")
+	STR_DISP("join next")
+	STR_HELP("Expand the current line's timing to include the next line and copy combined text into the original text field")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return get_adjacent_line(c, c->selectionController->GetActiveLine(), 1) != nullptr;
+	}
+
+	void operator()(agi::Context *c) override {
+		AssDialogue *line = c->selectionController->GetActiveLine();
+		if (!line) return;
+		AssDialogue *next = get_adjacent_line(c, line, 1);
+		if (!next) return;
+
+		line->Start = std::min(line->Start, next->Start);
+		line->End = std::max(line->End, next->End);
+
+		c->initialLineState->SetInitialText(line, build_joined_text(line->Text.get(), next->Text.get()));
+
+		c->ass->Commit(_("join with next (timing)"), AssFile::COMMIT_DIAG_TIME, -1, line);
+	}
+};
+
+struct edit_line_join_next_normal final : public Command {
+	CMD_NAME("edit/line/join/next_normal")
+	STR_MENU("Join Next (normal)")
+	STR_DISP("Join Next (normal)")
+	STR_HELP("Join the current line with the next line, merging text and timing and removing the next line")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return get_adjacent_line(c, c->selectionController->GetActiveLine(), 1) != nullptr;
+	}
+
+	void operator()(agi::Context *c) override {
+		AssDialogue *line = c->selectionController->GetActiveLine();
+		if (!line) return;
+		AssDialogue *next = get_adjacent_line(c, line, 1);
+		if (!next) return;
+
+		line->Start = std::min(line->Start, next->Start);
+		line->End = std::max(line->End, next->End);
+		line->Text = build_joined_text(line->Text.get(), next->Text.get());
+
+		Selection new_sel = c->selectionController->GetSelectedSet();
+		new_sel.erase(next);
+		new_sel.insert(line);
+
+		auto it = c->ass->iterator_to(*next);
+		c->ass->Events.erase(it);
+		delete next;
+
+		c->selectionController->SetSelectionAndActive(new_sel, line);
+
+		c->initialLineState->SetInitialText(line, line->Text.get());
+
+		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+	}
+};
+
+struct edit_line_join_last final : public Command {
+	CMD_NAME("edit/line/join/last")
+	STR_MENU("Join Previous (timing)")
+	STR_DISP("join last")
+	STR_HELP("Expand the current line's timing to include the previous line and copy combined text into the original text field")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return get_adjacent_line(c, c->selectionController->GetActiveLine(), -1) != nullptr;
+	}
+
+	void operator()(agi::Context *c) override {
+		AssDialogue *line = c->selectionController->GetActiveLine();
+		if (!line) return;
+		AssDialogue *prev = get_adjacent_line(c, line, -1);
+		if (!prev) return;
+
+		line->Start = std::min(line->Start, prev->Start);
+		line->End = std::max(line->End, prev->End);
+
+		c->initialLineState->SetInitialText(line, build_joined_text(prev->Text.get(), line->Text.get()));
+
+		c->ass->Commit(_("join with previous (timing)"), AssFile::COMMIT_DIAG_TIME, -1, line);
 	}
 };
 
@@ -1284,6 +1401,9 @@ namespace cmd {
 		reg(agi::make_unique<edit_line_join_as_karaoke>());
 		reg(agi::make_unique<edit_line_join_concatenate>());
 		reg(agi::make_unique<edit_line_join_keep_first>());
+		reg(agi::make_unique<edit_line_join_next>());
+		reg(agi::make_unique<edit_line_join_next_normal>());
+		reg(agi::make_unique<edit_line_join_last>());
 		reg(agi::make_unique<edit_line_paste>());
 		reg(agi::make_unique<edit_line_paste_over>());
 		reg(agi::make_unique<edit_line_recombine>());

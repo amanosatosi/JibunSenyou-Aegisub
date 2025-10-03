@@ -37,3 +37,11 @@ void InitialLineState::OnActiveLineChanged(AssDialogue *new_line) {
 
 	InitialStateChanged(initial_text);
 }
+
+
+void InitialLineState::SetInitialText(AssDialogue *line, std::string text) {
+	if (!line) return;
+	line_id = line->Id;
+	initial_text = text;
+	InitialStateChanged(initial_text);
+}
