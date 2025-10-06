@@ -226,7 +226,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	bottom_sizer->Add(MakeBottomButton("edit/clear"), wxSizerFlags().Border(wxRIGHT));
 	bottom_sizer->Add(MakeBottomButton("edit/clear/text"), wxSizerFlags().Border(wxRIGHT));
 	bottom_sizer->Add(MakeBottomButton("edit/insert_original"), wxSizerFlags().Border(wxRIGHT));
-	join_next_button = MakeBottomButton("edit/line/join/next");
+	join_next_button = MakeBottomButton("edit/line/join/next/translatormode");
 	bottom_sizer->Add(join_next_button, wxSizerFlags().Border(wxRIGHT));
 	join_last_button = MakeBottomButton("edit/line/join/last");
 	bottom_sizer->Add(join_last_button);

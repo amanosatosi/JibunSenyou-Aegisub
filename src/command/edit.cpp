@@ -879,8 +879,50 @@ struct edit_line_join_next final : public Command {
 	}
 };
 
+struct edit_line_join_next_translatormode final : public Command {
+	CMD_NAME("edit/line/join/next/translatormode")
+	STR_MENU("Join Next")
+	STR_DISP("Join Next")
+	STR_HELP("Join the current line with the next line, merging timing and storing merged text in the original panel")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return get_adjacent_line(c, c->selectionController->GetActiveLine(), 1) != nullptr;
+	}
+
+	void operator()(agi::Context *c) override {
+		AssDialogue *line = c->selectionController->GetActiveLine();
+		if (!line) return;
+		AssDialogue *next = get_adjacent_line(c, line, 1);
+		if (!next) return;
+
+		line->Start = std::min(line->Start, next->Start);
+		line->End = std::max(line->End, next->End);
+
+		std::string base_original = c->initialLineState->GetInitialText();
+		if (base_original.empty())
+			base_original = line->Text.get();
+		std::string joined_original = build_joined_text(base_original, next->Text.get());
+
+		Selection new_sel = c->selectionController->GetSelectedSet();
+		new_sel.erase(next);
+		new_sel.insert(line);
+
+		auto it = c->ass->iterator_to(*next);
+		c->ass->Events.erase(it);
+		delete next;
+
+		c->selectionController->SetSelectionAndActive(new_sel, line);
+
+		c->initialLineState->SetInitialText(line, joined_original);
+
+		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+	}
+};
+
+
 struct edit_line_join_next_normal final : public Command {
-	CMD_NAME("edit/line/join/next_normal")
+	CMD_NAME("edit/line/join/next")
 	STR_MENU("Join Next (normal)")
 	STR_DISP("Join Next (normal)")
 	STR_HELP("Join the current line with the next line, merging text and timing and removing the next line")
@@ -1424,7 +1466,7 @@ namespace cmd {
 		reg(agi::make_unique<edit_line_join_concatenate>());
 		reg(agi::make_unique<edit_line_join_keep_first>());
 		reg(agi::make_unique<edit_line_join_next>());
-		reg(agi::make_unique<edit_line_join_next_normal>());
+		reg(agi::make_unique<edit_line_join_next_translatormode>());
 		reg(agi::make_unique<edit_line_join_last>());
 		reg(agi::make_unique<edit_line_paste>());
 		reg(agi::make_unique<edit_line_paste_over>());
