@@ -73,6 +73,12 @@
 #include <wx/stackwalk.h>
 #include <wx/utils.h>
 
+#include <wx/app.h>
+#if defined(__WXMSW__) && wxCHECK_VERSION(3,3,0)
+#include <wx/darkmode.h>
+#endif
+
+
 namespace config {
 	agi::Options *opt = nullptr;
 	agi::MRUManager *mru = nullptr;
@@ -110,12 +116,21 @@ static wxString exception_message = "Oops, Aegisub has crashed!\n\nAn attempt ha
 /// @brief Gets called when application starts.
 /// @return bool
 bool AegisubApp::OnInit() {
-	// App name (yeah, this is a little weird to get rid of an odd warning)
-#if defined(__WXMSW__) || defined(__WXMAC__)
-	SetAppName("Aegisub");
-#else
-	SetAppName("aegisub");
+    // App name (yeah, this is a little weird to get rid of an odd warning)
+#if defined(__WXMSW__) && wxCHECK_VERSION(3,3,0)
+    // Enable Windows dark mode (wx ≥ 3.3.0)
+    // Follows system theme by default.
+    wxApp::MSWEnableDarkMode(nullptr);
 #endif
+
+    wxInitAllImageHandlers();
+
+#ifdef __WXMSW__
+    SetAppName("Aegisub");
+#else
+    SetAppName("aegisub");
+#endif
+
 
 	// The logger isn't created on demand on background threads, so force it to
 	// be created now
