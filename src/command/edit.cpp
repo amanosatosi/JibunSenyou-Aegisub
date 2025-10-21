@@ -859,9 +859,18 @@ struct edit_line_join_next final : public Command {
 		AssDialogue *next = get_adjacent_line(c, line, 1);
 		if (!next) return;
 
+		std::string const current_text = line->Text.get();
+		std::string const next_text = next->Text.get();
+		std::string const joined_text = build_joined_text(current_text, next_text);
+
 		line->Start = std::min(line->Start, next->Start);
 		line->End = std::max(line->End, next->End);
-		line->Text = build_joined_text(line->Text.get(), next->Text.get());
+		line->Text = joined_text;
+
+		std::string base_original = c->initialLineState->GetInitialText();
+		if (base_original.empty())
+			base_original = current_text;
+		std::string const joined_original = build_joined_text(base_original, next_text);
 
 		Selection new_sel = c->selectionController->GetSelectedSet();
 		new_sel.erase(next);
@@ -873,7 +882,7 @@ struct edit_line_join_next final : public Command {
 
 		c->selectionController->SetSelectionAndActive(new_sel, line);
 
-		c->initialLineState->SetInitialText(line, line->Text.get());
+		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
 	}
