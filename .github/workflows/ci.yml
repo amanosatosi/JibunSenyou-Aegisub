@@ -43,6 +43,7 @@ jobs:
               -Davisynth=enabled
               -Dbestsource=enabled
               -Dvapoursynth=enabled
+              -Dwx_version='3.3.1'
           - name: Windows MSVC Release (wx master)
             os: windows-latest
             msvc: true
@@ -65,7 +66,7 @@ jobs:
               -Davisynth=enabled
               -Dbestsource=enabled
               -Dvapoursynth=enabled
-              -Dwx_version='3.3.0'
+              -Dwx_version='3.3.1'
           #- {
           #  name: Windows MinGW,
           #  os: windows-latest,
