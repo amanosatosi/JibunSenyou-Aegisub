@@ -61,7 +61,9 @@
 #include <libaegisub/util.h>
 
 #include <functional>
+#include <set>
 #include <unordered_set>
+#include <vector>
 
 #include <wx/bmpbuttn.h>
 #include <wx/button.h>
@@ -71,6 +73,7 @@
 #include <wx/settings.h>
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
+#include <wx/textcompleter.h>
 
 namespace {
 
@@ -102,6 +105,40 @@ void time_edit_char_hook(wxKeyEvent &event) {
 // in VC++ 2015 Update 2, with it instead passing a null pointer
 const auto AssDialogue_Actor = &AssDialogue::Actor;
 const auto AssDialogue_Effect = &AssDialogue::Effect;
+
+struct CaseInsensitiveLess {
+	bool operator()(wxString const& lhs, wxString const& rhs) const {
+		int cmp = lhs.CmpNoCase(rhs);
+		if (cmp != 0) return cmp < 0;
+		return lhs.Cmp(rhs) < 0;
+	}
+};
+
+class ActorTextCompleter final : public wxTextCompleterSimple {
+public:
+	explicit ActorTextCompleter(std::vector<wxString> const& values) {
+		entries.reserve(values.size());
+		for (auto const& value : values)
+			entries.push_back({value, value.Lower()});
+	}
+
+protected:
+	void DoGetCompletions(wxString const& prefix, wxArrayString& completions) override {
+		wxString lookup = prefix.Lower();
+		for (auto const& entry : entries) {
+			if (lookup.empty() || entry.lower.StartsWith(lookup))
+				completions.push_back(entry.display);
+		}
+	}
+
+private:
+	struct Entry {
+		wxString display;
+		wxString lower;
+	};
+
+	std::vector<Entry> entries;
+};
 }
 
 SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
@@ -358,7 +395,7 @@ void SubsEditBox::OnCommit(int type) {
 
 	if (type == AssFile::COMMIT_NEW) {
 		PopulateList(effect_box, AssDialogue_Effect);
-		PopulateList(actor_box, AssDialogue_Actor);
+		PopulateActorList();
 		return;
 	}
 	else if (type & AssFile::COMMIT_STYLES)
@@ -397,9 +434,12 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 		effect_box->ChangeValue(to_wx(line->Effect));
 		effect_box->SetStringSelection(to_wx(line->Effect));
 
-		if (repopulate_lists) PopulateList(actor_box, AssDialogue_Actor);
+		if (repopulate_lists) PopulateActorList();
 		actor_box->ChangeValue(to_wx(line->Actor));
 		actor_box->SetStringSelection(to_wx(line->Actor));
+	}
+	else if (repopulate_lists && (type & AssFile::COMMIT_DIAG_ADDREM)) {
+		PopulateActorList();
 	}
 	UpdateJoinButtons();
 }
@@ -430,6 +470,47 @@ void SubsEditBox::PopulateList(wxComboBox *combo, boost::flyweight<std::string> 
 	combo->SetStringSelection(value);
 	combo->SetInsertionPoint(pos);
 	combo->Thaw();
+}
+
+void SubsEditBox::PopulateActorList() {
+	wxEventBlocker blocker(this);
+
+	std::set<wxString, CaseInsensitiveLess> unique;
+	for (auto const& entry : c->ass->Events) {
+		if (entry.Comment) continue;
+
+		wxString actor = to_wx(entry.Actor);
+		actor.Trim(true);
+		actor.Trim(false);
+		if (!actor.empty())
+			unique.insert(actor);
+	}
+
+	actor_autocomplete_values_.assign(unique.begin(), unique.end());
+
+	wxArrayString arr;
+	arr.reserve(actor_autocomplete_values_.size());
+	for (auto const& value : actor_autocomplete_values_)
+		arr.push_back(value);
+
+	actor_box->Freeze();
+	long pos = actor_box->GetInsertionPoint();
+	wxString value = actor_box->GetValue();
+	wxString trimmed_value = value;
+	trimmed_value.Trim(true);
+	trimmed_value.Trim(false);
+
+	actor_box->Set(arr);
+	actor_box->ChangeValue(value);
+	if (!actor_box->SetStringSelection(value) && value != trimmed_value)
+		actor_box->SetStringSelection(trimmed_value);
+	actor_box->SetInsertionPoint(pos);
+	actor_box->Thaw();
+
+	if (actor_autocomplete_values_.empty())
+		actor_box->AutoComplete(nullptr);
+	else
+		actor_box->AutoComplete(new ActorTextCompleter(actor_autocomplete_values_));
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
@@ -640,7 +721,6 @@ void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {
 void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	bool amend = evt.GetEventType() == wxEVT_TEXT;
 	SetSelectedRows(AssDialogue_Actor, new_value(actor_box, evt), _("actor change"), AssFile::COMMIT_DIAG_META, amend);
-	PopulateList(actor_box, AssDialogue_Actor);
 }
 
 void SubsEditBox::OnLayerEnter(wxCommandEvent &evt) {
