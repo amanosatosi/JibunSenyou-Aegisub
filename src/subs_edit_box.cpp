@@ -555,7 +555,6 @@ void SubsEditBox::AutoFillActor() {
 		actor_autofill_guard = true;
 		actor_box->ChangeValue(candidate);
 		actor_box->SetSelection(lookup.length(), candidate.length());
-		actor_box->SetInsertionPoint(lookup.length());
 		actor_autofill_guard = false;
 		break;
 	}
