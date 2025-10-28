@@ -65,15 +65,21 @@
 #include <unordered_set>
 #include <vector>
 
+#include <wx/arrstr.h>
 #include <wx/bmpbuttn.h>
 #include <wx/button.h>
 #include <wx/checkbox.h>
+#include <wx/combobox.h>
 #include <wx/fontenum.h>
 #include <wx/radiobut.h>
 #include <wx/settings.h>
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
+#include <wx/textentry.h>
+
+#if wxCHECK_VERSION(3,1,0)
 #include <wx/textcompleter.h>
+#endif
 
 namespace {
 
@@ -114,31 +120,26 @@ struct CaseInsensitiveLess {
 	}
 };
 
+#if wxCHECK_VERSION(3,1,0) && wxUSE_TEXTCOMPLETER
 class ActorTextCompleter final : public wxTextCompleterSimple {
 public:
-	explicit ActorTextCompleter(std::vector<wxString> const& values) {
-		entries.reserve(values.size());
-		for (auto const& value : values)
-			entries.push_back({value, value.Lower()});
+	explicit ActorTextCompleter(wxArrayString const& src)
+	: data(src)
+	{
 	}
 
-protected:
-	void DoGetCompletions(wxString const& prefix, wxArrayString& completions) override {
-		wxString lookup = prefix.Lower();
-		for (auto const& entry : entries) {
-			if (lookup.empty() || entry.lower.StartsWith(lookup))
-				completions.push_back(entry.display);
+	void GetCompletions(wxString const& prefix, wxArrayString& out) override {
+		wxString const pfx = prefix.Lower();
+		for (auto const& s : data) {
+			if (pfx.empty() || s.Lower().StartsWith(pfx))
+				out.push_back(s);
 		}
 	}
 
 private:
-	struct Entry {
-		wxString display;
-		wxString lower;
-	};
-
-	std::vector<Entry> entries;
+	wxArrayString data;
 };
+#endif
 }
 
 SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
@@ -477,8 +478,6 @@ void SubsEditBox::PopulateActorList() {
 
 	std::set<wxString, CaseInsensitiveLess> unique;
 	for (auto const& entry : c->ass->Events) {
-		if (entry.Comment) continue;
-
 		wxString actor = to_wx(entry.Actor);
 		actor.Trim(true);
 		actor.Trim(false);
@@ -486,11 +485,11 @@ void SubsEditBox::PopulateActorList() {
 			unique.insert(actor);
 	}
 
-	actor_autocomplete_values_.assign(unique.begin(), unique.end());
+	actor_values_.assign(unique.begin(), unique.end());
 
 	wxArrayString arr;
-	arr.reserve(actor_autocomplete_values_.size());
-	for (auto const& value : actor_autocomplete_values_)
+	arr.reserve(actor_values_.size());
+	for (auto const& value : actor_values_)
 		arr.push_back(value);
 
 	actor_box->Freeze();
@@ -507,10 +506,14 @@ void SubsEditBox::PopulateActorList() {
 	actor_box->SetInsertionPoint(pos);
 	actor_box->Thaw();
 
-	if (actor_autocomplete_values_.empty())
-		actor_box->AutoComplete(nullptr);
-	else
-		actor_box->AutoComplete(new ActorTextCompleter(actor_autocomplete_values_));
+#if wxCHECK_VERSION(3,1,0)
+	wxTextEntryBase& te = static_cast<wxTextEntryBase&>(*actor_box);
+#if wxUSE_TEXTCOMPLETER
+	te.AutoComplete(new ActorTextCompleter(arr));
+#else
+	te.AutoComplete(arr);
+#endif
+#endif
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {

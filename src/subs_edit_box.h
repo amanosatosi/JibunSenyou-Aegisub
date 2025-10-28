@@ -107,7 +107,7 @@ class SubsEditBox final : public wxPanel {
 	wxSizer *bottom_sizer;
 
 	std::unique_ptr<RetinaHelper> retina_helper;
-	std::vector<wxString> actor_autocomplete_values_;
+	std::vector<wxString> actor_values_;
 
 	void SetControlsState(bool state);
 	/// @brief Update times of selected lines
