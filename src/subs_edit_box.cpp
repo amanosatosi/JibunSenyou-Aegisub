@@ -507,11 +507,17 @@ void SubsEditBox::PopulateActorList() {
 	actor_box->Thaw();
 
 #if wxCHECK_VERSION(3,1,0)
-	wxTextEntryBase& te = static_cast<wxTextEntryBase&>(*actor_box);
+	wxComboBox *combo = actor_box;
+	wxTextEntryBase *text_entry = combo;
+	if (!text_entry)
+		return;
 #if wxUSE_TEXTCOMPLETER
-	te.AutoComplete(new ActorTextCompleter(arr));
+	if (arr.empty())
+		text_entry->AutoComplete(static_cast<wxTextCompleter*>(nullptr));
+	else
+		text_entry->AutoComplete(new ActorTextCompleter(arr));
 #else
-	te.AutoComplete(arr);
+	text_entry->AutoComplete(arr);
 #endif
 #endif
 }
