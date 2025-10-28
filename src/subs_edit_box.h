@@ -108,6 +108,7 @@ class SubsEditBox final : public wxPanel {
 
 	std::unique_ptr<RetinaHelper> retina_helper;
 	std::vector<wxString> actor_values_;
+	bool actor_autofill_guard = false;
 
 	void SetControlsState(bool state);
 	/// @brief Update times of selected lines
@@ -192,6 +193,7 @@ class SubsEditBox final : public wxPanel {
 	/// Regenerate a dropdown list with the unique values of a dialogue field
 	void PopulateList(wxComboBox *combo, boost::flyweight<std::string> AssDialogue::*field);
 	void PopulateActorList();
+	void AutoFillActor();
 
 	/// @brief Enable or disable frame timing mode
 	void UpdateFrameTiming(agi::vfr::Framerate const& fps);

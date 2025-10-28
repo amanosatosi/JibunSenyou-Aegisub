@@ -478,6 +478,8 @@ void SubsEditBox::PopulateActorList() {
 
 	std::set<wxString, CaseInsensitiveLess> unique;
 	for (auto const& entry : c->ass->Events) {
+		if (entry.Comment) continue;
+
 		wxString actor = to_wx(entry.Actor);
 		actor.Trim(true);
 		actor.Trim(false);
@@ -520,6 +522,43 @@ void SubsEditBox::PopulateActorList() {
 	text_entry->AutoComplete(arr);
 #endif
 #endif
+}
+
+void SubsEditBox::AutoFillActor() {
+	if (actor_autofill_guard) return;
+	if (actor_values_.empty()) return;
+
+	wxString current = actor_box->GetValue();
+	long insertion_point = actor_box->GetInsertionPoint();
+
+	if (insertion_point <= 0) return;
+	if (insertion_point > static_cast<long>(current.length())) return;
+	if (insertion_point != static_cast<long>(current.length())) return;
+
+	wxString prefix = current.Left(insertion_point);
+
+	wxString trimmed = prefix;
+	trimmed.Trim(true);
+	trimmed.Trim(false);
+	if (trimmed.empty()) return;
+	if (trimmed.length() != prefix.length()) return;
+
+	wxString lookup = trimmed.Lower();
+	for (auto const& candidate : actor_values_) {
+		wxString const candidate_lower = candidate.Lower();
+		if (!candidate_lower.StartsWith(lookup))
+			continue;
+
+		if (candidate_lower.length() == lookup.length())
+			return;
+
+		actor_autofill_guard = true;
+		actor_box->ChangeValue(candidate);
+		actor_box->SetSelection(lookup.length(), candidate.length());
+		actor_box->SetInsertionPoint(lookup.length());
+		actor_autofill_guard = false;
+		break;
+	}
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
@@ -728,8 +767,13 @@ void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {
 }
 
 void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
-	bool amend = evt.GetEventType() == wxEVT_TEXT;
-	SetSelectedRows(AssDialogue_Actor, new_value(actor_box, evt), _("actor change"), AssFile::COMMIT_DIAG_META, amend);
+	bool is_text = evt.GetEventType() == wxEVT_TEXT;
+	if (is_text)
+		AutoFillActor();
+
+	wxString value = actor_box->GetValue();
+	bool amend = is_text;
+	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
 }
 
 void SubsEditBox::OnLayerEnter(wxCommandEvent &evt) {
