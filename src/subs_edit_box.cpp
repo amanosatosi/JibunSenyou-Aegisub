@@ -176,6 +176,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	actor_box = new Placeholder<wxComboBox>(this, _("Actor"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Actor name for this speech. This is only for reference, and is mainly useless."));
 	Bind(wxEVT_TEXT, &SubsEditBox::OnActorChange, this, actor_box->GetId());
 	Bind(wxEVT_COMBOBOX, &SubsEditBox::OnActorChange, this, actor_box->GetId());
+	actor_box->Bind(wxEVT_CHAR, &SubsEditBox::OnActorChar, this);
 	top_sizer->Add(actor_box, wxSizerFlags(2).Expand().Border(wxRIGHT));
 
 	effect_box = new Placeholder<wxComboBox>(this, _("Effect"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Effect for this line. This can be used to store extra information for karaoke scripts, or for the effects supported by the renderer."));
@@ -560,6 +561,28 @@ void SubsEditBox::AutoFillActor() {
 	}
 }
 
+void SubsEditBox::OnActorChar(wxKeyEvent &evt) {
+	actor_should_autofill_ = false;
+
+	int key_code = evt.GetKeyCode();
+	int unicode = evt.GetUnicodeKey();
+	bool modifier = evt.ControlDown() || evt.CmdDown() || evt.MetaDown() || evt.AltDown();
+
+	bool printable = false;
+	if (!modifier) {
+		if (unicode != WXK_NONE)
+			printable = unicode >= 32;
+		else
+			printable = key_code >= 32 && key_code < WXK_START;
+	}
+
+	if (key_code == WXK_BACK || key_code == WXK_DELETE)
+		printable = false;
+
+	actor_should_autofill_ = printable;
+	evt.Skip();
+}
+
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	wxEventBlocker blocker(this);
 	line = new_line;
@@ -767,9 +790,11 @@ void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {
 
 void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	bool is_text = evt.GetEventType() == wxEVT_TEXT;
-	if (is_text)
-		AutoFillActor();
-
+	if (is_text) {
+		if (!actor_autofill_guard && actor_should_autofill_)
+			AutoFillActor();
+		actor_should_autofill_ = false;
+	}
 	wxString value = actor_box->GetValue();
 	bool amend = is_text;
 	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
