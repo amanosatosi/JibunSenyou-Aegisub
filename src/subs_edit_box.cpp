@@ -61,6 +61,7 @@
 #include <libaegisub/util.h>
 
 #include <functional>
+#include <algorithm>
 #include <set>
 #include <unordered_set>
 #include <vector>
@@ -459,6 +460,12 @@ void SubsEditBox::PopulateList(wxComboBox *combo, boost::flyweight<std::string> 
 void SubsEditBox::PopulateActorList() {
 	wxEventBlocker blocker(this);
 
+	long sel_start = 0;
+	long sel_end = 0;
+	actor_box->GetSelection(&sel_start, &sel_end);
+	long insertion_point = actor_box->GetInsertionPoint();
+	bool had_pending = actor_has_pending_selection_;
+
 	std::set<wxString, CaseInsensitiveLess> unique;
 	for (auto const& entry : c->ass->Events) {
 		if (entry.Comment) continue;
@@ -491,10 +498,30 @@ void SubsEditBox::PopulateActorList() {
 	actor_box->SetInsertionPoint(pos);
 	actor_box->Thaw();
 
-	actor_has_pending_selection_ = false;
-	actor_selection_start_ = 0;
-	actor_selection_end_ = 0;
-	actor_should_autofill_ = false;
+	long length = actor_box->GetValue().length();
+	auto clamp = [length](long v) {
+		if (v < 0) return 0L;
+		if (v > length) return length;
+		return v;
+	};
+
+	long restore_start = had_pending ? actor_selection_start_ : sel_start;
+	long restore_end = had_pending ? actor_selection_end_ : sel_end;
+	long restore_caret = had_pending ? actor_selection_end_ : insertion_point;
+
+	restore_start = clamp(restore_start);
+	restore_end = clamp(restore_end);
+	restore_caret = clamp(restore_caret);
+
+	if (restore_end > restore_start)
+		actor_box->SetSelection(restore_start, restore_end);
+	else
+		actor_box->SetInsertionPoint(restore_caret);
+
+	if (!had_pending) {
+		actor_selection_start_ = restore_start;
+		actor_selection_end_ = restore_end;
+	}
 }
 
 void SubsEditBox::AutoFillActor() {
@@ -782,14 +809,17 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	wxString value = actor_box->GetValue();
 	bool amend = is_text;
 	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
+	PopulateActorList();
 	if (actor_has_pending_selection_) {
 		long const length = actor_box->GetValue().length();
 		long start = std::min<long>(actor_selection_start_, length);
 		long end = std::min<long>(actor_selection_end_, length);
 		if (end > start)
 			actor_box->SetSelection(start, end);
-		actor_has_pending_selection_ = false;
 	}
+	actor_has_pending_selection_ = false;
+	actor_selection_start_ = 0;
+	actor_selection_end_ = 0;
 }
 
 
