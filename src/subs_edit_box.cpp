@@ -80,6 +80,7 @@
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
+#include <wx/intl.h>
 #include <wx/textentry.h>
 
 namespace {
@@ -120,6 +121,8 @@ struct CaseInsensitiveLess {
 		return lhs.Cmp(rhs) < 0;
 	}
 };
+
+}
 
 class SubsEditBox::FastNamePopup final : public wxPopupTransientWindow {
 public:
@@ -198,8 +201,6 @@ void SubsEditBox::FastNamePopup::OnDismiss()
 	owner_->OnFastPopupDismiss();
 }
 
-}
-
 SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 : wxPanel(parent, -1, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL | (OPT_GET("App/Dark Mode")->GetBool() ? wxBORDER_STATIC : wxRAISED_BORDER), "SubsEditBox")
 , c(context)
@@ -240,7 +241,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	actor_fast_button_ = new wxButton(this, wxID_ANY, wxS(">"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 	actor_fast_button_->SetToolTip(_("Enable fast name set mode."));
 	actor_fast_button_->Bind(wxEVT_BUTTON, &SubsEditBox::OnFastButton, this);
-	top_sizer->Add(actor_fast_button_, wxSizerFlags().CenterVertical().Border(wxRIGHT));
+	top_sizer->Add(actor_fast_button_, wxSizerFlags().Align(wxALIGN_CENTER_VERTICAL).Border(wxRIGHT));
 
 	effect_box = new Placeholder<wxComboBox>(this, _("Effect"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Effect for this line. This can be used to store extra information for karaoke scripts, or for the effects supported by the renderer."));
 	Bind(wxEVT_TEXT, &SubsEditBox::OnEffectChange, this, effect_box->GetId());
