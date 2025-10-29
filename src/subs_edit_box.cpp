@@ -80,7 +80,6 @@
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
-#include <wx/focusevt.h>
 #include <wx/intl.h>
 #include <wx/textentry.h>
 
