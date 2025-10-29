@@ -28,6 +28,7 @@
 // Aegisub Project http://www.aegisub.org/
 
 #include <array>
+#include <deque>
 #include <boost/container/map.hpp>
 #include <boost/flyweight/flyweight_fwd.hpp>
 #include <vector>
@@ -62,6 +63,7 @@ template<class Base> class Placeholder;
 ///
 /// Controls the text edit and all surrounding controls
 class SubsEditBox final : public wxPanel {
+	class FastNamePopup;
 	enum TimeField {
 		TIME_START = 0,
 		TIME_END,
@@ -113,6 +115,13 @@ class SubsEditBox final : public wxPanel {
 	bool actor_has_pending_selection_ = false;
 	long actor_selection_start_ = 0;
 	long actor_selection_end_ = 0;
+	std::deque<wxString> fast_recent_names_;
+	wxButton *actor_fast_button_ = nullptr;
+	FastNamePopup *fast_popup_ = nullptr;
+	bool fast_mode_enabled_ = false;
+	bool fast_popup_visible_ = false;
+	bool fast_has_active_name_ = false;
+
 
 	void SetControlsState(bool state);
 	/// @brief Update times of selected lines
@@ -161,6 +170,10 @@ class SubsEditBox final : public wxPanel {
 	void OnLayerEnter(wxCommandEvent &event);
 	void OnCommentChange(wxCommandEvent &);
 	void OnEffectChange(wxCommandEvent &);
+	void OnFastButton(wxCommandEvent &);
+	void OnFastListSelect(wxCommandEvent &);
+	void OnFastListDClick(wxCommandEvent &);
+	void OnFastListKeyDown(wxKeyEvent &);
 	void OnSize(wxSizeEvent &event);
 	void OnSplit(wxCommandEvent&);
 	void DoOnSplit(bool show_original);
@@ -199,6 +212,13 @@ class SubsEditBox final : public wxPanel {
 	void PopulateActorList();
 	void AutoFillActor();
 	void OnActorKeyDown(wxKeyEvent &evt);
+	void AddFastRecentName(wxString const& name);
+	void ToggleFastMode();
+	void UpdateFastPopup();
+	void ShowFastPopup(bool focus_list);
+	void HideFastPopup();
+	void OnFastPopupDismiss();
+	void ApplyFastRecentSelection(int index);
 
 	/// @brief Enable or disable frame timing mode
 	void UpdateFrameTiming(agi::vfr::Framerate const& fps);
