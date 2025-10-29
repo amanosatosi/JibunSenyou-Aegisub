@@ -121,6 +121,7 @@ class SubsEditBox final : public wxPanel {
 	bool fast_mode_enabled_ = false;
 	bool fast_popup_visible_ = false;
 	bool fast_has_active_name_ = false;
+	wxString fast_active_name_;
 
 
 	void SetControlsState(bool state);
@@ -174,6 +175,7 @@ class SubsEditBox final : public wxPanel {
 	void OnFastListSelect(wxCommandEvent &);
 	void OnFastListDClick(wxCommandEvent &);
 	void OnFastListKeyDown(wxKeyEvent &);
+	void OnActorKillFocus(wxFocusEvent &);
 	void OnSize(wxSizeEvent &event);
 	void OnSplit(wxCommandEvent&);
 	void DoOnSplit(bool show_original);
@@ -219,6 +221,9 @@ class SubsEditBox final : public wxPanel {
 	void HideFastPopup();
 	void OnFastPopupDismiss();
 	void ApplyFastRecentSelection(int index);
+	void FinalizeFastActiveFromActor(bool add_to_recent);
+	void ClearFastActiveName();
+	void ApplyFastActiveToCurrentLine();
 
 	/// @brief Enable or disable frame timing mode
 	void UpdateFrameTiming(agi::vfr::Framerate const& fps);

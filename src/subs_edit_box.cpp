@@ -80,6 +80,7 @@
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
+#include <wx/focusevt.h>
 #include <wx/intl.h>
 #include <wx/textentry.h>
 
@@ -188,9 +189,8 @@ void SubsEditBox::FastNamePopup::FocusList()
 {
 	if (list_->GetCount() == 0) {
 		list_->DeselectAll();
-		return;
 	}
-	if (list_->GetSelection() == wxNOT_FOUND)
+	else if (list_->GetSelection() == wxNOT_FOUND)
 		list_->SetSelection(0);
 	list_->SetFocus();
 }
@@ -236,6 +236,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	Bind(wxEVT_TEXT, &SubsEditBox::OnActorChange, this, actor_box->GetId());
 	Bind(wxEVT_COMBOBOX, &SubsEditBox::OnActorChange, this, actor_box->GetId());
 	actor_box->Bind(wxEVT_KEY_DOWN, &SubsEditBox::OnActorKeyDown, this);
+	actor_box->Bind(wxEVT_KILL_FOCUS, &SubsEditBox::OnActorKillFocus, this);
 	top_sizer->Add(actor_box, wxSizerFlags(2).Expand().Border(wxRIGHT));
 
 	actor_fast_button_ = new wxButton(this, wxID_ANY, wxS(">"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
@@ -702,8 +703,18 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		return;
 	}
 
+	if (fast_mode_enabled_ && !modifier && (key_code == WXK_RETURN || key_code == WXK_NUMPAD_ENTER || key_code == WXK_TAB))
+		FinalizeFastActiveFromActor(true);
+
 	actor_should_autofill_ = printable;
 	evt.Skip();
+}
+
+void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
+	evt.Skip();
+	if (!fast_mode_enabled_)
+		return;
+	FinalizeFastActiveFromActor(true);
 }
 
 void SubsEditBox::AddFastRecentName(wxString const& name) {
@@ -725,6 +736,7 @@ void SubsEditBox::AddFastRecentName(wxString const& name) {
 	if (fast_recent_names_.size() > kMaxRecent)
 		fast_recent_names_.pop_back();
 
+	fast_active_name_ = trimmed;
 	fast_has_active_name_ = true;
 	UpdateFastPopup();
 
@@ -733,6 +745,70 @@ void SubsEditBox::AddFastRecentName(wxString const& name) {
 		if (list->GetCount() > 0)
 			list->SetSelection(0);
 	}
+}
+
+void SubsEditBox::FinalizeFastActiveFromActor(bool add_to_recent) {
+	if (!fast_mode_enabled_ || !actor_box)
+		return;
+
+	wxString value = actor_box->GetValue();
+	value.Trim(true);
+	value.Trim(false);
+
+	if (value.empty()) {
+		ClearFastActiveName();
+		return;
+	}
+
+	if (add_to_recent)
+		AddFastRecentName(value);
+	else if (!fast_has_active_name_ || fast_active_name_.Cmp(value) != 0) {
+		fast_active_name_ = value;
+		fast_has_active_name_ = true;
+		UpdateFastPopup();
+	}
+}
+
+void SubsEditBox::ClearFastActiveName() {
+	if (!fast_has_active_name_ && fast_active_name_.empty())
+		return;
+
+	fast_active_name_.clear();
+	fast_has_active_name_ = false;
+	UpdateFastPopup();
+}
+
+void SubsEditBox::ApplyFastActiveToCurrentLine() {
+	if (!fast_mode_enabled_ || !fast_has_active_name_ || fast_active_name_.empty())
+		return;
+	if (!line || !actor_box)
+		return;
+
+	wxString current = to_wx(line->Actor);
+	current.Trim(true);
+	current.Trim(false);
+	if (!current.empty())
+		return;
+
+	wxString value = fast_active_name_;
+
+	actor_autofill_guard = true;
+	actor_box->ChangeValue(value);
+	actor_box->SetSelection(value.length(), value.length());
+	actor_box->SetInsertionPointEnd();
+	actor_autofill_guard = false;
+	actor_should_autofill_ = false;
+	actor_has_pending_selection_ = false;
+	actor_selection_start_ = 0;
+	actor_selection_end_ = 0;
+
+	auto fly_value = boost::flyweight<std::string>(from_wx(value));
+	SetSelectedRows([&, fly_value](AssDialogue *d) {
+		if (d == line)
+			d->Actor = fly_value;
+	}, _("actor change"), AssFile::COMMIT_DIAG_META);
+
+	PopulateActorList();
 }
 
 void SubsEditBox::ToggleFastMode() {
@@ -746,6 +822,7 @@ void SubsEditBox::ToggleFastMode() {
 	}
 	if (fast_mode_enabled_) {
 		fast_recent_names_.clear();
+		fast_active_name_.clear();
 		fast_has_active_name_ = false;
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
@@ -755,6 +832,7 @@ void SubsEditBox::ToggleFastMode() {
 	else {
 		HideFastPopup();
 		fast_recent_names_.clear();
+		fast_active_name_.clear();
 		fast_has_active_name_ = false;
 		UpdateFastPopup();
 	}
@@ -771,7 +849,7 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 	if (!fast_mode_enabled_)
 		return;
 
-	if (!actor_fast_button_)
+	if (!actor_box)
 		return;
 
 	if (!fast_popup_)
@@ -779,21 +857,23 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 
 	UpdateFastPopup();
 
-	wxSize size = fast_popup_->GetSize();
-	if (size == wxSize(0, 0))
-		size = fast_popup_->GetBestSize();
+	wxSize size = fast_popup_->GetBestSize();
+	int actor_width = actor_box->GetSize().GetWidth();
+	if (size.GetWidth() < actor_width)
+		size.SetWidth(actor_width);
+	fast_popup_->SetSize(size);
 
-	wxPoint anchor = actor_fast_button_->ClientToScreen(wxPoint(0, 0));
-	wxSize btn_size = actor_fast_button_->GetSize();
-	wxPoint pos(anchor.x, anchor.y - size.GetHeight() - 4);
-	if (pos.y < 0)
-		pos.y = anchor.y + btn_size.GetHeight() + 4;
+	wxPoint anchor = actor_box->ClientToScreen(wxPoint(0, actor_box->GetSize().GetHeight()));
+	wxPoint pos(anchor.x, anchor.y + 4);
+	int screen_height = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
+	if (screen_height > 0 && pos.y + size.GetHeight() > screen_height)
+		pos.y = anchor.y - size.GetHeight() - actor_box->GetSize().GetHeight() - 4;
 	if (fast_popup_visible_) {
 		fast_popup_->Move(pos);
 	}
 	else {
 		fast_popup_->SetPosition(pos);
-		fast_popup_->Popup(actor_fast_button_);
+		fast_popup_->Popup(actor_box);
 		fast_popup_visible_ = true;
 	}
 
@@ -934,6 +1014,8 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	actor_has_pending_selection_ = false;
 	actor_selection_start_ = 0;
 	actor_selection_end_ = 0;
+	if (fast_mode_enabled_)
+		ApplyFastActiveToCurrentLine();
 }
 
 void SubsEditBox::OnSelectedSetChanged() {
@@ -1152,15 +1234,10 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 		wxString trimmed = value;
 		trimmed.Trim(true);
 		trimmed.Trim(false);
-		if (trimmed.empty()) {
-			if (fast_has_active_name_) {
-				fast_has_active_name_ = false;
-				UpdateFastPopup();
-			}
-		}
-		else if (!is_text) {
+		if (trimmed.empty())
+			ClearFastActiveName();
+		else if (!is_text)
 			AddFastRecentName(trimmed);
-		}
 	}
 	if (actor_has_pending_selection_) {
 		long const length = actor_box->GetValue().length();
