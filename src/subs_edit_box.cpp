@@ -793,13 +793,12 @@ void SubsEditBox::ApplyFastActiveToCurrentLine() {
 
 	actor_autofill_guard = true;
 	actor_box->ChangeValue(value);
-	actor_box->SetSelection(value.length(), value.length());
-	actor_box->SetInsertionPointEnd();
+	actor_box->SetSelection(0, value.length());
 	actor_autofill_guard = false;
 	actor_should_autofill_ = false;
-	actor_has_pending_selection_ = false;
+	actor_has_pending_selection_ = true;
 	actor_selection_start_ = 0;
-	actor_selection_end_ = 0;
+	actor_selection_end_ = value.length();
 
 	auto fly_value = boost::flyweight<std::string>(from_wx(value));
 	SetSelectedRows([&, fly_value](AssDialogue *d) {
@@ -826,9 +825,12 @@ void SubsEditBox::ToggleFastMode() {
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
 		UpdateFastPopup();
-		ShowFastPopup(false);
+		ShowFastPopup(true);
 	}
 	else {
+		actor_has_pending_selection_ = false;
+		actor_selection_start_ = 0;
+		actor_selection_end_ = 0;
 		HideFastPopup();
 		fast_recent_names_.clear();
 		fast_active_name_.clear();
@@ -872,7 +874,7 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 	}
 	else {
 		fast_popup_->SetPosition(pos);
-		fast_popup_->Popup(actor_box);
+		fast_popup_->Popup();
 		fast_popup_visible_ = true;
 	}
 
@@ -890,9 +892,6 @@ void SubsEditBox::HideFastPopup() {
 
 void SubsEditBox::OnFastPopupDismiss() {
 	fast_popup_visible_ = false;
-	actor_has_pending_selection_ = false;
-	actor_selection_start_ = 0;
-	actor_selection_end_ = 0;
 	if (actor_box)
 		actor_box->SetFocus();
 }
@@ -907,16 +906,16 @@ void SubsEditBox::ApplyFastRecentSelection(int index) {
 
 	actor_autofill_guard = true;
 	actor_box->ChangeValue(name);
-	actor_box->SetSelection(name.length(), name.length());
-	actor_box->SetInsertionPointEnd();
+	actor_box->SetSelection(0, name.length());
 	actor_should_autofill_ = false;
-	actor_has_pending_selection_ = false;
+	actor_has_pending_selection_ = true;
 	actor_selection_start_ = 0;
-	actor_selection_end_ = 0;
+	actor_selection_end_ = name.length();
 
 	SetSelectedRows(AssDialogue_Actor, name, _("actor change"), AssFile::COMMIT_DIAG_META, false);
 	PopulateActorList();
 	AddFastRecentName(name);
+	actor_autofill_guard = false;
 	HideFastPopup();
 }
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
@@ -986,6 +985,9 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 			ApplyFastRecentSelection(sel);
 		return;
 	case WXK_ESCAPE:
+		actor_has_pending_selection_ = false;
+		actor_selection_start_ = 0;
+		actor_selection_end_ = 0;
 		HideFastPopup();
 		if (actor_box)
 			actor_box->SetFocus();
