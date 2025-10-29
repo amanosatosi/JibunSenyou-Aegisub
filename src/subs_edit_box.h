@@ -110,6 +110,13 @@ class SubsEditBox final : public wxPanel {
 	std::vector<wxString> actor_values_;
 	bool actor_autofill_guard = false;
 	bool actor_should_autofill_ = false;
+	bool actor_has_pending_selection_ = false;
+	long actor_selection_start_ = 0;
+	long actor_selection_end_ = 0;
+	wxString actor_last_value_;
+	long actor_last_selection_start_ = 0;
+	long actor_last_selection_end_ = 0;
+	long actor_last_insertion_point_ = 0;
 
 	void SetControlsState(bool state);
 	/// @brief Update times of selected lines
@@ -195,7 +202,7 @@ class SubsEditBox final : public wxPanel {
 	void PopulateList(wxComboBox *combo, boost::flyweight<std::string> AssDialogue::*field);
 	void PopulateActorList();
 	void AutoFillActor();
-	void OnActorChar(wxKeyEvent &evt);
+	void OnActorKeyDown(wxKeyEvent &evt);
 
 	/// @brief Enable or disable frame timing mode
 	void UpdateFrameTiming(agi::vfr::Framerate const& fps);

@@ -176,7 +176,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	actor_box = new Placeholder<wxComboBox>(this, _("Actor"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Actor name for this speech. This is only for reference, and is mainly useless."));
 	Bind(wxEVT_TEXT, &SubsEditBox::OnActorChange, this, actor_box->GetId());
 	Bind(wxEVT_COMBOBOX, &SubsEditBox::OnActorChange, this, actor_box->GetId());
-	actor_box->Bind(wxEVT_CHAR, &SubsEditBox::OnActorChar, this);
+	actor_box->Bind(wxEVT_KEY_DOWN, &SubsEditBox::OnActorKeyDown, this);
 	top_sizer->Add(actor_box, wxSizerFlags(2).Expand().Border(wxRIGHT));
 
 	effect_box = new Placeholder<wxComboBox>(this, _("Effect"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Effect for this line. This can be used to store extra information for karaoke scripts, or for the effects supported by the renderer."));
@@ -304,8 +304,10 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	if (show_original) {
 		split_box->SetValue(true);
 		DoOnSplit(true);
+
 	}
 }
+
 
 SubsEditBox::~SubsEditBox() {
 	c->textSelectionController->SetControl(nullptr);
@@ -439,6 +441,8 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 		if (repopulate_lists) PopulateActorList();
 		actor_box->ChangeValue(to_wx(line->Actor));
 		actor_box->SetStringSelection(to_wx(line->Actor));
+		actor_should_autofill_ = false;
+		actor_has_pending_selection_ = false;
 	}
 	else if (repopulate_lists && (type & AssFile::COMMIT_DIAG_ADDREM)) {
 		PopulateActorList();
@@ -523,6 +527,7 @@ void SubsEditBox::PopulateActorList() {
 	text_entry->AutoComplete(arr);
 #endif
 #endif
+	actor_has_pending_selection_ = false;
 }
 
 void SubsEditBox::AutoFillActor() {
@@ -555,29 +560,36 @@ void SubsEditBox::AutoFillActor() {
 
 		actor_autofill_guard = true;
 		actor_box->ChangeValue(candidate);
-		actor_box->SetSelection(lookup.length(), candidate.length());
+		long sel_start = lookup.length();
+		long sel_end = candidate.length();
+		actor_box->SetSelection(sel_start, sel_end);
+		actor_selection_start_ = sel_start;
+		actor_selection_end_ = sel_end;
+		actor_has_pending_selection_ = true;
 		actor_autofill_guard = false;
 		break;
 	}
 }
 
-void SubsEditBox::OnActorChar(wxKeyEvent &evt) {
+void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	actor_should_autofill_ = false;
+	actor_has_pending_selection_ = false;
 
 	int key_code = evt.GetKeyCode();
 	int unicode = evt.GetUnicodeKey();
 	bool modifier = evt.ControlDown() || evt.CmdDown() || evt.MetaDown() || evt.AltDown();
-
 	bool printable = false;
 	if (!modifier) {
 		if (unicode != WXK_NONE)
-			printable = unicode >= 32;
+			printable = unicode >= 32 && unicode < WXK_START;
 		else
 			printable = key_code >= 32 && key_code < WXK_START;
 	}
-
 	if (key_code == WXK_BACK || key_code == WXK_DELETE)
 		printable = false;
+
+	actor_box->GetSelection(&actor_last_selection_start_, &actor_last_selection_end_);
+	actor_last_insertion_point_ = actor_box->GetInsertionPoint();
 
 	actor_should_autofill_ = printable;
 	evt.Skip();
@@ -589,6 +601,8 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	commit_id = -1;
 
 	UpdateFields(AssFile::COMMIT_DIAG_FULL, false);
+	actor_should_autofill_ = false;
+	actor_has_pending_selection_ = false;
 }
 
 void SubsEditBox::OnSelectedSetChanged() {
@@ -791,13 +805,35 @@ void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {
 void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	bool is_text = evt.GetEventType() == wxEVT_TEXT;
 	if (is_text) {
-		if (!actor_autofill_guard && actor_should_autofill_)
-			AutoFillActor();
+		if (!actor_autofill_guard && actor_should_autofill_) {
+			wxString const current = actor_box->GetValue();
+			bool const appended =
+				actor_last_selection_start_ == actor_last_selection_end_ &&
+				actor_last_insertion_point_ == static_cast<long>(actor_last_value_.length()) &&
+				current.length() > actor_last_value_.length();
+			bool const replaced_all =
+				actor_last_selection_start_ == 0 &&
+				actor_last_selection_end_ == static_cast<long>(actor_last_value_.length()) &&
+				actor_last_value_.length() > 0;
+			if ((appended || replaced_all) && !current.empty())
+				AutoFillActor();
+		}
 		actor_should_autofill_ = false;
+	}
+	else {
+		actor_should_autofill_ = false;
+		actor_has_pending_selection_ = false;
 	}
 	wxString value = actor_box->GetValue();
 	bool amend = is_text;
 	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
+	if (actor_has_pending_selection_) {
+		long const length = actor_box->GetValue().length();
+		long start = std::min<long>(actor_selection_start_, length);
+		long end = std::min<long>(actor_selection_end_, length);
+		if (end > start)
+			actor_box->SetSelection(start, end);
+	}
 }
 
 void SubsEditBox::OnLayerEnter(wxCommandEvent &evt) {
@@ -833,3 +869,5 @@ void SubsEditBox::UpdateCharacterCount(std::string const& text) {
 	else
 		char_count->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
 }
+
+
