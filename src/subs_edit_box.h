@@ -113,10 +113,6 @@ class SubsEditBox final : public wxPanel {
 	bool actor_has_pending_selection_ = false;
 	long actor_selection_start_ = 0;
 	long actor_selection_end_ = 0;
-	wxString actor_last_value_;
-	long actor_last_selection_start_ = 0;
-	long actor_last_selection_end_ = 0;
-	long actor_last_insertion_point_ = 0;
 
 	void SetControlsState(bool state);
 	/// @brief Update times of selected lines

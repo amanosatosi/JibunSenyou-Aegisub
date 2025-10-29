@@ -77,10 +77,6 @@
 #include <wx/spinctrl.h>
 #include <wx/textentry.h>
 
-#if wxCHECK_VERSION(3,1,0)
-#include <wx/textcompleter.h>
-#endif
-
 namespace {
 
 /// Work around wxGTK's fondness for generating events from ChangeValue
@@ -120,26 +116,6 @@ struct CaseInsensitiveLess {
 	}
 };
 
-#if wxCHECK_VERSION(3,1,0) && wxUSE_TEXTCOMPLETER
-class ActorTextCompleter final : public wxTextCompleterSimple {
-public:
-	explicit ActorTextCompleter(wxArrayString const& src)
-	: data(src)
-	{
-	}
-
-	void GetCompletions(wxString const& prefix, wxArrayString& out) override {
-		wxString const pfx = prefix.Lower();
-		for (auto const& s : data) {
-			if (pfx.empty() || s.Lower().StartsWith(pfx))
-				out.push_back(s);
-		}
-	}
-
-private:
-	wxArrayString data;
-};
-#endif
 }
 
 SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
@@ -443,6 +419,8 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 		actor_box->SetStringSelection(to_wx(line->Actor));
 		actor_should_autofill_ = false;
 		actor_has_pending_selection_ = false;
+		actor_selection_start_ = 0;
+		actor_selection_end_ = 0;
 	}
 	else if (repopulate_lists && (type & AssFile::COMMIT_DIAG_ADDREM)) {
 		PopulateActorList();
@@ -513,25 +491,10 @@ void SubsEditBox::PopulateActorList() {
 	actor_box->SetInsertionPoint(pos);
 	actor_box->Thaw();
 
-#if wxCHECK_VERSION(3,1,0)
-	wxComboBox *combo = actor_box;
-	wxTextEntryBase *text_entry = combo;
-	if (!text_entry)
-		return;
-#if wxUSE_TEXTCOMPLETER
-	if (arr.empty())
-		text_entry->AutoComplete(static_cast<wxTextCompleter*>(nullptr));
-	else
-		text_entry->AutoComplete(new ActorTextCompleter(arr));
-#else
-	text_entry->AutoComplete(arr);
-#endif
-#endif
 	actor_has_pending_selection_ = false;
-	actor_last_value_ = actor_box->GetValue();
-	long const caret = actor_box->GetInsertionPoint();
-	actor_last_selection_start_ = actor_last_selection_end_ = caret;
-	actor_last_insertion_point_ = caret;
+	actor_selection_start_ = 0;
+	actor_selection_end_ = 0;
+	actor_should_autofill_ = false;
 }
 
 void SubsEditBox::AutoFillActor() {
@@ -592,9 +555,6 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	if (key_code == WXK_BACK || key_code == WXK_DELETE)
 		printable = false;
 
-	actor_box->GetSelection(&actor_last_selection_start_, &actor_last_selection_end_);
-	actor_last_insertion_point_ = actor_box->GetInsertionPoint();
-
 	actor_should_autofill_ = printable;
 	evt.Skip();
 }
@@ -607,10 +567,8 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	UpdateFields(AssFile::COMMIT_DIAG_FULL, false);
 	actor_should_autofill_ = false;
 	actor_has_pending_selection_ = false;
-	actor_last_value_ = actor_box->GetValue();
-	long const caret = actor_box->GetInsertionPoint();
-	actor_last_selection_start_ = actor_last_selection_end_ = caret;
-	actor_last_insertion_point_ = caret;
+	actor_selection_start_ = 0;
+	actor_selection_end_ = 0;
 }
 
 void SubsEditBox::OnSelectedSetChanged() {
@@ -832,12 +790,8 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 			actor_box->SetSelection(start, end);
 		actor_has_pending_selection_ = false;
 	}
-
-	actor_last_value_ = actor_box->GetValue();
-	long const caret = actor_box->GetInsertionPoint();
-	actor_last_selection_start_ = actor_last_selection_end_ = caret;
-	actor_last_insertion_point_ = caret;
 }
+
 
 void SubsEditBox::OnLayerEnter(wxCommandEvent &evt) {
 	SetSelectedRows(&AssDialogue::Layer, evt.GetInt(), _("layer change"), AssFile::COMMIT_DIAG_META);
@@ -872,5 +826,6 @@ void SubsEditBox::UpdateCharacterCount(std::string const& text) {
 	else
 		char_count->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
 }
+
 
 
