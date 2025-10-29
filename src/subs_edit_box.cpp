@@ -528,6 +528,10 @@ void SubsEditBox::PopulateActorList() {
 #endif
 #endif
 	actor_has_pending_selection_ = false;
+	actor_last_value_ = actor_box->GetValue();
+	long const caret = actor_box->GetInsertionPoint();
+	actor_last_selection_start_ = actor_last_selection_end_ = caret;
+	actor_last_insertion_point_ = caret;
 }
 
 void SubsEditBox::AutoFillActor() {
@@ -603,6 +607,10 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	UpdateFields(AssFile::COMMIT_DIAG_FULL, false);
 	actor_should_autofill_ = false;
 	actor_has_pending_selection_ = false;
+	actor_last_value_ = actor_box->GetValue();
+	long const caret = actor_box->GetInsertionPoint();
+	actor_last_selection_start_ = actor_last_selection_end_ = caret;
+	actor_last_insertion_point_ = caret;
 }
 
 void SubsEditBox::OnSelectedSetChanged() {
@@ -805,19 +813,8 @@ void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {
 void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	bool is_text = evt.GetEventType() == wxEVT_TEXT;
 	if (is_text) {
-		if (!actor_autofill_guard && actor_should_autofill_) {
-			wxString const current = actor_box->GetValue();
-			bool const appended =
-				actor_last_selection_start_ == actor_last_selection_end_ &&
-				actor_last_insertion_point_ == static_cast<long>(actor_last_value_.length()) &&
-				current.length() > actor_last_value_.length();
-			bool const replaced_all =
-				actor_last_selection_start_ == 0 &&
-				actor_last_selection_end_ == static_cast<long>(actor_last_value_.length()) &&
-				actor_last_value_.length() > 0;
-			if ((appended || replaced_all) && !current.empty())
-				AutoFillActor();
-		}
+		if (!actor_autofill_guard && actor_should_autofill_)
+			AutoFillActor();
 		actor_should_autofill_ = false;
 	}
 	else {
@@ -833,7 +830,13 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 		long end = std::min<long>(actor_selection_end_, length);
 		if (end > start)
 			actor_box->SetSelection(start, end);
+		actor_has_pending_selection_ = false;
 	}
+
+	actor_last_value_ = actor_box->GetValue();
+	long const caret = actor_box->GetInsertionPoint();
+	actor_last_selection_start_ = actor_last_selection_end_ = caret;
+	actor_last_insertion_point_ = caret;
 }
 
 void SubsEditBox::OnLayerEnter(wxCommandEvent &evt) {
