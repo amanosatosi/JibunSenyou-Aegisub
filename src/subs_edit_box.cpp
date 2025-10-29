@@ -825,7 +825,7 @@ void SubsEditBox::ToggleFastMode() {
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
 		UpdateFastPopup();
-		ShowFastPopup(true);
+		ShowFastPopup(false);
 	}
 	else {
 		actor_has_pending_selection_ = false;
@@ -919,8 +919,11 @@ void SubsEditBox::ApplyFastRecentSelection(int index) {
 	HideFastPopup();
 }
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
+	bool enabling = !fast_mode_enabled_;
+	if (enabling && actor_box)
+		actor_box->SetFocus();
 	ToggleFastMode();
-	if (actor_box)
+	if (!fast_mode_enabled_ && actor_box)
 		actor_box->SetFocus();
 }
 
