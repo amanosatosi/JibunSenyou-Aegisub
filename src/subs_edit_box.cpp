@@ -1004,6 +1004,8 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
+	if (fast_mode_enabled_ && line)
+		FinalizeFastActiveFromActor(true);
 	wxEventBlocker blocker(this);
 	line = new_line;
 	commit_id = -1;
@@ -1228,6 +1230,8 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	wxString value = actor_box->GetValue();
 	bool amend = is_text;
 	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
+	if (fast_mode_enabled_)
+		FinalizeFastActiveFromActor(false);
 	PopulateActorList();
 	if (fast_mode_enabled_) {
 		wxString trimmed = value;
