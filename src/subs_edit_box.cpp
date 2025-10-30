@@ -678,31 +678,30 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		ShowFastPopup(true);
 		if (fast_popup_) {
 			wxListBox *list = fast_popup_->GetListBox();
-			if (list->GetCount() > 0) {
+			int count = list->GetCount();
+			if (count > 0) {
 				int sel = list->GetSelection();
 				if (key_code == WXK_DOWN) {
 					if (sel == wxNOT_FOUND)
 						list->SetSelection(0);
-					else if (sel + 1 < static_cast<int>(list->GetCount()))
+					else if (sel + 1 < count)
 						list->SetSelection(sel + 1);
 					else
 						list->SetSelection(0);
 				}
 				else {
 					if (sel == wxNOT_FOUND)
-						list->SetSelection(list->GetCount() - 1);
+						list->SetSelection(count - 1);
 					else if (sel == 0)
-						list->SetSelection(list->GetCount() - 1);
+						list->SetSelection(count - 1);
 					else
 						list->SetSelection(sel - 1);
 				}
 				list->SetFocus();
+				int focused = list->GetSelection();
+				if (focused != wxNOT_FOUND)
+					PreviewFastSelection(focused);
 			}
-		}
-		if (fast_popup_ && fast_popup_->GetListBox()->GetCount() > 0) {
-			actor_has_pending_selection_ = true;
-			actor_selection_start_ = 0;
-			actor_selection_end_ = actor_box->GetValue().length();
 		}
 		return;
 	}
@@ -830,7 +829,7 @@ void SubsEditBox::ToggleFastMode() {
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
 		UpdateFastPopup();
-		ShowFastPopup(false);
+		ShowFastPopup(true);
 	}
 	else {
 		actor_has_pending_selection_ = false;
@@ -889,8 +888,15 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 		fast_popup_visible_ = true;
 	}
 
-	if (focus_list)
+	if (focus_list) {
 		fast_popup_->FocusList();
+		wxListBox *list = fast_popup_->GetListBox();
+		if (list) {
+			int sel = list->GetSelection();
+			if (sel != wxNOT_FOUND)
+				PreviewFastSelection(sel);
+		}
+	}
 }
 
 void SubsEditBox::HideFastPopup() {
@@ -914,6 +920,9 @@ void SubsEditBox::OnFastPopupDismiss() {
 	fast_preview_pending_ = false;
 	fast_popup_committed_ = false;
 	fast_preview_original_value_.clear();
+	actor_has_pending_selection_ = false;
+	actor_selection_start_ = 0;
+	actor_selection_end_ = 0;
 	if (actor_box)
 		actor_box->SetFocus();
 }
@@ -950,9 +959,12 @@ void SubsEditBox::ApplyFastRecentSelection(int index) {
 	HideFastPopup();
 }
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
+	bool was_enabled = fast_mode_enabled_;
 	ToggleFastMode();
-	if (actor_box)
-		actor_box->SetFocus();
+	if (was_enabled) {
+		if (actor_box)
+			actor_box->SetFocus();
+	}
 }
 
 void SubsEditBox::OnFastListSelect(wxCommandEvent &evt) {
