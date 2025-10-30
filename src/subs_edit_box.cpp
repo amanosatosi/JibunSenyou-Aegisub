@@ -675,7 +675,7 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	}
 
 	if (fast_mode_enabled_ && !modifier && (key_code == WXK_DOWN || key_code == WXK_UP)) {
-		ShowFastPopup(true);
+		ShowFastPopup(false);
 		if (fast_popup_) {
 			wxListBox *list = fast_popup_->GetListBox();
 			int count = list->GetCount();
@@ -697,7 +697,6 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 					else
 						list->SetSelection(sel - 1);
 				}
-				list->SetFocus();
 				int focused = list->GetSelection();
 				if (focused != wxNOT_FOUND)
 					PreviewFastSelection(focused);
@@ -829,7 +828,7 @@ void SubsEditBox::ToggleFastMode() {
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
 		UpdateFastPopup();
-		ShowFastPopup(true);
+		ShowFastPopup(false);
 	}
 	else {
 		actor_has_pending_selection_ = false;
@@ -950,7 +949,11 @@ void SubsEditBox::ApplyFastRecentSelection(int index) {
 	actor_selection_start_ = 0;
 	actor_selection_end_ = name.length();
 
-	SetSelectedRows(AssDialogue_Actor, name, _("actor change"), AssFile::COMMIT_DIAG_META, false);
+	auto fly_value = boost::flyweight<std::string>(from_wx(name));
+	SetSelectedRows([&, fly_value](AssDialogue *d) {
+		if (d == line)
+			d->Actor = fly_value;
+	}, _("actor change"), AssFile::COMMIT_DIAG_META);
 	PopulateActorList();
 	AddFastRecentName(name);
 	fast_popup_committed_ = true;
@@ -959,12 +962,9 @@ void SubsEditBox::ApplyFastRecentSelection(int index) {
 	HideFastPopup();
 }
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
-	bool was_enabled = fast_mode_enabled_;
 	ToggleFastMode();
-	if (was_enabled) {
-		if (actor_box)
-			actor_box->SetFocus();
-	}
+	if (actor_box)
+		actor_box->SetFocus();
 }
 
 void SubsEditBox::OnFastListSelect(wxCommandEvent &evt) {
