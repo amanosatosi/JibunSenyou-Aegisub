@@ -670,7 +670,7 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		printable = false;
 
 	if (fast_mode_enabled_ && !modifier && (key_code == WXK_DOWN || key_code == WXK_UP)) {
-		ShowFastPopup(true);
+		ShowFastPopup(false);
 		if (fast_popup_) {
 			wxListBox *list = fast_popup_->GetListBox();
 			int count = list->GetCount();
@@ -823,7 +823,7 @@ void SubsEditBox::ToggleFastMode() {
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
 		UpdateFastPopup();
-		ShowFastPopup(true);
+		ShowFastPopup(false);
 	}
 	else {
 		actor_has_pending_selection_ = false;
@@ -877,14 +877,11 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 	}
 
 	if (focus_list) {
-		fast_popup_->FocusList();
 		wxListBox *list = fast_popup_->GetListBox();
 		if (list) {
 			if (list->GetSelection() == wxNOT_FOUND && list->GetCount() > 0)
 				list->SetSelection(0);
-			int sel = list->GetSelection();
-			if (sel != wxNOT_FOUND)
-				ApplyFastRecentSelection(sel, false);
+			list->SetFocus();
 		}
 	}
 }
@@ -937,26 +934,26 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup) {
 	PopulateActorList();
 	if (hide_popup) {
 		AddFastRecentName(name);
-	}
-	else if (fast_mode_enabled_) {
-		fast_active_name_ = name;
-		fast_has_active_name_ = true;
-	}
-	actor_autofill_guard = false;
-	if (hide_popup)
+		actor_autofill_guard = false;
 		HideFastPopup();
-	else
-		UpdateFastPopup();
+	}
+	else {
+		if (fast_mode_enabled_) {
+			fast_active_name_ = name;
+			fast_has_active_name_ = true;
+		}
+		actor_autofill_guard = false;
+		if (fast_popup_) {
+			wxListBox *list = fast_popup_->GetListBox();
+			if (list && list->GetSelection() == wxNOT_FOUND && index >= 0 && index < list->GetCount())
+				list->SetSelection(index);
+		}
+	}
 }
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
-	bool was_enabled = fast_mode_enabled_;
 	ToggleFastMode();
-	if (!fast_mode_enabled_ && actor_box)
+	if (actor_box)
 		actor_box->SetFocus();
-	else if (!was_enabled && fast_popup_) {
-		// Ensure list has focus to keep popup visible
-		fast_popup_->FocusList();
-	}
 }
 
 void SubsEditBox::OnFastListSelect(wxCommandEvent &evt) {
@@ -1255,6 +1252,10 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 		actor_should_autofill_ = false;
 		actor_has_pending_selection_ = false;
 	}
+
+	if (actor_autofill_guard)
+		return;
+
 	wxString value = actor_box->GetValue();
 	bool amend = is_text;
 	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
