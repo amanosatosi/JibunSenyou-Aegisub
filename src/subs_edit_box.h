@@ -122,6 +122,7 @@ class SubsEditBox final : public wxPanel {
 	bool fast_popup_visible_ = false;
 	bool fast_has_active_name_ = false;
 	wxString fast_active_name_;
+	bool fast_preview_active_ = false;
 
 
 	void SetControlsState(bool state);
