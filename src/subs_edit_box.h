@@ -124,6 +124,8 @@ class SubsEditBox final : public wxPanel {
 	wxString fast_active_name_;
 	bool fast_preview_active_ = false;
 	int fast_preview_index_ = -1;
+	int fast_target_row_ = -1;
+	AssDialogue *fast_target_line_ = nullptr;
 
 
 	void SetControlsState(bool state);

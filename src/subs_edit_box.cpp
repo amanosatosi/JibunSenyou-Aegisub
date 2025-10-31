@@ -869,6 +869,8 @@ void SubsEditBox::ToggleFastMode() {
 		fast_has_active_name_ = false;
 		fast_preview_active_ = false;
 		fast_preview_index_ = -1;
+		fast_target_row_ = -1;
+		fast_target_line_ = nullptr;
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
 		UpdateFastPopup();
@@ -877,6 +879,8 @@ void SubsEditBox::ToggleFastMode() {
 	else {
 		fast_preview_active_ = false;
 		fast_preview_index_ = -1;
+		fast_target_row_ = -1;
+		fast_target_line_ = nullptr;
 		actor_has_pending_selection_ = false;
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
@@ -915,6 +919,14 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 		list->DeselectAll();
 		fast_preview_active_ = false;
 		fast_preview_index_ = -1;
+		fast_target_line_ = line;
+		fast_target_row_ = line ? line->Row : -1;
+		if (c) {
+			if (auto *active = c->selectionController->GetActiveLine()) {
+				fast_target_line_ = active;
+				fast_target_row_ = active->Row;
+			}
+		}
 	}
 
 	wxSize size = fast_popup_->GetBestSize();
@@ -932,7 +944,8 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 		fast_popup_->Move(pos);
 	else {
 		fast_popup_->SetPosition(pos);
-		fast_popup_->Popup();
+		wxWindow *anchor = actor_fast_button_ ? static_cast<wxWindow*>(actor_fast_button_) : static_cast<wxWindow*>(actor_box);
+		fast_popup_->Popup(anchor);
 		fast_popup_visible_ = true;
 	}
 
@@ -951,12 +964,16 @@ void SubsEditBox::HideFastPopup() {
 	fast_popup_->Dismiss();
 	fast_preview_active_ = false;
 	fast_preview_index_ = -1;
+	fast_target_row_ = -1;
+	fast_target_line_ = nullptr;
 }
 
 void SubsEditBox::OnFastPopupDismiss() {
 	fast_popup_visible_ = false;
 	fast_preview_active_ = false;
 	fast_preview_index_ = -1;
+	fast_target_row_ = -1;
+	fast_target_line_ = nullptr;
 	actor_has_pending_selection_ = false;
 	actor_selection_start_ = 0;
 	actor_selection_end_ = 0;
@@ -1020,10 +1037,21 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	actor_selection_end_ = name.length();
 
 	auto fly_value = boost::flyweight<std::string>(from_wx(name));
-	SetSelectedRows([&, fly_value](AssDialogue *d) {
-		if (d == line)
-			d->Actor = fly_value;
-	}, _("actor change"), AssFile::COMMIT_DIAG_META);
+	AssDialogue *target_line = fast_target_line_;
+	if (!target_line && c)
+		target_line = c->selectionController->GetActiveLine();
+	if (!target_line)
+		target_line = line;
+
+	if (target_line) {
+		target_line->Actor = fly_value;
+		fast_target_line_ = target_line;
+		fast_target_row_ = target_line->Row;
+		Commit(_("actor change"), AssFile::COMMIT_DIAG_META, false, target_line);
+	}
+	else {
+		SetSelectedRows(AssDialogue_Actor, name, _("actor change"), AssFile::COMMIT_DIAG_META, false);
+	}
 	PopulateActorList();
 
 	if (actor_box) {
@@ -1034,7 +1062,6 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	if (hide_popup) {
 		if (update_mru)
 			AddFastRecentName(name);
-		fast_preview_index_ = -1;
 		actor_autofill_guard = false;
 		HideFastPopup();
 	}
@@ -1057,8 +1084,21 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
 	ToggleFastMode();
-	if (actor_box)
+	if (fast_mode_enabled_) {
+		ShowFastPopup(true);
+		if (fast_popup_) {
+			if (auto *list = fast_popup_->GetListBox()) {
+				if (list->GetCount() > 0) {
+					if (list->GetSelection() == wxNOT_FOUND)
+						list->SetSelection(0);
+					PreviewFastSelection(list->GetSelection(), true);
+				}
+			}
+		}
+	}
+	else if (actor_box) {
 		actor_box->SetFocus();
+	}
 }
 
 void SubsEditBox::OnFastListSelect(wxCommandEvent &evt) {
@@ -1072,13 +1112,22 @@ void SubsEditBox::OnFastListSelect(wxCommandEvent &evt) {
 	PreviewFastSelection(sel, true);
 }
 
-void SubsEditBox::OnFastListDClick(wxCommandEvent &) {
-	if (!fast_popup_)
+void SubsEditBox::OnFastListDClick(wxCommandEvent &evt) {
+	if (!fast_popup_) {
+		evt.Skip();
 		return;
+	}
 
-	int sel = fast_popup_->GetListBox()->GetSelection();
-	if (sel != wxNOT_FOUND)
+	int sel = evt.GetSelection();
+	if (sel == wxNOT_FOUND && fast_popup_)
+		sel = fast_popup_->GetListBox()->GetSelection();
+	if (sel != wxNOT_FOUND) {
 		ApplyFastRecentSelection(sel);
+		evt.StopPropagation();
+		evt.Skip(false);
+		return;
+	}
+	evt.Skip();
 }
 
 void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
@@ -1115,8 +1164,11 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 	case WXK_RETURN:
 	case WXK_NUMPAD_ENTER:
 	case WXK_TAB:
-		if (sel != wxNOT_FOUND)
+		if (sel != wxNOT_FOUND) {
 			ApplyFastRecentSelection(sel);
+			evt.StopPropagation();
+			evt.Skip(false);
+		}
 		return;
 	case WXK_ESCAPE:
 		actor_has_pending_selection_ = false;
@@ -1150,6 +1202,10 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	actor_selection_end_ = 0;
 	if (fast_mode_enabled_)
 		ApplyFastActiveToCurrentLine();
+	if (fast_popup_visible_) {
+		fast_target_line_ = new_line;
+		fast_target_row_ = new_line ? new_line->Row : -1;
+	}
 }
 
 void SubsEditBox::OnSelectedSetChanged() {
