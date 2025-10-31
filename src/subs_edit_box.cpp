@@ -615,17 +615,21 @@ void SubsEditBox::PopulateActorList() {
 	if (fast_preview_index_ >= 0 && fast_preview_index_ < static_cast<int>(fast_recent_names_.size()))
 		preview_name = fast_recent_names_[fast_preview_index_];
 
-	std::deque<wxString> merged;
+	std::deque<wxString> filtered;
 	for (auto const& name : fast_recent_names_) {
-		if (std::find(actor_values_.begin(), actor_values_.end(), name) != actor_values_.end())
-			merged.push_back(name);
+		wxString trimmed = name;
+		trimmed.Trim(true);
+		trimmed.Trim(false);
+		if (trimmed.empty())
+			continue;
+		if (std::find(filtered.begin(), filtered.end(), trimmed) != filtered.end())
+			continue;
+		filtered.push_back(trimmed);
 	}
-	for (auto const& value : actor_values_) {
-		if (std::find(merged.begin(), merged.end(), value) == merged.end())
-			merged.push_back(value);
-	}
-	fast_recent_names_.swap(merged);
+	fast_recent_names_.swap(filtered);
 	if (!preview_name.empty()) {
+		preview_name.Trim(true);
+		preview_name.Trim(false);
 		auto it = std::find(fast_recent_names_.begin(), fast_recent_names_.end(), preview_name);
 		if (it != fast_recent_names_.end())
 			fast_preview_index_ = static_cast<int>(std::distance(fast_recent_names_.begin(), it));
@@ -863,8 +867,6 @@ void SubsEditBox::ToggleFastMode() {
 		Layout();
 	}
 	if (fast_mode_enabled_) {
-		if (fast_recent_names_.empty())
-			fast_recent_names_.assign(actor_values_.begin(), actor_values_.end());
 		fast_active_name_.clear();
 		fast_has_active_name_ = false;
 		fast_preview_active_ = false;
