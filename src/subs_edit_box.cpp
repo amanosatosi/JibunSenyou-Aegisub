@@ -703,7 +703,8 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		printable = false;
 
 	if (fast_mode_enabled_ && !modifier && (key_code == WXK_DOWN || key_code == WXK_UP || key_code == WXK_PAGEUP || key_code == WXK_PAGEDOWN || key_code == WXK_HOME || key_code == WXK_END)) {
-		ShowFastPopup(false);
+		// Focus the list so navigation stays in the popup
+		ShowFastPopup(true);
 		if (fast_popup_) {
 			wxListBox *list = fast_popup_->GetListBox();
 			if (list) {
@@ -719,11 +720,11 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 					switch (key_code) {
 					case WXK_DOWN:
 					case WXK_NUMPAD_DOWN:
-						if (sel < count - 1) new_sel = sel + 1;
+						new_sel = (sel + 1 < count) ? sel + 1 : 0;
 						break;
 					case WXK_UP:
 					case WXK_NUMPAD_UP:
-						if (sel > 0) new_sel = sel - 1;
+						new_sel = (sel > 0) ? sel - 1 : (count - 1);
 						break;
 					case WXK_PAGEUP:
 						new_sel = std::max(0, sel - 10);
@@ -743,7 +744,7 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 
 					fast_list_changing_ = true;
 					list->SetSelection(new_sel);
-					PreviewFastSelection(new_sel);
+					PreviewFastSelection(new_sel, true);
 					fast_list_changing_ = false;
 				}
 			}
@@ -753,7 +754,23 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		return;
 	}
 
-	if (fast_mode_enabled_ && !modifier && (key_code == WXK_RETURN || key_code == WXK_NUMPAD_ENTER || key_code == WXK_TAB)) {
+	if (fast_mode_enabled_ && fast_popup_visible_ && !modifier &&
+		(key_code == WXK_RETURN || key_code == WXK_NUMPAD_ENTER)) {
+		if (auto *list = fast_popup_ ? fast_popup_->GetListBox() : nullptr) {
+			int sel = list->GetSelection();
+			if (sel != wxNOT_FOUND) {
+				ApplyFastRecentSelection(sel, /*hide_popup=*/true, /*update_mru=*/true);
+				evt.StopPropagation();
+				evt.Skip(false);
+				return;
+			}
+		}
+		evt.StopPropagation();
+		evt.Skip(false);
+		return;
+	}
+
+	if (fast_mode_enabled_ && !modifier && key_code == WXK_TAB) {
 		bool preview_applied = false;
 		if (fast_preview_index_ >= 0) {
 			ApplyFastRecentSelection(fast_preview_index_);
@@ -1034,7 +1051,7 @@ void SubsEditBox::OnFastPopupCharHook(wxKeyEvent &evt) {
 	case WXK_NUMPAD_ENTER:
 	case WXK_TAB:
 		evt.StopPropagation();
-		evt.Skip();
+		evt.Skip(false);
 		return;
 	default:
 		break;
@@ -1231,12 +1248,14 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 	switch (key_code) {
 	case WXK_DOWN:
 	case WXK_NUMPAD_DOWN:
-		if (sel < count - 1) new_sel = sel + 1;
+		// Wrap: last -> 0
+		new_sel = (sel + 1 < count) ? sel + 1 : 0;
 		handled = true;
 		break;
 	case WXK_UP:
 	case WXK_NUMPAD_UP:
-		if (sel > 0) new_sel = sel - 1;
+		// Wrap: 0 -> last
+		new_sel = (sel > 0) ? sel - 1 : (count - 1);
 		handled = true;
 		break;
 	case WXK_PAGEUP:
@@ -1259,10 +1278,15 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 	case WXK_NUMPAD_ENTER:
 	case WXK_TAB:
 		if (sel != wxNOT_FOUND) {
-			ApplyFastRecentSelection(sel);
+			ApplyFastRecentSelection(sel, /*hide_popup=*/true, /*update_mru=*/true);
+			if (actor_box)
+				actor_box->SetFocus();
 			evt.StopPropagation();
 			evt.Skip(false);
+			return;
 		}
+		evt.StopPropagation();
+		evt.Skip(false);
 		return;
 	case WXK_ESCAPE:
 		actor_has_pending_selection_ = false;
