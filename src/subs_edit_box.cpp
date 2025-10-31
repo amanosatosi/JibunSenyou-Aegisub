@@ -1374,9 +1374,10 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 	if (fast_preview_active_) {
 		fast_preview_active_ = false;
 		fast_preview_index_ = -1;
+		long const len = actor_box->GetValue().length();
 		actor_has_pending_selection_ = true;
 		actor_selection_start_ = 0;
-		actor_selection_end_ = actor_box->GetValue().length();
+		actor_selection_end_ = len;
 		return;
 	}
 
