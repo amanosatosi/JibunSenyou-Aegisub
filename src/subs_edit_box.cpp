@@ -714,7 +714,6 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 
 					list->SetSelection(sel);
 					PreviewFastSelection(sel);
-					list->SetFocus();
 				}
 			}
 		}
@@ -929,25 +928,19 @@ void SubsEditBox::ShowFastPopup(bool focus_list) {
 	int screen_height = wxSystemSettings::GetMetric(wxSYS_SCREEN_Y);
 	if (screen_height > 0 && pos.y + size.GetHeight() > screen_height)
 		pos.y = anchor.y - size.GetHeight() - actor_box->GetSize().GetHeight() - 4;
-	if (fast_popup_visible_) {
+	if (fast_popup_visible_)
 		fast_popup_->Move(pos);
-	}
 	else {
 		fast_popup_->SetPosition(pos);
-		wxWindow *anchor = actor_fast_button_ ? static_cast<wxWindow*>(actor_fast_button_) : static_cast<wxWindow*>(actor_box);
-		fast_popup_->Popup(anchor);
+		fast_popup_->Popup();
 		fast_popup_visible_ = true;
 	}
 
-	if (focus_list) {
-		if (list) {
-			if (list->GetSelection() == wxNOT_FOUND && list->GetCount() > 0)
-				list->SetSelection(0);
-			list->SetFocus();
-		}
+	if (focus_list && list) {
+		if (list->GetSelection() == wxNOT_FOUND && list->GetCount() > 0)
+			list->SetSelection(0);
+		list->SetFocus();
 	}
-	else if (actor_box)
-		actor_box->SetFocus();
 }
 
 void SubsEditBox::HideFastPopup() {
@@ -993,8 +986,8 @@ void SubsEditBox::PreviewFastSelection(int index, bool keep_popup_focus) {
 	actor_has_pending_selection_ = true;
 	actor_selection_start_ = 0;
 	actor_selection_end_ = name.length();
-	if (!keep_popup_focus)
-		actor_box->SetFocus();
+	if (keep_popup_focus && list->IsShown())
+		list->SetFocus();
 }
 
 void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool update_mru) {
