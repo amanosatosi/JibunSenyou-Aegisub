@@ -126,6 +126,7 @@ class SubsEditBox final : public wxPanel {
 	int fast_preview_index_ = -1;
 	int fast_target_row_ = -1;
 	AssDialogue *fast_target_line_ = nullptr;
+	bool fast_list_changing_ = false;
 
 
 	void SetControlsState(bool state);
@@ -224,6 +225,7 @@ class SubsEditBox final : public wxPanel {
 	void ShowFastPopup(bool focus_list);
 	void HideFastPopup();
 	void OnFastPopupDismiss();
+	void OnFastPopupCharHook(wxKeyEvent &evt);
 	void ApplyFastRecentSelection(int index, bool hide_popup = true, bool update_mru = true);
 	void PreviewFastSelection(int index, bool keep_popup_focus = false);
 	void FinalizeFastActiveFromActor(bool add_to_recent);
