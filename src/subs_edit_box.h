@@ -221,6 +221,7 @@ class SubsEditBox final : public wxPanel {
 	void HideFastPopup();
 	void OnFastPopupDismiss();
 	void ApplyFastRecentSelection(int index, bool hide_popup = true);
+	void PreviewFastSelection(int index);
 	void FinalizeFastActiveFromActor(bool add_to_recent);
 	void ClearFastActiveName();
 	void ApplyFastActiveToCurrentLine();

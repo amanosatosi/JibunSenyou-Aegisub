@@ -676,25 +676,15 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 			int count = list->GetCount();
 			if (count > 0) {
 				int sel = list->GetSelection();
-				if (key_code == WXK_DOWN) {
-					if (sel == wxNOT_FOUND)
-						list->SetSelection(0);
-					else if (sel + 1 < count)
-						list->SetSelection(sel + 1);
-					else
-						list->SetSelection(0);
-				}
-				else {
-					if (sel == wxNOT_FOUND)
-						list->SetSelection(count - 1);
-					else if (sel == 0)
-						list->SetSelection(count - 1);
-					else
-						list->SetSelection(sel - 1);
-				}
-				int focused = list->GetSelection();
-				if (focused != wxNOT_FOUND)
-					ApplyFastRecentSelection(focused, false);
+				if (sel == wxNOT_FOUND)
+					sel = key_code == WXK_DOWN ? 0 : count - 1;
+				else if (key_code == WXK_DOWN)
+					sel = (sel + 1) % count;
+				else
+					sel = (sel + count - 1) % count;
+
+				list->SetSelection(sel);
+				PreviewFastSelection(sel);
 			}
 		}
 		return;
@@ -903,6 +893,28 @@ void SubsEditBox::OnFastPopupDismiss() {
 		actor_box->SetFocus();
 }
 
+void SubsEditBox::PreviewFastSelection(int index) {
+	if (!fast_popup_ || !actor_box)
+		return;
+	wxListBox *list = fast_popup_->GetListBox();
+	if (!list)
+		return;
+	if (index < 0 || index >= list->GetCount())
+		return;
+	wxString name = list->GetString(index);
+	if (name.empty())
+		return;
+
+	actor_autofill_guard = true;
+	actor_box->ChangeValue(name);
+	actor_box->SetSelection(0, name.length());
+	actor_autofill_guard = false;
+	actor_should_autofill_ = false;
+	actor_has_pending_selection_ = true;
+	actor_selection_start_ = 0;
+	actor_selection_end_ = name.length();
+}
+
 void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup) {
 	wxString name;
 	if (fast_popup_) {
@@ -964,7 +976,7 @@ void SubsEditBox::OnFastListSelect(wxCommandEvent &evt) {
 	if (sel == wxNOT_FOUND)
 		return;
 
-	ApplyFastRecentSelection(sel, false);
+	PreviewFastSelection(sel);
 }
 
 void SubsEditBox::OnFastListDClick(wxCommandEvent &) {
@@ -991,22 +1003,24 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 
 	int sel = list->GetSelection();
 	switch (evt.GetKeyCode()) {
-	case WXK_DOWN:
-	case WXK_NUMPAD_DOWN:
-		if (sel == wxNOT_FOUND || sel + 1 >= count)
-			list->SetSelection(0);
+case WXK_DOWN:
+case WXK_NUMPAD_DOWN:
+		if (sel == wxNOT_FOUND)
+			sel = 0;
 		else
-			list->SetSelection(sel + 1);
+			sel = (sel + 1) % count;
+		list->SetSelection(sel);
 		break;
-	case WXK_UP:
-	case WXK_NUMPAD_UP:
-		if (sel <= 0)
-			list->SetSelection(count - 1);
+case WXK_UP:
+case WXK_NUMPAD_UP:
+		if (sel == wxNOT_FOUND)
+			sel = count - 1;
 		else
-			list->SetSelection(sel - 1);
+			sel = (sel + count - 1) % count;
+		list->SetSelection(sel);
 		break;
-	case WXK_RETURN:
-	case WXK_NUMPAD_ENTER:
+case WXK_RETURN:
+case WXK_NUMPAD_ENTER:
 		if (sel != wxNOT_FOUND)
 			ApplyFastRecentSelection(sel);
 		return;
@@ -1025,7 +1039,7 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 
 	int focused = list->GetSelection();
 	if (focused != wxNOT_FOUND)
-		ApplyFastRecentSelection(focused, false);
+		PreviewFastSelection(focused);
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
