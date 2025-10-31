@@ -720,11 +720,11 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 					switch (key_code) {
 					case WXK_DOWN:
 					case WXK_NUMPAD_DOWN:
-						new_sel = (sel + 1 < count) ? sel + 1 : 0;
+						new_sel = (sel + 1 < count) ? sel + 1 : 0;   // wrap
 						break;
 					case WXK_UP:
 					case WXK_NUMPAD_UP:
-						new_sel = (sel > 0) ? sel - 1 : (count - 1);
+						new_sel = (sel > 0) ? sel - 1 : (count - 1); // wrap
 						break;
 					case WXK_PAGEUP:
 						new_sel = std::max(0, sel - 10);
@@ -1049,7 +1049,6 @@ void SubsEditBox::OnFastPopupCharHook(wxKeyEvent &evt) {
 	case WXK_END:
 	case WXK_RETURN:
 	case WXK_NUMPAD_ENTER:
-	case WXK_TAB:
 		evt.StopPropagation();
 		evt.Skip(false);
 		return;
@@ -1276,7 +1275,8 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 		break;
 	case WXK_RETURN:
 	case WXK_NUMPAD_ENTER:
-	case WXK_TAB:
+		// Apply using the *current* selection and swallow Enter
+		sel = list->GetSelection();
 		if (sel != wxNOT_FOUND) {
 			ApplyFastRecentSelection(sel, /*hide_popup=*/true, /*update_mru=*/true);
 			if (actor_box)
