@@ -709,6 +709,8 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 				int count = list->GetCount();
 				if (count > 0) {
 					int sel = list->GetSelection();
+					if (sel == wxNOT_FOUND && fast_preview_index_ >= 0 && fast_preview_index_ < count)
+						sel = fast_preview_index_;
 					if (sel == wxNOT_FOUND)
 						sel = key_code == WXK_DOWN ? 0 : count - 1;
 					else if (key_code == WXK_DOWN)
@@ -742,7 +744,8 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		}
 		FinalizeFastActiveFromActor(!preview_applied);
 		actor_should_autofill_ = printable;
-		evt.Skip();
+		evt.StopPropagation();
+		evt.Skip(false);
 		return;
 	}
 
@@ -1424,7 +1427,6 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 
 	if (fast_preview_active_) {
 		fast_preview_active_ = false;
-		fast_preview_index_ = -1;
 		long const len = actor_box->GetValue().length();
 		actor_has_pending_selection_ = true;
 		actor_selection_start_ = 0;
