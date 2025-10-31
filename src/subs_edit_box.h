@@ -122,6 +122,8 @@ class SubsEditBox final : public wxPanel {
 	bool fast_popup_visible_ = false;
 	bool fast_has_active_name_ = false;
 	wxString fast_active_name_;
+	bool fast_preview_active_ = false;
+	int fast_preview_index_ = -1;
 
 
 	void SetControlsState(bool state);
@@ -220,7 +222,8 @@ class SubsEditBox final : public wxPanel {
 	void ShowFastPopup(bool focus_list);
 	void HideFastPopup();
 	void OnFastPopupDismiss();
-	void ApplyFastRecentSelection(int index, bool hide_popup = true);
+	void ApplyFastRecentSelection(int index, bool hide_popup = true, bool update_mru = true);
+	void PreviewFastSelection(int index, bool keep_popup_focus = false);
 	void FinalizeFastActiveFromActor(bool add_to_recent);
 	void ClearFastActiveName();
 	void ApplyFastActiveToCurrentLine();
