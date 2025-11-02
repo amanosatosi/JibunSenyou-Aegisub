@@ -1089,7 +1089,7 @@ void SubsEditBox::PreviewFastSelection(int index, bool keep_popup_focus) {
 		list->SetFocus();
 }
 
-void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool update_mru) {
+void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool update_mru, bool restore_focus) {
 	fast_preview_active_ = false;
 	int applied_index = -1;
 	wxString name;
@@ -1149,7 +1149,7 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	}
 	PopulateActorList();
 
-	if (actor_box) {
+	if (actor_box && restore_focus) {
 		actor_box->SetFocus();
 		actor_box->SetSelection(0, name.length());
 	}
@@ -1332,8 +1332,19 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
+	bool preview_consumed = false;
+	if (fast_mode_enabled_) {
+		if (fast_preview_active_ && fast_preview_index_ >= 0 && line) {
+			fast_target_line_ = line;
+			fast_target_row_ = line->Row;
+			ApplyFastRecentSelection(fast_preview_index_, /*hide_popup=*/true, /*update_mru=*/true, /*restore_focus=*/false);
+			preview_consumed = true;
+		}
+		fast_preview_active_ = false;
+		fast_preview_index_ = -1;
+	}
 	if (fast_mode_enabled_ && line)
-		FinalizeFastActiveFromActor(true);
+		FinalizeFastActiveFromActor(!preview_consumed);
 	wxEventBlocker blocker(this);
 	line = new_line;
 	commit_id = -1;
@@ -1345,11 +1356,9 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	actor_selection_end_ = 0;
 	if (fast_mode_enabled_)
 		ApplyFastActiveToCurrentLine();
-	if (fast_popup_visible_) {
-		if (!fast_preview_active_ || !new_line) {
-			fast_target_line_ = new_line;
-			fast_target_row_ = new_line ? new_line->Row : -1;
-		}
+	if (fast_mode_enabled_) {
+		fast_target_line_ = new_line;
+		fast_target_row_ = new_line ? new_line->Row : -1;
 	}
 }
 
