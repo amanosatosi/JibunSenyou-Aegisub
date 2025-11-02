@@ -233,7 +233,8 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	});
 	top_sizer->Add(style_edit_button, wxSizerFlags().Expand().Border(wxRIGHT));
 
-	actor_box = new Placeholder<wxComboBox>(this, _("Actor"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Actor name for this speech. This is only for reference, and is mainly useless."));
+	actor_placeholder_text_ = _("Actor");
+	actor_box = new Placeholder<wxComboBox>(this, actor_placeholder_text_, wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Actor name for this speech. This is only for reference, and is mainly useless."));
 	Bind(wxEVT_TEXT, &SubsEditBox::OnActorChange, this, actor_box->GetId());
 	Bind(wxEVT_COMBOBOX, &SubsEditBox::OnActorChange, this, actor_box->GetId());
 	actor_box->Bind(wxEVT_KEY_DOWN, &SubsEditBox::OnActorKeyDown, this);
@@ -623,6 +624,8 @@ void SubsEditBox::PopulateActorList() {
 		trimmed.Trim(false);
 		if (trimmed.empty())
 			continue;
+		if (!actor_placeholder_text_.empty() && trimmed.CmpNoCase(actor_placeholder_text_) == 0)
+			continue;
 		if (std::find(filtered.begin(), filtered.end(), trimmed) != filtered.end())
 			continue;
 		filtered.push_back(trimmed);
@@ -817,6 +820,8 @@ void SubsEditBox::AddFastRecentName(wxString const& name) {
 	trimmed.Trim(true);
 	trimmed.Trim(false);
 	if (trimmed.empty())
+		return;
+	if (!actor_placeholder_text_.empty() && trimmed.CmpNoCase(actor_placeholder_text_) == 0)
 		return;
 
 	auto it = std::find(fast_recent_names_.begin(), fast_recent_names_.end(), trimmed);
@@ -1114,9 +1119,15 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	actor_selection_end_ = name.length();
 
 	auto fly_value = boost::flyweight<std::string>(from_wx(name));
-	AssDialogue *target_line = fast_target_line_;
-	if (!target_line && c)
-		target_line = c->selectionController->GetActiveLine();
+	AssDialogue *target_line = nullptr;
+	if (c) {
+		if (c->subsGrid && fast_target_row_ >= 0)
+			target_line = c->subsGrid->GetDialogue(fast_target_row_);
+		if (!target_line)
+			target_line = fast_target_line_;
+		if (!target_line)
+			target_line = c->selectionController->GetActiveLine();
+	}
 	if (!target_line)
 		target_line = line;
 
@@ -1128,6 +1139,8 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	}
 	else {
 		SetSelectedRows(AssDialogue_Actor, name, _("actor change"), AssFile::COMMIT_DIAG_META, false);
+		fast_target_line_ = nullptr;
+		fast_target_row_ = -1;
 	}
 	PopulateActorList();
 
@@ -1328,8 +1341,10 @@ void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
 	if (fast_mode_enabled_)
 		ApplyFastActiveToCurrentLine();
 	if (fast_popup_visible_) {
-		fast_target_line_ = new_line;
-		fast_target_row_ = new_line ? new_line->Row : -1;
+		if (!fast_preview_active_ || !new_line) {
+			fast_target_line_ = new_line;
+			fast_target_row_ = new_line ? new_line->Row : -1;
+		}
 	}
 }
 

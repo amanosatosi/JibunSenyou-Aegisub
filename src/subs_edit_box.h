@@ -90,6 +90,7 @@ class SubsEditBox final : public wxPanel {
 	wxComboBox *style_box;
 	wxButton *style_edit_button;
 	Placeholder<wxComboBox> *actor_box;
+	wxString actor_placeholder_text_;
 	TimeEdit *start_time;
 	TimeEdit *end_time;
 	TimeEdit *duration;
