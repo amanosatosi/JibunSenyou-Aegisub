@@ -1119,15 +1119,20 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	actor_selection_end_ = name.length();
 
 	auto fly_value = boost::flyweight<std::string>(from_wx(name));
-	AssDialogue *target_line = nullptr;
-	if (c) {
-		if (c->subsGrid && fast_target_row_ >= 0)
-			target_line = c->subsGrid->GetDialogue(fast_target_row_);
-		if (!target_line)
-			target_line = fast_target_line_;
-		if (!target_line)
-			target_line = c->selectionController->GetActiveLine();
+	AssDialogue *target_line = fast_target_line_;
+	bool needs_reresolve = fast_target_row_ >= 0 && (!target_line || target_line->Row != fast_target_row_);
+	if (needs_reresolve)
+		target_line = nullptr;
+	if (needs_reresolve && c && c->ass) {
+		for (auto &event_line : c->ass->Events) {
+			if (event_line.Row == fast_target_row_) {
+				target_line = &event_line;
+				break;
+			}
+		}
 	}
+	if (!target_line && c)
+		target_line = c->selectionController->GetActiveLine();
 	if (!target_line)
 		target_line = line;
 
