@@ -179,6 +179,17 @@ void SubsEditBox::FastNamePopup::UpdateContents(bool mode_enabled, bool has_acti
 	list_->DeselectAll();
 	for (auto const& name : names)
 		list_->Append(name);
+
+	int count = static_cast<int>(names.size());
+	int rows = count == 0 ? 3 : std::min(count, 20);
+	int char_height = std::max(1, list_->GetCharHeight());
+	int vertical_border = list_->GetWindowBorderSize().GetHeight() * 2;
+	int height = char_height * rows + vertical_border + 8;
+	wxSize best = list_->GetBestSize();
+	best.SetHeight(height);
+	list_->SetMinSize(best);
+	list_->SetInitialSize(best);
+
 	list_->Thaw();
 	panel_->Fit();
 	panel_->Layout();
@@ -577,13 +588,15 @@ void SubsEditBox::PopulateActorList() {
 	actor_box->Freeze();
 	long pos = actor_box->GetInsertionPoint();
 	wxString value = actor_box->GetValue();
-	wxString trimmed_value = value;
-	trimmed_value.Trim(true);
+	wxString trimmed_leading = value;
+	trimmed_leading.Trim(true);
+	bool removed_leading = trimmed_leading.length() != value.length();
+	wxString trimmed_value = trimmed_leading;
 	trimmed_value.Trim(false);
 
 	actor_box->Set(arr);
 	actor_box->ChangeValue(value);
-	if (!actor_box->SetStringSelection(value) && value != trimmed_value)
+	if (!actor_box->SetStringSelection(value) && removed_leading)
 		actor_box->SetStringSelection(trimmed_value);
 	actor_box->SetInsertionPoint(pos);
 	actor_box->Thaw();
@@ -711,7 +724,7 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		 key_code == WXK_PAGEDOWN || key_code == WXK_HOME || key_code == WXK_END)) {
 
 		if (!fast_recent_names_.empty()) {
-			ShowFastPopup(true);
+			ShowFastPopup(false);
 			if (fast_popup_) {
 				if (wxListBox *list = fast_popup_->GetListBox()) {
 					int count = list->GetCount();
@@ -749,8 +762,9 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 						}
 
 						fast_list_changing_ = true;
-						list->SetSelection(new_sel);
-						PreviewFastSelection(new_sel, true);
+						ApplyFastRecentSelection(new_sel, /*hide_popup=*/false, /*update_mru=*/false, /*restore_focus=*/false);
+						if (list->GetSelection() != new_sel)
+							list->SetSelection(new_sel);
 						fast_list_changing_ = false;
 						handled_fast_nav = true;
 					}
