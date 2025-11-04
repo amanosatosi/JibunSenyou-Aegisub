@@ -592,7 +592,6 @@ void SubsEditBox::PopulateActorList() {
 	trimmed_leading.Trim(true);
 	bool removed_leading = trimmed_leading.length() != value.length();
 	wxString trimmed_value = trimmed_leading;
-	trimmed_value.Trim(false);
 
 	actor_box->Set(arr);
 	actor_box->ChangeValue(value);
@@ -772,9 +771,8 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 						}
 
 						fast_list_changing_ = true;
-						ApplyFastRecentSelection(new_sel, /*hide_popup=*/false, /*update_mru=*/false, /*restore_focus=*/false);
-						if (list->GetSelection() != new_sel)
-							list->SetSelection(new_sel);
+						list->SetSelection(new_sel);
+						PreviewFastSelection(new_sel, false);
 						fast_list_changing_ = false;
 						handled_fast_nav = true;
 					}
@@ -805,11 +803,14 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		return;
 	}
 
-	if (fast_mode_enabled_ && !modifier && key_code == WXK_TAB) {
+	if (fast_mode_enabled_ && !modifier &&
+		(key_code == WXK_TAB || key_code == WXK_RIGHT || key_code == WXK_NUMPAD_RIGHT)) {
 		bool preview_applied = false;
+		bool has_candidate = false;
 		if (fast_preview_index_ >= 0) {
 			ApplyFastRecentSelection(fast_preview_index_);
 			preview_applied = true;
+			has_candidate = true;
 		}
 		else if (fast_popup_) {
 			wxListBox *list = fast_popup_->GetListBox();
@@ -818,17 +819,23 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 				if (sel != wxNOT_FOUND) {
 					ApplyFastRecentSelection(sel);
 					preview_applied = true;
+					has_candidate = true;
 				}
 			}
 		}
+		if (!has_candidate && key_code != WXK_TAB) {
+			actor_should_autofill_ = printable;
+			evt.Skip();
+			return;
+		}
 		FinalizeFastActiveFromActor(!preview_applied);
-		actor_should_autofill_ = printable;
+		actor_should_autofill_ = false;
 		evt.StopPropagation();
 		evt.Skip(false);
 		return;
 	}
 
-	actor_should_autofill_ = printable && key_code != WXK_SPACE;
+	actor_should_autofill_ = printable;
 	evt.Skip();
 }
 
@@ -836,12 +843,20 @@ void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
 	evt.Skip();
 	if (!fast_mode_enabled_)
 		return;
-	bool applied = false;
+	fast_preview_active_ = false;
 	if (fast_preview_index_ >= 0) {
-		ApplyFastRecentSelection(fast_preview_index_);
-		applied = true;
+		fast_preview_index_ = -1;
+		if (line && actor_box) {
+			actor_autofill_guard = true;
+			wxString current = to_wx(line->Actor);
+			actor_box->ChangeValue(current);
+			actor_box->SetSelection(current.length(), current.length());
+			actor_autofill_guard = false;
+		}
+		return;
 	}
-	FinalizeFastActiveFromActor(!applied);
+	fast_preview_index_ = -1;
+	FinalizeFastActiveFromActor(true);
 }
 
 void SubsEditBox::AddFastRecentName(wxString const& name) {
@@ -1364,19 +1379,12 @@ void SubsEditBox::OnFastListKeyDown(wxKeyEvent &evt) {
 }
 
 void SubsEditBox::OnActiveLineChanged(AssDialogue *new_line) {
-	bool preview_consumed = false;
+	if (fast_mode_enabled_ && line && !fast_preview_active_)
+		FinalizeFastActiveFromActor(true);
 	if (fast_mode_enabled_) {
-		if (fast_preview_active_ && fast_preview_index_ >= 0 && line) {
-			fast_target_line_ = line;
-			fast_target_row_ = line->Row;
-			ApplyFastRecentSelection(fast_preview_index_, /*hide_popup=*/true, /*update_mru=*/true, /*restore_focus=*/false);
-			preview_consumed = true;
-		}
 		fast_preview_active_ = false;
 		fast_preview_index_ = -1;
 	}
-	if (fast_mode_enabled_ && line)
-		FinalizeFastActiveFromActor(!preview_consumed);
 	wxEventBlocker blocker(this);
 	line = new_line;
 	commit_id = -1;
