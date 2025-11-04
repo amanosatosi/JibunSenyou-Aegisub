@@ -185,10 +185,15 @@ void SubsEditBox::FastNamePopup::UpdateContents(bool mode_enabled, bool has_acti
 	int char_height = std::max(1, list_->GetCharHeight());
 	int vertical_border = list_->GetWindowBorderSize().GetHeight() * 2;
 	int height = char_height * rows + vertical_border + 8;
+	list_->InvalidateBestSize();
 	wxSize best = list_->GetBestSize();
-	best.SetHeight(height);
-	list_->SetMinSize(best);
-	list_->SetInitialSize(best);
+	int width = best.GetWidth();
+	if (width <= 0)
+		width = 200;
+	wxSize new_size(width, height);
+	list_->SetMinSize(new_size);
+	list_->SetInitialSize(new_size);
+	list_->SetSize(new_size);
 
 	list_->Thaw();
 	panel_->Fit();
