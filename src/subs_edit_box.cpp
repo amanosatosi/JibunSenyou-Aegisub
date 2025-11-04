@@ -718,6 +718,16 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	if (key_code == WXK_BACK || key_code == WXK_DELETE)
 		printable = false;
 
+	if (!modifier && key_code == WXK_SPACE) {
+		if (actor_box) {
+			actor_box->WriteText(wxS(" "));
+			actor_should_autofill_ = false;
+			evt.StopPropagation();
+			evt.Skip(false);
+			return;
+		}
+	}
+
 	bool handled_fast_nav = false;
 	if (fast_mode_enabled_ && !modifier &&
 		(key_code == WXK_DOWN || key_code == WXK_UP || key_code == WXK_PAGEUP ||
