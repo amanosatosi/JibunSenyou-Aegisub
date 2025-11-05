@@ -181,18 +181,37 @@ void SubsEditBox::FastNamePopup::UpdateContents(bool mode_enabled, bool has_acti
 		list_->Append(name);
 
 	int count = static_cast<int>(names.size());
-	int rows = count == 0 ? 3 : std::min(count, 20);
-	int char_height = std::max(1, list_->GetCharHeight());
+	int rows = 0;
+	if (count == 0)
+		rows = 3;
+	else
+		rows = std::clamp(count, 1, 20);
+
+	int item_height = list_->GetCharHeight();
+#ifdef __WXMSW__
+	// On Windows the reported char height can be very small; ensure a sensible minimum
+	if (item_height < 12)
+		item_height = 16;
+#endif
+	if (item_height <= 0)
+		item_height = 16;
+
 	int vertical_border = list_->GetWindowBorderSize().GetHeight() * 2;
-	int height = char_height * rows + vertical_border + 8;
+	int height = item_height * rows + vertical_border + 8;
+
 	list_->InvalidateBestSize();
 	wxSize best = list_->GetBestSize();
 	int width = best.GetWidth();
 	if (width <= 0)
 		width = 200;
+
+	wxSizer *sizer = list_->GetContainingSizer();
+	if (sizer)
+		sizer->SetItemMinSize(list_, width, height);
 	wxSize new_size(width, height);
 	list_->SetMinSize(new_size);
 	list_->SetInitialSize(new_size);
+	list_->SetClientSize(new_size);
 	list_->SetSize(new_size);
 
 	list_->Thaw();
