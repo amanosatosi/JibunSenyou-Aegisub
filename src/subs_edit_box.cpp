@@ -538,7 +538,6 @@ void SubsEditBox::OnBracketButton(wxCommandEvent &) {
 		wxMenuItem *item = menu.AppendRadioItem(id, label);
 		if (i == last_bracket_pair_index_) {
 			item->Check();
-			menu.SetDefaultItem(item);
 		}
 	}
 
