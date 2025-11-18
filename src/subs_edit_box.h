@@ -103,6 +103,7 @@ class SubsEditBox final : public wxPanel {
 	wxCheckBox *split_box;
 	wxButton *join_next_button;
 	wxButton *join_last_button;
+	wxButton *bracket_button_ = nullptr;
 
 	wxSizer *top_sizer;
 	wxSizer *middle_right_sizer;
@@ -128,6 +129,8 @@ class SubsEditBox final : public wxPanel {
 	int fast_target_row_ = -1;
 	AssDialogue *fast_target_line_ = nullptr;
 	bool fast_list_changing_ = false;
+
+	size_t last_bracket_pair_index_ = 1;
 
 
 	void SetControlsState(bool state);
@@ -178,6 +181,7 @@ class SubsEditBox final : public wxPanel {
 	void OnCommentChange(wxCommandEvent &);
 	void OnEffectChange(wxCommandEvent &);
 	void OnFastButton(wxCommandEvent &);
+	void OnBracketButton(wxCommandEvent &);
 	void OnFastListSelect(wxCommandEvent &);
 	void OnFastListDClick(wxCommandEvent &);
 	void OnFastListKeyDown(wxKeyEvent &);
@@ -225,6 +229,7 @@ class SubsEditBox final : public wxPanel {
 	void UpdateFastPopup();
 	void ShowFastPopup(bool focus_list);
 	void HideFastPopup();
+	void InsertBracketPair(wxString const& left, wxString const& right);
 	void OnFastPopupDismiss();
 	void OnFastPopupCharHook(wxKeyEvent &evt);
 	void ApplyFastRecentSelection(int index, bool hide_popup = true, bool update_mru = true, bool restore_focus = true);
