@@ -75,6 +75,7 @@
 #include <wx/combobox.h>
 #include <wx/fontenum.h>
 #include <wx/listbox.h>
+#include <wx/menu.h>
 #include <wx/popupwin.h>
 #include <wx/radiobut.h>
 #include <wx/settings.h>
@@ -122,6 +123,29 @@ struct CaseInsensitiveLess {
 		return lhs.Cmp(rhs) < 0;
 	}
 };
+
+// Japanese bracket options for the toolbar popup
+struct BracketPair {
+	wxString left;
+	wxString right;
+};
+
+const std::array<BracketPair, 14> kBracketPairs = {{
+	{wxS("「"), wxS("」")},
+	{wxS("『"), wxS("』")},
+	{wxS("〈"), wxS("〉")},
+	{wxS("《"), wxS("》")},
+	{wxS("【"), wxS("】")},
+	{wxS("〔"), wxS("〕")},
+	{wxS("〖"), wxS("〗")},
+	{wxS("〘"), wxS("〙")},
+	{wxS("〚"), wxS("〛")},
+	{wxS("（"), wxS("）")},
+	{wxS("［"), wxS("］")},
+	{wxS("｛"), wxS("｝")},
+	{wxS("＜"), wxS("＞")},
+	{wxS("≪"), wxS("≫")}
+}};
 
 }
 
@@ -323,6 +347,21 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	MakeButton("edit/style/underline");
 	MakeButton("edit/style/strikeout");
 	MakeButton("edit/font");
+
+	// Japanese bracket insert button sits next to the existing fn control
+	int icon_px = OPT_GET("App/Toolbar Icon Size")->GetInt();
+	icon_px = static_cast<int>(icon_px * retina_helper->GetScaleFactor());
+	wxSize bracket_size(icon_px + 6, icon_px + 6);
+	bracket_button_ = new wxButton(this, wxID_ANY, wxS("『』"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+	bracket_button_->SetToolTip(_("Insert Japanese bracket pair"));
+	if (bracket_size.GetWidth() > 0 && bracket_size.GetHeight() > 0) {
+		wxSize min_size = bracket_button_->GetMinSize();
+		min_size.SetWidth(std::max(min_size.GetWidth(), bracket_size.GetWidth()));
+		min_size.SetHeight(std::max(min_size.GetHeight(), bracket_size.GetHeight()));
+		bracket_button_->SetMinSize(min_size);
+	}
+	middle_right_sizer->Add(bracket_button_, wxSizerFlags().Expand());
+	bracket_button_->Bind(wxEVT_BUTTON, &SubsEditBox::OnBracketButton, this);
 	middle_right_sizer->AddSpacer(5);
 	MakeButton("edit/color/primary");
 	MakeButton("edit/color/secondary");
@@ -448,6 +487,71 @@ void SubsEditBox::MakeButton(const char *cmd_name) {
 
 	middle_right_sizer->Add(btn, wxSizerFlags().Expand());
 	btn->Bind(wxEVT_BUTTON, std::bind(&SubsEditBox::CallCommand, this, cmd_name));
+}
+
+void SubsEditBox::InsertBracketPair(wxString const& left, wxString const& right) {
+	// Wrap selected text or insert a bracket pair at the caret.
+	if (!line) return;
+
+	int sel_start = edit_ctrl->GetSelectionStart();
+	int sel_end = edit_ctrl->GetSelectionEnd();
+	int start = std::min(sel_start, sel_end);
+	int end = std::max(sel_start, sel_end);
+
+	std::string left_utf8 = from_wx(left);
+	int left_len = static_cast<int>(left_utf8.size());
+
+	edit_ctrl->BeginUndoAction();
+	if (start == end) {
+		edit_ctrl->InsertText(start, left + right);
+		int caret = start + left_len;
+		edit_ctrl->SetSelection(caret, caret);
+		edit_ctrl->GotoPos(caret);
+	}
+	else {
+		wxString selected = edit_ctrl->GetTextRange(start, end);
+		std::string selected_utf8 = from_wx(selected);
+		edit_ctrl->SetTargetStart(start);
+		edit_ctrl->SetTargetEnd(end);
+		edit_ctrl->ReplaceTarget(left + selected + right);
+		int new_start = start + left_len;
+		int new_end = new_start + static_cast<int>(selected_utf8.size());
+		edit_ctrl->SetSelection(new_start, new_end);
+		edit_ctrl->GotoPos(new_end);
+	}
+	edit_ctrl->EndUndoAction();
+	edit_ctrl->SetFocus();
+}
+
+void SubsEditBox::OnBracketButton(wxCommandEvent &) {
+	// Build a small popup to choose the bracket flavor, defaulting to the last pick.
+	if (!line) return;
+	if (last_bracket_pair_index_ >= kBracketPairs.size())
+		last_bracket_pair_index_ = std::min<size_t>(1, kBracketPairs.size() - 1);
+
+	int count = static_cast<int>(kBracketPairs.size());
+	int base_id = wxWindow::NewControlId(count);
+	wxMenu menu;
+	for (size_t i = 0; i < kBracketPairs.size(); ++i) {
+		int id = base_id + static_cast<int>(i);
+		wxString label = kBracketPairs[i].left + wxS(" ") + kBracketPairs[i].right;
+		wxMenuItem *item = menu.AppendRadioItem(id, label);
+		if (i == last_bracket_pair_index_) {
+			item->Check();
+		}
+	}
+
+	menu.Bind(wxEVT_MENU, [=](wxCommandEvent &evt) {
+		size_t index = static_cast<size_t>(evt.GetId() - base_id);
+		if (index >= kBracketPairs.size()) return;
+		last_bracket_pair_index_ = index;
+		InsertBracketPair(kBracketPairs[index].left, kBracketPairs[index].right);
+	});
+
+	wxPoint pos = bracket_button_ ? bracket_button_->GetPosition() : wxPoint(0, 0);
+	pos.y += bracket_button_ ? bracket_button_->GetSize().GetHeight() : 0;
+	PopupMenu(&menu, pos);
+	wxWindow::UnreserveControlId(base_id, count);
 }
 
 wxButton *SubsEditBox::MakeBottomButton(const char *cmd_name) {
