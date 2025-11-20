@@ -627,7 +627,11 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 	}
 
 	if (type & AssFile::COMMIT_DIAG_TEXT) {
-		edit_ctrl->SetTextTo(line->Text);
+		// Satoshi: \N visual newline support
+		wxString raw_text = to_wx(line->Text.get());
+		wxString display_text = AssToEditorDisplay(raw_text);
+		edit_ctrl->SetTextTo(from_wx(display_text));
+		// Satoshi: \N visual newline support (end)
 		UpdateCharacterCount(line->Text);
 	}
 
@@ -1549,7 +1553,18 @@ void SubsEditBox::OnKeyDown(wxKeyEvent &event) {
 }
 
 void SubsEditBox::OnChange(wxStyledTextEvent &event) {
-	if (line && edit_ctrl->GetTextRaw().data() != line->Text.get()) {
+	if (!line) return;
+
+	auto raw_buffer = edit_ctrl->GetTextRaw();
+	std::string control_text(raw_buffer.data(), raw_buffer.length());
+
+	// Satoshi: \N visual newline support
+	wxString display_text = to_wx(control_text);
+	wxString ass_text = EditorDisplayToAss(display_text);
+	std::string normalized_text = from_wx(ass_text);
+	// Satoshi: \N visual newline support (end)
+
+	if (normalized_text != line->Text.get()) {
 		if (event.GetModificationType() & wxSTC_STARTACTION)
 			commit_id = -1;
 		CommitText(_("modify text"));
@@ -1587,7 +1602,12 @@ void SubsEditBox::SetSelectedRows(T AssDialogueBase::*field, wxString const& val
 
 void SubsEditBox::CommitText(wxString const& desc) {
 	auto data = edit_ctrl->GetTextRaw();
-	SetSelectedRows(&AssDialogue::Text, boost::flyweight<std::string>(data.data(), data.length()), desc, AssFile::COMMIT_DIAG_TEXT, true);
+	std::string control_text(data.data(), data.length());
+	// Satoshi: \N visual newline support
+	wxString ass_text = EditorDisplayToAss(to_wx(control_text));
+	std::string normalized_text = from_wx(ass_text);
+	// Satoshi: \N visual newline support (end)
+	SetSelectedRows(&AssDialogue::Text, boost::flyweight<std::string>(normalized_text), desc, AssFile::COMMIT_DIAG_TEXT, true);
 }
 
 void SubsEditBox::CommitTimes(TimeField field) {

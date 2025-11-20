@@ -120,3 +120,8 @@ public:
 
 	DECLARE_EVENT_TABLE()
 };
+
+// Satoshi: \N visual newline support
+wxString AssToEditorDisplay(wxString const& src);
+wxString EditorDisplayToAss(wxString const& src);
+// Satoshi: \N visual newline support (end)

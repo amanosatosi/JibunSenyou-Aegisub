@@ -67,6 +67,55 @@
 #define wxSTC_KEYMOD_NORM wxSTC_SCMOD_NORM
 #endif
 
+// Satoshi: \N visual newline support
+wxString AssToEditorDisplay(wxString const& src) {
+	wxString out;
+
+	bool in_override = false;
+	for (size_t i = 0; i < src.length(); ++i) {
+		wxUniChar ch = src[i];
+
+		if (!in_override && ch == '\\' && i + 1 < src.length() && src[i + 1] == 'N') {
+			out += '\n';
+			++i;
+			continue;
+		}
+
+		out += ch;
+
+		if (ch == '{')
+			in_override = true;
+		else if (ch == '}')
+			in_override = false;
+	}
+
+	return out;
+}
+
+wxString EditorDisplayToAss(wxString const& src) {
+	wxString out;
+
+	for (size_t i = 0; i < src.length(); ++i) {
+		wxUniChar ch = src[i];
+		if (ch == '\r') {
+			if (i + 1 < src.length() && src[i + 1] == '\n')
+				++i;
+			out += '\\';
+			out += 'N';
+		}
+		else if (ch == '\n') {
+			out += '\\';
+			out += 'N';
+		}
+		else {
+			out += ch;
+		}
+	}
+
+	return out;
+}
+// Satoshi: \N visual newline support (end)
+
 // Maximum number of languages (locales)
 // It should be above 100 (at least 242) and probably not more than 1000
 #define LANGS_MAX 1000
@@ -215,12 +264,19 @@ void SubsTextEditCtrl::OnKeyDown(wxKeyEvent &event) {
 	else if (event.GetKeyCode() == WXK_RETURN && event.GetModifiers() == wxMOD_SHIFT) {
 		auto sel_start = GetSelectionStart(), sel_end = GetSelectionEnd();
 		wxCharBuffer old = GetTextRaw();
-		std::string data(old.data(), sel_start);
-		data.append(OPT_GET("Subtitle/Edit Box/Soft Line Break")->GetBool() ? "\\n" : "\\N");
-		data.append(old.data() + sel_end, old.length() - sel_end);
-		SetTextRaw(data.c_str());
+		std::string new_text(old.data(), sel_start);
 
-		SetSelection(sel_start + 2, sel_start + 2);
+		bool soft_break = OPT_GET("Subtitle/Edit Box/Soft Line Break")->GetBool();
+		if (soft_break)
+			new_text.append("\\n");
+		else
+			new_text.push_back('\n');
+
+		new_text.append(old.data() + sel_end, old.length() - sel_end);
+		SetTextRaw(new_text.c_str());
+
+		int advance = soft_break ? 2 : 1;
+		SetSelection(sel_start + advance, sel_start + advance);
 		event.Skip(false);
 	}
 }
@@ -366,18 +422,21 @@ void SubsTextEditCtrl::SetTextTo(std::string const& text) {
 }
 
 void SubsTextEditCtrl::Paste() {
-	std::string data = GetClipboard();
+	std::string clipboard = GetClipboard();
 
-	boost::replace_all(data, "\r\n", "\\N");
-	boost::replace_all(data, "\n", "\\N");
-	boost::replace_all(data, "\r", "\\N");
+	boost::replace_all(clipboard, "\r\n", "\n");
+	boost::replace_all(clipboard, "\r", "\n");
+
+	wxString display_text = AssToEditorDisplay(to_wx(clipboard));
+	std::string insert_text = from_wx(display_text);
 
 	wxCharBuffer old = GetTextRaw();
-	data.insert(0, old.data(), GetSelectionStart());
-	int sel_start = data.size();
-	data.append(old.data() + GetSelectionEnd());
+	std::string new_text(old.data(), GetSelectionStart());
+	new_text.append(insert_text);
+	int sel_start = new_text.size();
+	new_text.append(old.data() + GetSelectionEnd());
 
-	SetTextRaw(data.c_str());
+	SetTextRaw(new_text.c_str());
 
 	SetSelectionStart(sel_start);
 	SetSelectionEnd(sel_start);
