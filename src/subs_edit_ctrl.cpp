@@ -267,15 +267,18 @@ void SubsTextEditCtrl::OnKeyDown(wxKeyEvent &event) {
 		std::string new_text(old.data(), sel_start);
 
 		bool soft_break = OPT_GET("Subtitle/Edit Box/Soft Line Break")->GetBool();
+		bool better_view = OPT_GET("Subtitle/Better View")->GetBool();
 		if (soft_break)
 			new_text.append("\\n");
-		else
+		else if (better_view)
 			new_text.push_back('\n');
+		else
+			new_text.append("\\N");
 
 		new_text.append(old.data() + sel_end, old.length() - sel_end);
 		SetTextRaw(new_text.c_str());
 
-		int advance = soft_break ? 2 : 1;
+		int advance = soft_break ? 2 : (better_view ? 1 : 2);
 		SetSelection(sel_start + advance, sel_start + advance);
 		event.Skip(false);
 	}
@@ -424,16 +427,26 @@ void SubsTextEditCtrl::SetTextTo(std::string const& text) {
 void SubsTextEditCtrl::Paste() {
 	std::string clipboard = GetClipboard();
 
-	boost::replace_all(clipboard, "\r\n", "\n");
-	boost::replace_all(clipboard, "\r", "\n");
-
-	wxString display_text = AssToEditorDisplay(to_wx(clipboard));
-	std::string insert_text = from_wx(display_text);
-
 	wxCharBuffer old = GetTextRaw();
 	std::string new_text(old.data(), GetSelectionStart());
-	new_text.append(insert_text);
-	int sel_start = new_text.size();
+	int sel_start = 0;
+
+	if (OPT_GET("Subtitle/Better View")->GetBool()) {
+		boost::replace_all(clipboard, "\r\n", "\n");
+		boost::replace_all(clipboard, "\r", "\n");
+		wxString display_text = AssToEditorDisplay(to_wx(clipboard));
+		std::string insert_text = from_wx(display_text);
+		new_text.append(insert_text);
+		sel_start = new_text.size();
+	}
+	else {
+		boost::replace_all(clipboard, "\r\n", "\\N");
+		boost::replace_all(clipboard, "\n", "\\N");
+		boost::replace_all(clipboard, "\r", "\\N");
+		new_text.append(clipboard);
+		sel_start = new_text.size();
+	}
+
 	new_text.append(old.data() + GetSelectionEnd());
 
 	SetTextRaw(new_text.c_str());

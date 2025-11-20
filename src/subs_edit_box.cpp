@@ -379,6 +379,15 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	split_box->SetToolTip(_("Show the contents of the subtitle line when it was first selected above the edit box. This is sometimes useful when editing subtitles or translating subtitles into another language."));
 	split_box->Bind(wxEVT_CHECKBOX, &SubsEditBox::OnSplit, this);
 	middle_right_sizer->Add(split_box, wxSizerFlags().Expand());
+	middle_right_sizer->AddSpacer(5);
+
+	better_view_enabled_ = OPT_GET("Subtitle/Better View")->GetBool();
+
+	better_view_box = new wxCheckBox(this, -1, _("Better View"));
+	better_view_box->SetToolTip(_("Display \\N as real line breaks inside the edit box."));
+	better_view_box->Bind(wxEVT_CHECKBOX, &SubsEditBox::OnBetterView, this);
+	middle_right_sizer->Add(better_view_box, wxSizerFlags().Expand());
+	better_view_box->SetValue(better_view_enabled_);
 
 	// Main sizer
 	wxSizer *main_sizer = new wxBoxSizer(wxVERTICAL);
@@ -628,9 +637,14 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 
 	if (type & AssFile::COMMIT_DIAG_TEXT) {
 		// Satoshi: \N visual newline support
-		wxString raw_text = to_wx(line->Text.get());
-		wxString display_text = AssToEditorDisplay(raw_text);
-		edit_ctrl->SetTextTo(from_wx(display_text));
+		if (better_view_enabled_) {
+			wxString raw_text = to_wx(line->Text.get());
+			wxString display_text = MakeDisplayText(raw_text);
+			edit_ctrl->SetTextTo(from_wx(display_text));
+		}
+		else {
+			edit_ctrl->SetTextTo(line->Text);
+		}
 		// Satoshi: \N visual newline support (end)
 		UpdateCharacterCount(line->Text);
 	}
@@ -1529,8 +1543,9 @@ void SubsEditBox::OnSelectedSetChanged() {
 }
 
 void SubsEditBox::OnLineInitialTextChanged(std::string const& new_text) {
+	(void)new_text;
 	if (split_box->IsChecked())
-		secondary_editor->SetValue(to_wx(new_text));
+		UpdateSecondaryEditor();
 }
 
 void SubsEditBox::UpdateFrameTiming(agi::vfr::Framerate const& fps) {
@@ -1559,9 +1574,15 @@ void SubsEditBox::OnChange(wxStyledTextEvent &event) {
 	std::string control_text(raw_buffer.data(), raw_buffer.length());
 
 	// Satoshi: \N visual newline support
-	wxString display_text = to_wx(control_text);
-	wxString ass_text = EditorDisplayToAss(display_text);
-	std::string normalized_text = from_wx(ass_text);
+	std::string normalized_text;
+	if (better_view_enabled_) {
+		wxString display_text = to_wx(control_text);
+		wxString ass_text = MakeAssText(display_text);
+		normalized_text = from_wx(ass_text);
+	}
+	else {
+		normalized_text = control_text;
+	}
 	// Satoshi: \N visual newline support (end)
 
 	if (normalized_text != line->Text.get()) {
@@ -1604,8 +1625,14 @@ void SubsEditBox::CommitText(wxString const& desc) {
 	auto data = edit_ctrl->GetTextRaw();
 	std::string control_text(data.data(), data.length());
 	// Satoshi: \N visual newline support
-	wxString ass_text = EditorDisplayToAss(to_wx(control_text));
-	std::string normalized_text = from_wx(ass_text);
+	std::string normalized_text;
+	if (better_view_enabled_) {
+		wxString ass_text = MakeAssText(to_wx(control_text));
+		normalized_text = from_wx(ass_text);
+	}
+	else {
+		normalized_text = control_text;
+	}
 	// Satoshi: \N visual newline support (end)
 	SetSelectedRows(&AssDialogue::Text, boost::flyweight<std::string>(normalized_text), desc, AssFile::COMMIT_DIAG_TEXT, true);
 }
@@ -1717,6 +1744,22 @@ void SubsEditBox::OnSplit(wxCommandEvent&) {
 	OPT_SET("Subtitle/Show Original")->SetBool(show_original);
 }
 
+void SubsEditBox::OnBetterView(wxCommandEvent&) {
+	bool new_state = better_view_box->IsChecked();
+	if (better_view_enabled_ == new_state) return;
+
+	better_view_enabled_ = new_state;
+	OPT_SET("Subtitle/Better View")->SetBool(new_state);
+
+	auto buffer = edit_ctrl->GetTextRaw();
+	std::string current_text(buffer.data(), buffer.length());
+	wxString wx_text = to_wx(current_text);
+	wxString converted = new_state ? AssToEditorDisplay(wx_text) : EditorDisplayToAss(wx_text);
+	edit_ctrl->SetTextTo(from_wx(converted));
+
+	UpdateSecondaryEditor();
+}
+
 void SubsEditBox::DoOnSplit(bool show_original) {
 	Freeze();
 	GetSizer()->Show(secondary_editor, show_original);
@@ -1728,8 +1771,26 @@ void SubsEditBox::DoOnSplit(bool show_original) {
 	Thaw();
 
 	if (show_original)
-		secondary_editor->SetValue(to_wx(c->initialLineState->GetInitialText()));
+		UpdateSecondaryEditor();
 	UpdateJoinButtons();
+}
+
+void SubsEditBox::UpdateSecondaryEditor() {
+	if (!split_box || !split_box->IsChecked() || !c || !c->initialLineState) return;
+	wxString raw_text = to_wx(c->initialLineState->GetInitialText());
+	secondary_editor->SetValue(MakeDisplayText(raw_text));
+}
+
+wxString SubsEditBox::MakeDisplayText(wxString const& raw) const {
+	if (!better_view_enabled_)
+		return raw;
+	return AssToEditorDisplay(raw);
+}
+
+wxString SubsEditBox::MakeAssText(wxString const& display) const {
+	if (!better_view_enabled_)
+		return display;
+	return EditorDisplayToAss(display);
 }
 
 void SubsEditBox::OnStyleChange(wxCommandEvent &evt) {

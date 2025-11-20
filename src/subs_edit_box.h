@@ -101,6 +101,7 @@ class SubsEditBox final : public wxPanel {
 	wxRadioButton *by_frame;
 	wxTextCtrl *char_count;
 	wxCheckBox *split_box;
+	wxCheckBox *better_view_box;
 	wxButton *join_next_button;
 	wxButton *join_last_button;
 	wxButton *bracket_button_ = nullptr;
@@ -131,6 +132,7 @@ class SubsEditBox final : public wxPanel {
 	bool fast_list_changing_ = false;
 
 	size_t last_bracket_pair_index_ = 1;
+	bool better_view_enabled_ = true;
 
 
 	void SetControlsState(bool state);
@@ -188,8 +190,12 @@ class SubsEditBox final : public wxPanel {
 	void OnActorKillFocus(wxFocusEvent &);
 	void OnSize(wxSizeEvent &event);
 	void OnSplit(wxCommandEvent&);
+	void OnBetterView(wxCommandEvent&);
 	void DoOnSplit(bool show_original);
 	void UpdateJoinButtons();
+	void UpdateSecondaryEditor();
+	wxString MakeDisplayText(wxString const& raw) const;
+	wxString MakeAssText(wxString const& display) const;
 
 	void SetPlaceholderCtrl(wxControl *ctrl, wxString const& value);
 

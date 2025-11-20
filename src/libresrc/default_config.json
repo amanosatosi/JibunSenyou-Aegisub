@@ -434,6 +434,7 @@
 		},
 		"Provider" : "libass",
 		"Show Original": false,
+		"Better View": true,
 		"Time Edit" : {
 			"Insert Mode" : true
 		}
