@@ -1744,17 +1744,36 @@ void SubsEditBox::OnSplit(wxCommandEvent&) {
 	OPT_SET("Subtitle/Show Original")->SetBool(show_original);
 }
 
+static wxString ConvertAssVisualBreaks(wxString const& src) {
+	wxString out;
+	out.reserve(src.length());
+
+	for (size_t i = 0; i < src.length(); ++i) {
+		wxUniChar ch = src[i];
+		if (ch == '\\' && i + 1 < src.length() && src[i + 1] == 'N') {
+			out += '\n';
+			++i;
+		}
+		else {
+			out += ch;
+		}
+	}
+
+	return out;
+}
+
 void SubsEditBox::OnBetterView(wxCommandEvent&) {
 	bool new_state = better_view_box->IsChecked();
 	if (better_view_enabled_ == new_state) return;
 
-	better_view_enabled_ = new_state;
-	OPT_SET("Subtitle/Better View")->SetBool(new_state);
-
 	auto buffer = edit_ctrl->GetTextRaw();
 	std::string current_text(buffer.data(), buffer.length());
 	wxString wx_text = to_wx(current_text);
-	wxString converted = new_state ? AssToEditorDisplay(wx_text) : EditorDisplayToAss(wx_text);
+
+	wxString converted = new_state ? ConvertAssVisualBreaks(wx_text) : EditorDisplayToAss(wx_text);
+
+	better_view_enabled_ = new_state;
+	OPT_SET("Subtitle/Better View")->SetBool(new_state);
 	edit_ctrl->SetTextTo(from_wx(converted));
 
 	UpdateSecondaryEditor();
@@ -1784,7 +1803,7 @@ void SubsEditBox::UpdateSecondaryEditor() {
 wxString SubsEditBox::MakeDisplayText(wxString const& raw) const {
 	if (!better_view_enabled_)
 		return raw;
-	return AssToEditorDisplay(raw);
+	return ConvertAssVisualBreaks(raw);
 }
 
 wxString SubsEditBox::MakeAssText(wxString const& display) const {
