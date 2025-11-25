@@ -511,6 +511,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			auto apply_state = [&](bool use_color, bool use_alpha, const std::array<agi::Color, 4>& colors, const std::array<uint8_t, 4>& alphas) {
 				int local_active_shift = 0;
 				for (auto& entry : lines) {
+					entry.second = parsed_line(entry.second.line);
 					int shift = 0;
 
 					shift += entry.second.remove_tag(gradient_tag, norm_sel_start, sel_start + shift);
@@ -535,6 +536,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 					if (entry.second.line == active_line)
 						local_active_shift = shift;
+
+					entry.second = parsed_line(entry.second.line);
 				}
 
 				gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);

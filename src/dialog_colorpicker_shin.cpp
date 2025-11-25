@@ -677,11 +677,14 @@ DialogColorPickerShin::DialogColorPickerShin(wxWindow *parent, agi::Color initia
 	input_sizer->AddStretchSpacer(1);
 	input_sizer->Add(picker_sizer, 0, wxEXPAND);
 	input_sizer->AddStretchSpacer(2);
-	input_sizer->Add(button_sizer, 0, wxALIGN_RIGHT);
 
-	wxSizer *main_sizer = new wxBoxSizer(wxHORIZONTAL);
-	main_sizer->Add(spectrum_box, 1, wxALL | wxEXPAND, 5);
-	main_sizer->Add(input_sizer, 0, (wxALL&~wxLEFT)|wxEXPAND, 5);
+	wxSizer *content_sizer = new wxBoxSizer(wxHORIZONTAL);
+	content_sizer->Add(spectrum_box, 1, wxALL | wxEXPAND, 5);
+	content_sizer->Add(input_sizer, 0, (wxALL&~wxLEFT)|wxEXPAND, 5);
+
+	wxSizer *main_sizer = new wxBoxSizer(wxVERTICAL);
+	main_sizer->Add(content_sizer, 1, wxEXPAND);
+	main_sizer->Add(button_sizer, 0, wxALIGN_RIGHT | wxALL, 5);
 
 	SetSizerAndFit(main_sizer);
 
