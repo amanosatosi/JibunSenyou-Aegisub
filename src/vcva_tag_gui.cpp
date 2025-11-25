@@ -4,7 +4,6 @@
 #include "dialogs.h"
 #include "value_event.h"
 
-#include <algorithm>
 #include <vector>
 
 #include <wx/button.h>
@@ -18,6 +17,9 @@
 namespace {
 
 const wxSize slot_button_size(40, 40);
+const wxSize corner_button_size(22, 22);
+const wxSize top_bottom_button_size(90, 22);
+const wxSize side_button_size(18, 60);
 
 wxString GradientTooltip(const wxString& label, const wxString& slots) {
 	return wxString::Format(_("Apply a color to %s (%s)"), label, slots);
@@ -26,21 +28,23 @@ wxString GradientTooltip(const wxString& label, const wxString& slots) {
 class VcVaGradientDialog final : public wxDialog {
 	VcVaGradientState state_;
 	std::array<ColourButton*, 4> slot_buttons_{};
-	std::array<bool, 4> alpha_touched_{};
+	bool alpha_slider_touched_ = false;
 	std::function<void(const VcVaGradientState&)> preview_cb_;
 	std::function<void()> revert_cb_;
 	VcVaGradientResult result_;
 	bool closed_ = false;
 
 	void TriggerPreview() {
+		state_.alpha_touched = alpha_slider_touched_;
 		if (preview_cb_)
 			preview_cb_(state_);
 	}
 
 	void ApplySlotColor(int idx, agi::Color color) {
-		if (color.a != state_.alphas[idx])
-			alpha_touched_[idx] = true;
-		state_.alphas[idx] = color.a;
+		if (color.a != state_.alphas[idx]) {
+			alpha_slider_touched_ = true;
+			state_.alphas[idx] = color.a;
+		}
 		state_.colors[idx] = color;
 		slot_buttons_[idx]->SetColor(color);
 	}
@@ -63,12 +67,14 @@ class VcVaGradientDialog final : public wxDialog {
 				ApplySlotColor(idx, new_color);
 			TriggerPreview();
 		});
-		if (!ok && preview_cb_)
+		if (!ok && preview_cb_) {
+			state_.alpha_touched = alpha_slider_touched_;
 			preview_cb_(state_);
+		}
 	}
 
-	wxButton *CreateFillButton(const wxString& label, const wxString& slots_desc, std::vector<int> slots) {
-		auto *btn = new wxButton(this, wxID_ANY, label);
+	wxButton *CreateFillButton(const wxString& label, const wxString& slots_desc, std::vector<int> slots, const wxSize& size) {
+		auto *btn = new wxButton(this, wxID_ANY, label, wxDefaultPosition, size);
 		btn->SetToolTip(GradientTooltip(label, slots_desc));
 		btn->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) {
 			FillSlots(slots);
@@ -99,8 +105,7 @@ class VcVaGradientDialog final : public wxDialog {
 		}
 		result_.has_color = color_diff;
 
-		bool any_alpha_touched = std::any_of(alpha_touched_.begin(), alpha_touched_.end(), [](bool val) { return val; });
-		if (!any_alpha_touched) {
+		if (!alpha_slider_touched_) {
 			result_.has_alpha = false;
 			return;
 		}
@@ -131,15 +136,15 @@ class VcVaGradientDialog final : public wxDialog {
 			grid->Add(btn, wxGBPosition(row, col), wxGBSpan(rowspan, colspan), flag);
 		};
 
-		auto top_left = CreateFillButton("⌈", _("slots 1,2,3"), {0, 1, 2});
-		auto top_right = CreateFillButton("⌉", _("slots 1,2,4"), {0, 1, 3});
-		auto bottom_left = CreateFillButton("⌊", _("slots 1,3,4"), {0, 2, 3});
-		auto bottom_right = CreateFillButton("⌋", _("slots 2,3,4"), {1, 2, 3});
+		auto top_left = CreateFillButton(wxString::FromUTF8(u8"⌈"), _("slots 1,2,3"), {0, 1, 2}, corner_button_size);
+		auto top_right = CreateFillButton(wxString::FromUTF8(u8"⌉"), _("slots 1,2,4"), {0, 1, 3}, corner_button_size);
+		auto bottom_left = CreateFillButton(wxString::FromUTF8(u8"⌊"), _("slots 1,3,4"), {0, 2, 3}, corner_button_size);
+		auto bottom_right = CreateFillButton(wxString::FromUTF8(u8"⌋"), _("slots 2,3,4"), {1, 2, 3}, corner_button_size);
 
-		auto top = CreateFillButton("—", _("top edge"), {0, 1});
-		auto bottom = CreateFillButton("—", _("bottom edge"), {2, 3});
-		auto left = CreateFillButton("|", _("left edge"), {0, 2});
-		auto right = CreateFillButton("|", _("right edge"), {1, 3});
+		auto top = CreateFillButton(wxString::FromUTF8(u8"—"), _("top edge"), {0, 1}, top_bottom_button_size);
+		auto bottom = CreateFillButton(wxString::FromUTF8(u8"—"), _("bottom edge"), {2, 3}, top_bottom_button_size);
+		auto left = CreateFillButton("|", _("left edge"), {0, 2}, side_button_size);
+		auto right = CreateFillButton("|", _("right edge"), {1, 3}, side_button_size);
 
 		add_button(top_left, 0, 0);
 		add_button(top, 0, 1, 1, 3);
@@ -181,15 +186,17 @@ public:
 	VcVaGradientDialog(
 		wxWindow *parent,
 		const VcVaGradientState& initial,
-		std::function<void(const VcVaGradientState&)> preview_cb,
-		std::function<void()> revert_cb)
-	: wxDialog(parent, wxID_ANY, _("Gradient"))
-	, state_(initial)
-	, preview_cb_(std::move(preview_cb))
-	, revert_cb_(std::move(revert_cb))
-	{
-		result_.accepted = false;
-		result_.colors = initial.colors;
+	std::function<void(const VcVaGradientState&)> preview_cb,
+	std::function<void()> revert_cb)
+: wxDialog(parent, wxID_ANY, _("Gradient"))
+, state_(initial)
+, alpha_slider_touched_(initial.alpha_touched)
+, preview_cb_(std::move(preview_cb))
+, revert_cb_(std::move(revert_cb))
+{
+	state_.alpha_touched = alpha_slider_touched_;
+	result_.accepted = false;
+	result_.colors = initial.colors;
 		result_.alphas = initial.alphas;
 		result_.has_alpha = false;
 		result_.has_color = false;

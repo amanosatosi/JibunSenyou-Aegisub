@@ -456,11 +456,17 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	int active_shift = 0;
 	int commit_id = -1;
 
+	const std::string color_tag_str = tag ? std::string(tag) : std::string();
+	const std::string color_tag_alt_str = alt ? std::string(alt) : std::string();
+	const std::string alpha_tag_str = alpha ? std::string(alpha) : std::string();
+
 	std::function<void(wxWindow*)> gradient_handler;
 	if (picker == GetColorFromUserShin) {
 		const int gradient_channel = GetChannelFromTags(tag, alt);
 		const std::string gradient_tag = agi::format("\\%dvc", gradient_channel);
 		const std::string gradient_alpha_tag = agi::format("\\%dva", gradient_channel);
+		const std::string gradient_tag_alt = gradient_channel == 1 ? "\\vc" : std::string();
+		const std::string gradient_alpha_tag_alt = gradient_channel == 1 ? "\\va" : std::string();
 
 		gradient_handler = [=, &lines, &sel](wxWindow *owner) mutable {
 			if (!owner || !active_line) return;
@@ -487,31 +493,45 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 				gradient_state.style_alphas[i] = base_alpha;
 			}
 
-			if (const AssOverrideTag *grad_tag = active_parsed->find_tag(blockn, gradient_tag, std::string())) {
+			if (const AssOverrideTag *grad_tag = active_parsed->find_tag(blockn, gradient_tag, gradient_tag_alt)) {
 				for (size_t i = 0; i < grad_tag->Params.size() && i < gradient_state.colors.size(); ++i) {
 					gradient_state.colors[i] = grad_tag->Params[i].Get<agi::Color>(gradient_state.colors[i]);
 					gradient_state.colors[i].a = gradient_state.alphas[i];
 				}
 			}
-			if (const AssOverrideTag *alpha_tag_ptr = active_parsed->find_tag(blockn, gradient_alpha_tag, std::string())) {
+			bool has_gradient_alpha = false;
+			if (const AssOverrideTag *alpha_tag_ptr = active_parsed->find_tag(blockn, gradient_alpha_tag, gradient_alpha_tag_alt)) {
 				for (size_t i = 0; i < alpha_tag_ptr->Params.size() && i < gradient_state.alphas.size(); ++i)
 					gradient_state.alphas[i] = alpha_tag_ptr->Params[i].Get<int>(gradient_state.alphas[i]);
+				has_gradient_alpha = true;
 			}
+			gradient_state.alpha_touched = has_gradient_alpha;
 
 			int gradient_commit_id = -1;
 			auto apply_state = [&](bool use_color, bool use_alpha, const std::array<agi::Color, 4>& colors, const std::array<uint8_t, 4>& alphas) {
 				int local_active_shift = 0;
 				for (auto& entry : lines) {
 					int shift = 0;
-					if (use_color)
-						shift += entry.second.set_tag(gradient_tag, FormatGradientColors(colors), norm_sel_start, sel_start + shift);
-					else
-						shift += entry.second.remove_tag(gradient_tag, norm_sel_start, sel_start + shift);
 
-					if (use_alpha)
+					shift += entry.second.remove_tag(gradient_tag, norm_sel_start, sel_start + shift);
+					if (!gradient_tag_alt.empty())
+						shift += entry.second.remove_tag(gradient_tag_alt, norm_sel_start, sel_start + shift);
+					if (use_color) {
+						if (!color_tag_str.empty())
+							shift += entry.second.remove_tag(color_tag_str, norm_sel_start, sel_start + shift);
+						if (!color_tag_alt_str.empty())
+							shift += entry.second.remove_tag(color_tag_alt_str, norm_sel_start, sel_start + shift);
+						shift += entry.second.set_tag(gradient_tag, FormatGradientColors(colors), norm_sel_start, sel_start + shift);
+					}
+
+					shift += entry.second.remove_tag(gradient_alpha_tag, norm_sel_start, sel_start + shift);
+					if (!gradient_alpha_tag_alt.empty())
+						shift += entry.second.remove_tag(gradient_alpha_tag_alt, norm_sel_start, sel_start + shift);
+					if (use_alpha) {
+						if (!alpha_tag_str.empty())
+							shift += entry.second.remove_tag(alpha_tag_str, norm_sel_start, sel_start + shift);
 						shift += entry.second.set_tag(gradient_alpha_tag, FormatGradientAlphas(alphas), norm_sel_start, sel_start + shift);
-					else
-						shift += entry.second.remove_tag(gradient_alpha_tag, norm_sel_start, sel_start + shift);
+					}
 
 					if (entry.second.line == active_line)
 						local_active_shift = shift;
@@ -536,12 +556,16 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			};
 
 			auto preview_cb = [&](const VcVaGradientState& state) {
-				apply_state(true, true, state.colors, state.alphas);
+				apply_state(true, state.alpha_touched, state.colors, state.alphas);
 			};
 
 			auto result = ShowVcVaGradientDialog(owner, gradient_state, preview_cb, revert_preview);
 			if (!result.accepted)
 				return;
+			if (!result.has_color && !result.has_alpha) {
+				revert_preview();
+				return;
+			}
 
 			apply_state(result.has_color, result.has_alpha, result.colors, result.alphas);
 			gradient_commit_id = -1;

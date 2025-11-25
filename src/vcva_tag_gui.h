@@ -12,6 +12,7 @@ struct VcVaGradientState {
 	std::array<uint8_t, 4> alphas{};
 	std::array<agi::Color, 4> style_colors{};
 	std::array<uint8_t, 4> style_alphas{};
+	bool alpha_touched = false;
 };
 
 struct VcVaGradientResult {

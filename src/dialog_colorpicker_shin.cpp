@@ -1133,16 +1133,25 @@ void DialogColorPickerShin::OnCaptureLost(wxMouseCaptureLostEvent&) {
 }
 
 void DialogColorPickerShin::OnGradient(wxCommandEvent&) {
-	if (gradient_handler) {
-		gradient_handler(this);
+	if (!gradient_handler) {
+		wxMessageBox(
+			_("Gradient editor is not implemented yet.\n\nThis button is reserved for VSFilterMod gradient support."),
+			_("Gradient"),
+			wxOK | wxICON_INFORMATION,
+			this);
 		return;
 	}
 
-	wxMessageBox(
-		_("Gradient editor is not implemented yet.\n\nThis button is reserved for VSFilterMod gradient support."),
-		_("Gradient"),
-		wxOK | wxICON_INFORMATION,
-		this);
+	bool was_shown = IsShownOnScreen();
+	if (was_shown)
+		Show(false);
+
+	gradient_handler(this);
+
+	if (was_shown) {
+		Show(true);
+		Raise();
+	}
 }
 
 }
