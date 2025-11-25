@@ -212,6 +212,14 @@ struct parsed_line {
 
 	parsed_line(AssDialogue *line) : line(line), blocks(line->ParseTags()) { }
 	parsed_line(parsed_line&& r) = default;
+	parsed_line(parsed_line const& r) : line(r.line), blocks(r.line->ParseTags()) { }
+	parsed_line& operator=(parsed_line const& r) {
+		if (this == &r) return *this;
+		line = r.line;
+		blocks = line->ParseTags();
+		return *this;
+	}
+	parsed_line& operator=(parsed_line&&) = default;
 
 	const AssOverrideTag *find_tag(int blockn, std::string const& tag_name, std::string const& alt) const {
 		for (auto ovr : blocks | sliced(0, blockn + 1) | reversed | agi::of_type<AssDialogueBlockOverride>()) {
@@ -479,13 +487,13 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 				gradient_state.style_alphas[i] = base_alpha;
 			}
 
-			if (const AssOverrideTag *grad_tag = active_parsed->find_tag(blockn, gradient_tag)) {
+			if (const AssOverrideTag *grad_tag = active_parsed->find_tag(blockn, gradient_tag, std::string())) {
 				for (size_t i = 0; i < grad_tag->Params.size() && i < gradient_state.colors.size(); ++i) {
 					gradient_state.colors[i] = grad_tag->Params[i].Get<agi::Color>(gradient_state.colors[i]);
 					gradient_state.colors[i].a = gradient_state.alphas[i];
 				}
 			}
-			if (const AssOverrideTag *alpha_tag_ptr = active_parsed->find_tag(blockn, gradient_alpha_tag)) {
+			if (const AssOverrideTag *alpha_tag_ptr = active_parsed->find_tag(blockn, gradient_alpha_tag, std::string())) {
 				for (size_t i = 0; i < alpha_tag_ptr->Params.size() && i < gradient_state.alphas.size(); ++i)
 					gradient_state.alphas[i] = alpha_tag_ptr->Params[i].Get<int>(gradient_state.alphas[i]);
 			}
