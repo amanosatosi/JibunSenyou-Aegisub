@@ -34,6 +34,7 @@ struct ResampleSettings;
 /// @param callback Function called whenever the selected color changes
 /// @return Did the user accept the new color?
 bool GetColorFromUser(wxWindow *parent, agi::Color original, bool alpha, std::function<void (agi::Color)> callback);
+bool GetColorFromUserShin(wxWindow *parent, agi::Color original, bool alpha, std::function<void (agi::Color)> callback);
 
 /// Ask the user to pick an autosaved file to open
 /// @return Path to file or empty string if canceled

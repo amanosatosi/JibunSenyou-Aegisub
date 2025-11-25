@@ -72,6 +72,7 @@
 namespace {
 	using namespace boost::adaptors;
 	using cmd::Command;
+	using ColorPickerInvoker = bool (*)(wxWindow*, agi::Color, bool, std::function<void (agi::Color)>);
 
 struct validate_sel_nonempty : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
@@ -331,7 +332,7 @@ void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const c
 	});
 }
 
-void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), const char *tag, const char *alt, const char *alpha) {
+void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), const char *tag, const char *alt, const char *alpha, ColorPickerInvoker picker = GetColorFromUser) {
 	agi::Color initial_color;
 	const auto active_line = c->selectionController->GetActiveLine();
 	const int sel_start = c->textSelectionController->GetSelectionStart();
@@ -360,7 +361,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 	int active_shift = 0;
 	int commit_id = -1;
-	bool ok = GetColorFromUser(c->parent, initial_color, true, [&](agi::Color new_color) {
+	bool ok = picker(c->parent, initial_color, true, [&](agi::Color new_color) {
 		for (auto& line : lines) {
 			int shift = line.second.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);
 			if (new_color.a != line.first.a) {
@@ -391,7 +392,7 @@ struct edit_color_primary final : public Command {
 	STR_HELP("Set the primary fill color (\\c) at the cursor position")
 
 	void operator()(agi::Context *c) override {
-		show_color_picker(c, &AssStyle::primary, "\\c", "\\1c", "\\1a");
+		show_color_picker(c, &AssStyle::primary, "\\c", "\\1c", "\\1a", GetColorFromUserShin);
 	}
 };
 
@@ -403,7 +404,7 @@ struct edit_color_secondary final : public Command {
 	STR_HELP("Set the secondary (karaoke) fill color (\\2c) at the cursor position")
 
 	void operator()(agi::Context *c) override {
-		show_color_picker(c, &AssStyle::secondary, "\\2c", "", "\\2a");
+		show_color_picker(c, &AssStyle::secondary, "\\2c", "", "\\2a", GetColorFromUserShin);
 	}
 };
 
@@ -415,7 +416,7 @@ struct edit_color_outline final : public Command {
 	STR_HELP("Set the outline color (\\3c) at the cursor position")
 
 	void operator()(agi::Context *c) override {
-		show_color_picker(c, &AssStyle::outline, "\\3c", "", "\\3a");
+		show_color_picker(c, &AssStyle::outline, "\\3c", "", "\\3a", GetColorFromUserShin);
 	}
 };
 
@@ -427,7 +428,7 @@ struct edit_color_shadow final : public Command {
 	STR_HELP("Set the shadow color (\\4c) at the cursor position")
 
 	void operator()(agi::Context *c) override {
-		show_color_picker(c, &AssStyle::shadow, "\\4c", "", "\\4a");
+		show_color_picker(c, &AssStyle::shadow, "\\4c", "", "\\4a", GetColorFromUserShin);
 	}
 };
 
