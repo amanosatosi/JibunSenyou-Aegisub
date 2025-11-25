@@ -17,7 +17,7 @@
 
 namespace {
 
-constexpr wxSize slot_button_size{40, 40};
+const wxSize slot_button_size(40, 40);
 
 wxString GradientTooltip(const wxString& label, const wxString& slots) {
 	return wxString::Format(_("Apply a color to %s (%s)"), label, slots);
@@ -151,7 +151,7 @@ class VcVaGradientDialog final : public wxDialog {
 		add_button(bottom, 3, 1, 1, 3);
 		add_button(bottom_right, 3, 4);
 
-		grid->AddSpacer(10, wxGBPosition(1, 2), wxGBSpan(2, 1));
+		grid->Add(10, 10, wxGBPosition(1, 2), wxGBSpan(2, 1));
 
 		slot_buttons_[0] = CreateSlotButton(0);
 		slot_buttons_[1] = CreateSlotButton(1);
