@@ -38,6 +38,7 @@
 #include "../compat.h"
 #include "../dialog_search_replace.h"
 #include "../dialogs.h"
+#include "../vcva_tag_gui.h"
 #include "../format.h"
 #include "../include/aegisub/context.h"
 #include "../initial_line_state.h"
@@ -55,6 +56,7 @@
 #include <libaegisub/make_unique.h>
 
 #include <algorithm>
+#include <array>
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/range/adaptor/filtered.hpp>
@@ -65,6 +67,12 @@
 #include <boost/regex.hpp>
 #include <boost/tokenizer.hpp>
 
+#include <cctype>
+#include <functional>
+#include <cstring>
+
+#include <optional>
+
 #include <wx/clipbrd.h>
 #include <wx/fontdlg.h>
 #include <wx/textentry.h>
@@ -73,6 +81,44 @@ namespace {
 	using namespace boost::adaptors;
 	using cmd::Command;
 	using ColorPickerInvoker = bool (*)(wxWindow*, agi::Color, bool, std::function<void (agi::Color)>);
+
+int GetChannelFromTags(const char *tag, const char *alt) {
+	auto extract = [](const char *name) -> int {
+		if (!name) return 0;
+		for (const char *ptr = name; *ptr; ++ptr) {
+			if (std::isdigit(static_cast<unsigned char>(*ptr)))
+				return *ptr - '0';
+		}
+		return 0;
+	};
+
+	int channel = extract(tag);
+	if (!channel)
+		channel = extract(alt);
+	if (!channel && tag && std::strcmp(tag, "\\c") == 0)
+		channel = 1;
+	return channel ? channel : 1;
+}
+
+std::string FormatGradientColors(std::array<agi::Color, 4> const& colors) {
+	std::string value("(");
+	for (size_t i = 0; i < colors.size(); ++i) {
+		if (i) value += ", ";
+		value += colors[i].GetAssOverrideFormatted();
+	}
+	value += ")";
+	return value;
+}
+
+std::string FormatGradientAlphas(std::array<uint8_t, 4> const& alphas) {
+	std::string value("(");
+	for (size_t i = 0; i < alphas.size(); ++i) {
+		if (i) value += ", ";
+		value += agi::format("&H%02X&", (int)alphas[i]);
+	}
+	value += ")";
+	return value;
+}
 
 struct validate_sel_nonempty : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
@@ -276,6 +322,46 @@ struct parsed_line {
 
 		return shift;
 	}
+
+	int remove_tag(std::string const& tag, int norm_pos, int orig_pos) {
+		int blockn = block_at_pos(norm_pos);
+
+		AssDialogueBlockOverride *ovr = nullptr;
+		while (blockn >= 0 && !ovr) {
+			AssDialogueBlock *block = blocks[blockn].get();
+			switch (block->GetType()) {
+			case AssBlockType::PLAIN:
+				--blockn;
+				break;
+			case AssBlockType::DRAWING:
+				--blockn;
+				break;
+			case AssBlockType::COMMENT:
+				--blockn;
+				orig_pos = line->Text.get().rfind('{', orig_pos);
+				break;
+			case AssBlockType::OVERRIDE:
+				ovr = static_cast<AssDialogueBlockOverride*>(block);
+				break;
+			}
+		}
+
+		if (!ovr)
+			return 0;
+
+		int shift = 0;
+		for (size_t i = 0; i < ovr->Tags.size(); ++i) {
+			if (ovr->Tags[i].Name == tag) {
+				shift -= ((std::string)ovr->Tags[i]).size();
+				ovr->Tags.erase(ovr->Tags.begin() + i);
+				--i;
+			}
+		}
+
+		if (shift)
+			line->UpdateText(blocks);
+		return shift;
+	}
 };
 
 int normalize_pos(std::string const& text, int pos) {
@@ -361,6 +447,102 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 	int active_shift = 0;
 	int commit_id = -1;
+
+	std::function<void(wxWindow*)> gradient_handler;
+	if (picker == GetColorFromUserShin) {
+		const int gradient_channel = GetChannelFromTags(tag, alt);
+		const std::string gradient_tag = agi::format("\\%dvc", gradient_channel);
+		const std::string gradient_alpha_tag = agi::format("\\%dva", gradient_channel);
+
+		gradient_handler = [=, &lines, &sel](wxWindow *owner) mutable {
+			if (!owner || !active_line) return;
+
+			auto it = std::find_if(lines.begin(), lines.end(), [&](line_info& info) {
+				return info.second.line == active_line;
+			});
+			if (it == lines.end()) return;
+
+			parsed_line *active_parsed = &it->second;
+			int blockn = active_parsed->block_at_pos(norm_sel_start);
+
+			AssStyle const* style = c->ass->GetStyle(active_line->Style);
+			agi::Color base = (style ? style->*field : AssStyle().*field);
+			base = active_parsed->get_value(blockn, base, tag, alt);
+			int base_alpha = active_parsed->get_value(blockn, (int)base.a, alpha, "\\alpha");
+			base.a = base_alpha;
+
+			VcVaGradientState gradient_state;
+			for (int i = 0; i < 4; ++i) {
+				gradient_state.colors[i] = base;
+				gradient_state.alphas[i] = base_alpha;
+				gradient_state.style_colors[i] = base;
+				gradient_state.style_alphas[i] = base_alpha;
+			}
+
+			if (const AssOverrideTag *grad_tag = active_parsed->find_tag(blockn, gradient_tag)) {
+				for (size_t i = 0; i < grad_tag->Params.size() && i < gradient_state.colors.size(); ++i) {
+					gradient_state.colors[i] = grad_tag->Params[i].Get<agi::Color>(gradient_state.colors[i]);
+					gradient_state.colors[i].a = gradient_state.alphas[i];
+				}
+			}
+			if (const AssOverrideTag *alpha_tag_ptr = active_parsed->find_tag(blockn, gradient_alpha_tag)) {
+				for (size_t i = 0; i < alpha_tag_ptr->Params.size() && i < gradient_state.alphas.size(); ++i)
+					gradient_state.alphas[i] = alpha_tag_ptr->Params[i].Get<int>(gradient_state.alphas[i]);
+			}
+
+			int gradient_commit_id = -1;
+			auto apply_state = [&](bool use_color, bool use_alpha, const std::array<agi::Color, 4>& colors, const std::array<uint8_t, 4>& alphas) {
+				int local_active_shift = 0;
+				for (auto& entry : lines) {
+					int shift = 0;
+					if (use_color)
+						shift += entry.second.set_tag(gradient_tag, FormatGradientColors(colors), norm_sel_start, sel_start + shift);
+					else
+						shift += entry.second.remove_tag(gradient_tag, norm_sel_start, sel_start + shift);
+
+					if (use_alpha)
+						shift += entry.second.set_tag(gradient_alpha_tag, FormatGradientAlphas(alphas), norm_sel_start, sel_start + shift);
+					else
+						shift += entry.second.remove_tag(gradient_alpha_tag, norm_sel_start, sel_start + shift);
+
+					if (entry.second.line == active_line)
+						local_active_shift = shift;
+				}
+
+				gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
+				if (local_active_shift)
+					c->textSelectionController->SetSelection(sel_start + local_active_shift, sel_start + local_active_shift);
+			};
+
+			auto refresh_lines = [&]() {
+				for (auto& entry : lines)
+					entry.second = parsed_line(entry.second.line);
+			};
+
+			auto revert_preview = [&]() {
+				if (gradient_commit_id != -1) {
+					c->subsController->Undo();
+					gradient_commit_id = -1;
+					refresh_lines();
+				}
+			};
+
+			auto preview_cb = [&](const VcVaGradientState& state) {
+				apply_state(true, true, state.colors, state.alphas);
+			};
+
+			auto result = ShowVcVaGradientDialog(owner, gradient_state, preview_cb, revert_preview);
+			if (!result.accepted)
+				return;
+
+			apply_state(result.has_color, result.has_alpha, result.colors, result.alphas);
+			gradient_commit_id = -1;
+		};
+		SetShinGradientHandler(gradient_handler);
+	}
+	else
+		SetShinGradientHandler({});
+
 	bool ok = picker(c->parent, initial_color, true, [&](agi::Color new_color) {
 		for (auto& line : lines) {
 			int shift = line.second.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);

@@ -142,6 +142,7 @@ aegisub_src = files(
     'toolbar.cpp',
     'tooltip_manager.cpp',
     'utils.cpp',
+    'vcva_tag_gui.cpp',
     'validators.cpp',
     'vector2d.cpp',
     'vector3d.cpp',

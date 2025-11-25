@@ -38,6 +38,7 @@
 #include <libaegisub/scoped_ptr.h>
 #include <libaegisub/make_unique.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -65,6 +66,8 @@
 #endif
 
 namespace {
+
+thread_local std::function<void(wxWindow*)> shin_gradient_handler;
 
 enum class PickerDirection {
 	HorzVert,
@@ -519,10 +522,12 @@ class DialogColorPickerShin final : public wxDialog {
 	void OnCaptureLost(wxMouseCaptureLostEvent&);
 	void OnGradient(wxCommandEvent &evt);
 
+	std::function<void(wxWindow*)> gradient_handler;
+
 	std::function<void (agi::Color)> callback;
 
 public:
-	DialogColorPickerShin(wxWindow *parent, agi::Color initial_color, std::function<void (agi::Color)> callback, bool alpha);
+	DialogColorPickerShin(wxWindow *parent, agi::Color initial_color, std::function<void (agi::Color)> callback, bool alpha, std::function<void(wxWindow*)> gradient_handler);
 	~DialogColorPickerShin();
 
 	void SetColor(agi::Color new_color);
@@ -552,9 +557,10 @@ static wxBitmap make_slider(Func func) {
 	});
 }
 
-DialogColorPickerShin::DialogColorPickerShin(wxWindow *parent, agi::Color initial_color, std::function<void (agi::Color)> callback, bool alpha)
+DialogColorPickerShin::DialogColorPickerShin(wxWindow *parent, agi::Color initial_color, std::function<void (agi::Color)> callback, bool alpha, std::function<void(wxWindow*)> gradient_handler)
 : wxDialog(parent, -1, _("Select Color"))
 , callback(std::move(callback))
+, gradient_handler(std::move(gradient_handler))
 {
 	// generate spectrum slider bar images
 	for (int i = 0; i < 3; ++i) {
@@ -1127,6 +1133,11 @@ void DialogColorPickerShin::OnCaptureLost(wxMouseCaptureLostEvent&) {
 }
 
 void DialogColorPickerShin::OnGradient(wxCommandEvent&) {
+	if (gradient_handler) {
+		gradient_handler(this);
+		return;
+	}
+
 	wxMessageBox(
 		_("Gradient editor is not implemented yet.\n\nThis button is reserved for VSFilterMod gradient support."),
 		_("Gradient"),
@@ -1136,8 +1147,13 @@ void DialogColorPickerShin::OnGradient(wxCommandEvent&) {
 
 }
 
+void SetShinGradientHandler(std::function<void(wxWindow*)> handler) {
+	shin_gradient_handler = std::move(handler);
+}
+
 bool GetColorFromUserShin(wxWindow* parent, agi::Color original, bool alpha, std::function<void (agi::Color)> callback) {
-	DialogColorPickerShin dialog(parent, original, callback, alpha);
+	DialogColorPickerShin dialog(parent, original, callback, alpha, shin_gradient_handler);
+	shin_gradient_handler = nullptr;
 	bool ok = dialog.ShowModal() == wxID_OK;
 	if (!ok)
 		callback(original);
