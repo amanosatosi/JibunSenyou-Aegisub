@@ -690,9 +690,18 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	struct line_info {
 		agi::Color color;
 		parsed_line parsed;
-		ColorRestoreInfo restore;
-		ColorWrapResult wrap_result;
-		std::string original_text;
+	ColorRestoreInfo restore;
+	ColorWrapResult wrap_result;
+	std::string original_text;
+
+	line_info(agi::Color c, parsed_line&& p, ColorRestoreInfo r, std::string original)
+	: color(c)
+	, parsed(std::move(p))
+	, restore(std::move(r))
+	, wrap_result()
+	, original_text(std::move(original))
+	{
+	}
 	};
 	std::vector<line_info> lines;
 	for (auto line : sel) {
@@ -713,12 +722,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		if (use_selection_wrap)
 			restore_info = FindColorRestoreInfo(line->Text, sel_start, channel);
 
-		line_info info;
-		info.color = color;
-		info.parsed = std::move(parsed);
-		info.restore = restore_info;
-		info.original_text = line->Text;
-		lines.push_back(std::move(info));
+		lines.emplace_back(color, std::move(parsed), restore_info, line->Text);
 	}
 
 	int active_shift = 0;
@@ -907,7 +911,10 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			if (line.wrap_result.start_pos < 0)
 				continue;
 			const std::string new_tag = BuildColorTagString(channel, new_color, alpha_tag_str);
-			line.parsed.line->Text.replace(line.wrap_result.start_pos, line.wrap_result.start_len, new_tag);
+			std::string text = line.parsed.line->Text;
+			text.replace(line.wrap_result.start_pos, line.wrap_result.start_len, new_tag);
+			line.parsed.line->Text = text;
+			line.wrap_result.start_len = new_tag.size();
 			line.color = new_color;
 		}
 
