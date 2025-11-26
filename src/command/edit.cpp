@@ -571,7 +571,36 @@ struct SelectionShift {
 	int end = 0;
 };
 
-static SelectionShift ApplyColorWrapToLine(
+struct ColorWrapResult {
+	SelectionShift shift;
+	int start_pos = -1;
+	int start_len = 0;
+	int restore_pos = -1;
+	int restore_len = 0;
+};
+
+static std::string BuildColorTagString(int channel, const agi::Color& color, const std::string& alpha_tag) {
+	std::string tag = MakeChannelColorTag(channel) + color.GetAssOverrideFormatted();
+	if (!alpha_tag.empty())
+		tag += alpha_tag + agi::format("&H%02X&", (int)color.a);
+	return tag;
+}
+
+static std::string BuildRestoreTagString(int channel, ColorRestoreInfo const& restore, const std::string& alpha_tag, int original_alpha) {
+	std::string tag = MakeChannelColorTag(channel);
+
+	if (restore.kind == ColorRestoreKind::RestoreValue)
+		tag += restore.value;
+	else if (restore.kind == ColorRestoreKind::RestoreBare || restore.kind == ColorRestoreKind::RestoreNone)
+		tag = MakeChannelColorTag(channel);
+
+	if (!alpha_tag.empty())
+		tag += alpha_tag + agi::format("&H%02X&", original_alpha);
+
+	return tag;
+}
+
+static ColorWrapResult ApplyColorWrapToLine(
 	AssDialogue *line,
 	int sel_start,
 	int sel_end,
@@ -597,22 +626,10 @@ static SelectionShift ApplyColorWrapToLine(
 		return std::nullopt;
 	};
 
-	std::string color_tag = MakeChannelColorTag(channel) + new_color.GetAssOverrideFormatted();
-	std::string restore_tag = MakeChannelColorTag(channel);
+	std::string color_tag = BuildColorTagString(channel, new_color, alpha_tag);
+	std::string restore_tag = BuildRestoreTagString(channel, restore, alpha_tag, original_alpha);
 
-	if (restore.kind == ColorRestoreKind::RestoreValue)
-		restore_tag += restore.value;
-
-	if ((restore.kind == ColorRestoreKind::RestoreBare || restore.kind == ColorRestoreKind::RestoreNone) && restore_tag.empty())
-		restore_tag = MakeChannelColorTag(channel);
-
-	if (!alpha_tag.empty() && new_color.a != original_alpha) {
-		const std::string alpha_start = agi::format("&H%02X&", (int)new_color.a);
-		const std::string alpha_restore = agi::format("&H%02X&", (int)original_alpha);
-		color_tag += alpha_tag + alpha_start;
-		restore_tag += alpha_tag + alpha_restore;
-	}
-
+	ColorWrapResult local_result;
 	auto insert_text = [&](int pos, const std::string& content, bool wrap) {
 		if (content.empty())
 			return;
@@ -637,6 +654,8 @@ static SelectionShift ApplyColorWrapToLine(
 		start_inside_block = true;
 	}
 	insert_text(start_insert_pos, color_tag, !start_inside_block);
+	local_result.start_pos = start_insert_pos + (start_inside_block ? 0 : 1);
+	local_result.start_len = color_tag.size();
 
 	int end_insert_pos = selection_end;
 	bool end_inside_block = false;
@@ -648,9 +667,12 @@ static SelectionShift ApplyColorWrapToLine(
 		end_inside_block = true;
 	}
 	insert_text(end_insert_pos, restore_tag, !end_inside_block);
+	local_result.restore_pos = end_insert_pos + (end_inside_block ? 0 : 1);
+	local_result.restore_len = restore_tag.size();
 
 	line->Text = text;
-	return {selection_start - sel_start, selection_end - sel_end};
+	local_result.shift = {selection_start - sel_start, selection_end - sel_end};
+	return local_result;
 }
 
 void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), const char *tag, const char *alt, const char *alpha, ColorPickerInvoker picker = GetColorFromUser) {
@@ -669,6 +691,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		agi::Color color;
 		parsed_line parsed;
 		ColorRestoreInfo restore;
+		ColorWrapResult wrap_result;
+		std::string original_text;
 	};
 	std::vector<line_info> lines;
 	for (auto line : sel) {
@@ -689,7 +713,12 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		if (use_selection_wrap)
 			restore_info = FindColorRestoreInfo(line->Text, sel_start, channel);
 
-		lines.push_back({color, std::move(parsed), restore_info});
+		line_info info;
+		info.color = color;
+		info.parsed = std::move(parsed);
+		info.restore = restore_info;
+		info.original_text = line->Text;
+		lines.push_back(std::move(info));
 	}
 
 	int active_shift = 0;
@@ -707,16 +736,24 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		const std::string gradient_tag_alt = channel == 1 ? "\\vc" : std::string();
 		const std::string gradient_alpha_tag_alt = channel == 1 ? "\\va" : std::string();
 
-		gradient_handler = [=, &lines, &sel, &gradient_used](wxWindow *owner) mutable {
+		gradient_handler = [=, &lines, &sel, &gradient_used, &commit_id](wxWindow *owner) mutable {
 			if (!owner || !active_line) return;
 			gradient_used = true;
-			for (auto& entry : lines)
+			if (use_selection_wrap && commit_id != -1) {
+				c->subsController->Undo();
+				commit_id = -1;
+			}
+
+			for (auto& entry : lines) {
+				if (use_selection_wrap)
+					entry.parsed.line->Text = entry.original_text;
 				entry.parsed = parsed_line(entry.parsed.line);
+			}
 
 			std::vector<std::string> original_texts;
 			original_texts.reserve(lines.size());
 			for (auto& entry : lines)
-				original_texts.push_back(entry.parsed.line->Text.get());
+				original_texts.push_back(use_selection_wrap ? entry.original_text : entry.parsed.line->Text.get());
 
 			auto it = std::find_if(lines.begin(), lines.end(), [&](line_info& info) {
 				return info.parsed.line == active_line;
@@ -849,28 +886,46 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		return;
 	}
 
-	agi::Color chosen_color = initial_color;
-	bool ok = picker(c->parent, initial_color, true, [&](agi::Color new_color) {
-		chosen_color = new_color;
-	});
-
-	if (!ok || gradient_used)
-		return;
-
+	// Selection-aware path with live preview
 	int start_shift = 0;
 	int end_shift = 0;
-
 	for (auto& line : lines) {
-		auto shift = ApplyColorWrapToLine(line.parsed.line, sel_start, sel_end, channel, chosen_color, line.restore, alpha_tag_str, line.color.a);
+		ColorWrapResult wrap_res = ApplyColorWrapToLine(line.parsed.line, sel_start, sel_end, channel, initial_color, line.restore, alpha_tag_str, line.color.a);
+		line.wrap_result = wrap_res;
 		if (line.parsed.line == active_line) {
-			start_shift = shift.start;
-			end_shift = shift.end;
+			start_shift = wrap_res.shift.start;
+			end_shift = wrap_res.shift.end;
 		}
 	}
 
 	commit_id = c->ass->Commit(_("set color"), AssFile::COMMIT_DIAG_TEXT, commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 	if (start_shift || end_shift)
 		c->textSelectionController->SetSelection(sel_start + start_shift, sel_end + end_shift);
+
+	bool ok = picker(c->parent, initial_color, true, [&](agi::Color new_color) {
+		for (auto& line : lines) {
+			if (line.wrap_result.start_pos < 0)
+				continue;
+			const std::string new_tag = BuildColorTagString(channel, new_color, alpha_tag_str);
+			line.parsed.line->Text.replace(line.wrap_result.start_pos, line.wrap_result.start_len, new_tag);
+			line.color = new_color;
+		}
+
+		commit_id = c->ass->Commit(_("set color"), AssFile::COMMIT_DIAG_TEXT, commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
+	});
+
+	if (!ok) {
+		if (commit_id != -1) {
+			c->subsController->Undo();
+			c->textSelectionController->SetSelection(sel_start, sel_end);
+		}
+		return;
+	}
+
+	if (gradient_used)
+		return;
+
+	// Final state already present in the last preview commit
 }
 
 struct edit_color_primary final : public Command {
