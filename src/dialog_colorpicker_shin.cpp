@@ -658,17 +658,20 @@ DialogColorPickerShin::DialogColorPickerShin(wxWindow *parent, agi::Color initia
 	picker_sizer->Add(recent_box, 0, wxALIGN_CENTER);
 	picker_sizer->AddStretchSpacer();
 
-	wxStdDialogButtonSizer *button_sizer = new wxStdDialogButtonSizer;
+	auto *std_button_sizer = new wxStdDialogButtonSizer;
 	wxButton *ok_button = new wxButton(this, wxID_OK);
 	wxButton *cancel_button = new wxButton(this, wxID_CANCEL);
 	wxButton *gradient_button = new wxButton(this, wxID_ANY, _("Gradient"));
 	gradient_button->SetToolTip(_("gradient only for vsfiltermod"));
 	ok_button->SetDefault();
-	button_sizer->AddButton(ok_button);
-	button_sizer->AddButton(cancel_button);
-	button_sizer->AddButton(gradient_button);
-	button_sizer->Realize();
+	std_button_sizer->AddButton(ok_button);
+	std_button_sizer->AddButton(cancel_button);
+	std_button_sizer->Realize();
 	gradient_button->Bind(wxEVT_BUTTON, &DialogColorPickerShin::OnGradient, this);
+
+	auto *button_sizer = new wxBoxSizer(wxHORIZONTAL);
+	button_sizer->Add(std_button_sizer, 0, wxALIGN_CENTER_VERTICAL);
+	button_sizer->Add(gradient_button, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, 5);
 
 	wxSizer *input_sizer = new wxBoxSizer(wxVERTICAL);
 	input_sizer->Add(rgb_box, 0, wxEXPAND);
