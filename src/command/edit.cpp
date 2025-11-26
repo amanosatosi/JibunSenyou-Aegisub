@@ -754,6 +754,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		const std::string gradient_tag_alt = channel == 1 ? "\\vc" : std::string();
 		const std::string gradient_alpha_tag_alt = channel == 1 ? "\\va" : std::string();
 
+		bool ignore_selection_for_gradient = use_selection_wrap;
+
 		gradient_handler = [=, &lines, &sel, &gradient_used, &commit_id](wxWindow *owner) mutable {
 			if (!owner || !active_line) return;
 			gradient_used = true;
@@ -761,6 +763,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 				c->subsController->Undo();
 				commit_id = -1;
 			}
+			if (use_selection_wrap)
+				c->textSelectionController->SetSelection(sel_start, sel_end);
 
 			for (auto& entry : lines) {
 				if (use_selection_wrap)
@@ -809,7 +813,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 			int gradient_commit_id = -1;
 			auto apply_state = [&](bool use_color, bool use_alpha, const std::array<agi::Color, 4>& colors, const std::array<uint8_t, 4>& alphas) {
-				if (use_selection_wrap) {
+				bool apply_selection = use_selection_wrap && !ignore_selection_for_gradient;
+				if (apply_selection) {
 					int local_start_shift = 0;
 					int local_end_shift = 0;
 					for (size_t idx = 0; idx < lines.size(); ++idx) {
