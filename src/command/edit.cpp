@@ -427,13 +427,13 @@ void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const c
 }
 
 enum class ColorRestoreKind {
-	None,
-	Bare,
-	Value
+	RestoreNone,
+	RestoreBare,
+	RestoreValue
 };
 
 struct ColorRestoreInfo {
-	ColorRestoreKind kind = ColorRestoreKind::None;
+	ColorRestoreKind kind = ColorRestoreKind::RestoreNone;
 	std::string value;
 };
 
@@ -552,14 +552,14 @@ static ColorRestoreInfo FindColorRestoreInfo(const std::string& text, int sel_st
 			while (value_end < static_cast<int>(text.size()) && text[value_end] != '&')
 				++value_end;
 			if (value_end < static_cast<int>(text.size())) {
-				info.kind = ColorRestoreKind::Value;
+				info.kind = ColorRestoreKind::RestoreValue;
 				info.value = text.substr(value_start, value_end - value_start + 1);
 				i = value_end;
 				continue;
 			}
 		}
 
-		info.kind = ColorRestoreKind::Bare;
+		info.kind = ColorRestoreKind::RestoreBare;
 		info.value.clear();
 	}
 
@@ -600,10 +600,10 @@ static SelectionShift ApplyColorWrapToLine(
 	std::string color_tag = MakeChannelColorTag(channel) + new_color.GetAssOverrideFormatted();
 	std::string restore_tag = MakeChannelColorTag(channel);
 
-	if (restore.kind == ColorRestoreKind::Value)
+	if (restore.kind == ColorRestoreKind::RestoreValue)
 		restore_tag += restore.value;
 
-	if ((restore.kind == ColorRestoreKind::Bare || restore.kind == ColorRestoreKind::None) && restore_tag.empty())
+	if ((restore.kind == ColorRestoreKind::RestoreBare || restore.kind == ColorRestoreKind::RestoreNone) && restore_tag.empty())
 		restore_tag = MakeChannelColorTag(channel);
 
 	if (!alpha_tag.empty() && new_color.a != original_alpha) {
