@@ -473,6 +473,11 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			for (auto& entry : lines)
 				entry.second = parsed_line(entry.second.line);
 
+			std::vector<std::string> original_texts;
+			original_texts.reserve(lines.size());
+			for (auto& entry : lines)
+				original_texts.push_back(entry.second.line->Text.get());
+
 			auto it = std::find_if(lines.begin(), lines.end(), [&](line_info& info) {
 				return info.second.line == active_line;
 			});
@@ -508,23 +513,11 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			gradient_state.alpha_touched = false;
 
 			int gradient_commit_id = -1;
-			auto refresh_lines = [&]() {
-				for (auto& entry : lines)
-					entry.second = parsed_line(entry.second.line);
-			};
-
-			auto revert_preview = [&]() {
-				if (gradient_commit_id != -1) {
-					c->subsController->Undo();
-					gradient_commit_id = -1;
-					refresh_lines();
-					c->textSelectionController->SetSelection(sel_start, sel_end);
-				}
-			};
-
 			auto apply_state = [&](bool use_color, bool use_alpha, const std::array<agi::Color, 4>& colors, const std::array<uint8_t, 4>& alphas) {
 				int local_active_shift = 0;
-				for (auto& entry : lines) {
+				for (size_t idx = 0; idx < lines.size(); ++idx) {
+					auto& entry = lines[idx];
+					entry.second.line->Text = original_texts[idx];
 					entry.second = parsed_line(entry.second.line);
 					int shift = 0;
 
@@ -559,17 +552,29 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					c->textSelectionController->SetSelection(sel_start + local_active_shift, sel_start + local_active_shift);
 			};
 
+			auto revert_preview = [&]() {
+				if (gradient_commit_id != -1) {
+					c->subsController->Undo();
+					gradient_commit_id = -1;
+					for (auto& entry : lines)
+						entry.second = parsed_line(entry.second.line);
+					c->textSelectionController->SetSelection(sel_start, sel_end);
+				}
+			};
+
 			auto preview_cb = [&](const VcVaGradientState& state) {
-				revert_preview();
 				apply_state(true, state.alpha_touched, state.colors, state.alphas);
 			};
 
 			auto result = ShowVcVaGradientDialog(owner, gradient_state, preview_cb, revert_preview);
-			revert_preview();
-			if (!result.accepted)
+			if (!result.accepted) {
+				revert_preview();
 				return;
-			if (!result.has_color && !result.has_alpha)
+			}
+			if (!result.has_color && !result.has_alpha) {
+				revert_preview();
 				return;
+			}
 
 			apply_state(true, result.has_alpha, result.colors, result.alphas);
 			gradient_commit_id = -1;
