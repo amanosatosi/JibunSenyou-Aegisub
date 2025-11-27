@@ -1203,6 +1203,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			if (!owner || !active_line) return;
 			gradient_used = true;
 			const bool selection_mode = has_selection;
+			int current_sel_start = sel_start;
+			int current_sel_end = sel_end;
 
 			if (selection_mode && commit_id != -1) {
 				c->subsController->Undo();
@@ -1262,6 +1264,10 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					// Selection path: rebuild the full line via ApplyColorOrGradientToRange instead of the old caret-based preview.
 					int local_start_shift = 0;
 					int local_end_shift = 0;
+					int apply_sel_start = c->textSelectionController->GetSelectionStart();
+					int apply_sel_end = c->textSelectionController->GetSelectionEnd();
+					if (apply_sel_end < apply_sel_start)
+						std::swap(apply_sel_start, apply_sel_end);
 					for (size_t idx = 0; idx < lines.size(); ++idx) {
 						auto& entry = lines[idx];
 						SelectionApplyOptions options;
@@ -1275,7 +1281,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 						options.gradient_tag_name = StripBackslash(gradient_tag);
 						options.alpha_tag_name = alpha_tag_name;
 						options.alpha_gradient_tag_name = StripBackslash(gradient_alpha_tag);
-						SelectionApplyResult res = ApplyColorOrGradientToRange(original_texts[idx], sel_start, sel_end, options);
+						SelectionApplyResult res = ApplyColorOrGradientToRange(original_texts[idx], apply_sel_start, apply_sel_end, options);
 						entry.parsed.line->Text = res.text;
 						entry.parsed = parsed_line(entry.parsed.line);
 						original_texts[idx] = entry.parsed.line->Text.get();
@@ -1286,8 +1292,10 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					}
 
 					gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
+					current_sel_start = apply_sel_start + local_start_shift;
+					current_sel_end = apply_sel_end + local_end_shift;
 					if (local_start_shift || local_end_shift)
-						c->textSelectionController->SetSelection(sel_start + local_start_shift, sel_end + local_end_shift);
+						c->textSelectionController->SetSelection(current_sel_start, current_sel_end);
 				}
 				else {
 					int local_active_shift = 0;
@@ -1335,7 +1343,10 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					gradient_commit_id = -1;
 					for (auto& entry : lines)
 						entry.parsed = parsed_line(entry.parsed.line);
-					c->textSelectionController->SetSelection(sel_start, sel_end);
+					if (selection_mode)
+						c->textSelectionController->SetSelection(current_sel_start, current_sel_end);
+					else
+						c->textSelectionController->SetSelection(sel_start, sel_end);
 				}
 			};
 
