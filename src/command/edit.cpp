@@ -1018,72 +1018,99 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 	std::vector<std::string> end_color_tags;
 
 	auto make_tag = [](const std::string& name, const std::string& value) {
+		if (name.empty())
+			return std::string();
 		return "\\" + name + value;
 	};
 
 	if (params.add_color_tag) {
 		if (params.use_gradient) {
-			start_color_tags.push_back(make_tag(params.gradient_tag_name, params.new_color_value));
+			if (auto tag = make_tag(params.gradient_tag_name, params.new_color_value); !tag.empty())
+				start_color_tags.push_back(tag);
 
 			bool alpha_ff = prev_alpha.has && !prev_alpha.gradient && prev_alpha.simple_value == 0xFF;
 			if (params.channel <= 2 && !params.alpha_tag_name.empty() && alpha_ff &&
 								(prev_color.type == ChannelTagType::TagColor || prev_color.type == ChannelTagType::TagNone)) {
-				start_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0)));
+				if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0)); !tag.empty())
+					start_alpha_tags.push_back(tag);
 				if (!whole_line) {
 					const std::string restore_value = prev_alpha.gradient ? prev_alpha.value : FormatAlphaValue(prev_alpha.simple_value);
-					end_alpha_tags.push_back(make_tag(prev_alpha.name.empty() ? params.alpha_tag_name : prev_alpha.name, restore_value));
+					if (auto tag = make_tag(prev_alpha.name.empty() ? params.alpha_tag_name : prev_alpha.name, restore_value); !tag.empty())
+						end_alpha_tags.push_back(tag);
 				}
 			}
 
 			if (!whole_line) {
-				if (prev_color.type == ChannelTagType::TagGradient)
-					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
-				else if (prev_color.type == ChannelTagType::TagColor)
-					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
-				else
-					end_color_tags.push_back(make_tag(params.color_tag_name, ""));
+				if (prev_color.type == ChannelTagType::TagGradient) {
+					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+						end_color_tags.push_back(tag);
+				}
+				else if (prev_color.type == ChannelTagType::TagColor) {
+					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+						end_color_tags.push_back(tag);
+				}
+				else {
+					if (auto tag = make_tag(params.color_tag_name, ""); !tag.empty())
+						end_color_tags.push_back(tag);
+				}
 			}
 		}
 		else {
-			start_color_tags.push_back(make_tag(params.color_tag_name, params.new_color_value));
+			if (auto tag = make_tag(params.color_tag_name, params.new_color_value); !tag.empty())
+				start_color_tags.push_back(tag);
 
 			bool prev_is_gradient = prev_color.type == ChannelTagType::TagGradient;
 			bool alpha_ff = prev_alpha.has && !prev_alpha.gradient && prev_alpha.simple_value == 0xFF;
 
 			if (params.channel <= 2 && !params.alpha_tag_name.empty()) {
 				if (prev_is_gradient && !alpha_ff) {
-					start_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0xFF)));
+					if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0xFF)); !tag.empty())
+						start_alpha_tags.push_back(tag);
 					if (!whole_line)
-						end_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0x00)));
+						if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0x00)); !tag.empty())
+							end_alpha_tags.push_back(tag);
 				}
 
 				if ((prev_color.type == ChannelTagType::TagColor || prev_color.type == ChannelTagType::TagNone) && alpha_ff) {
-					start_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0)));
+					if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0)); !tag.empty())
+						start_alpha_tags.push_back(tag);
 					if (!whole_line) {
 						const std::string restore_value = prev_alpha.gradient ? prev_alpha.value : FormatAlphaValue(prev_alpha.simple_value);
-						end_alpha_tags.push_back(make_tag(prev_alpha.name.empty() ? params.alpha_tag_name : prev_alpha.name, restore_value));
+						if (auto tag = make_tag(prev_alpha.name.empty() ? params.alpha_tag_name : prev_alpha.name, restore_value); !tag.empty())
+							end_alpha_tags.push_back(tag);
 					}
 				}
 			}
 
 			if (!whole_line) {
-				if (prev_is_gradient)
-					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
-				else if (prev_color.type == ChannelTagType::TagColor)
-					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
-				else
-					end_color_tags.push_back(make_tag(params.color_tag_name, ""));
+				if (prev_is_gradient) {
+					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+						end_color_tags.push_back(tag);
+				}
+				else if (prev_color.type == ChannelTagType::TagColor) {
+					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+						end_color_tags.push_back(tag);
+				}
+				else {
+					if (auto tag = make_tag(params.color_tag_name, ""); !tag.empty())
+						end_color_tags.push_back(tag);
+				}
 			}
 		}
 	}
 
 	if (params.apply_alpha_gradient && !params.alpha_gradient_tag_name.empty()) {
-		start_alpha_tags.push_back(make_tag(params.alpha_gradient_tag_name, params.new_alpha_gradient_value));
+		if (!params.alpha_gradient_tag_name.empty() && !params.new_alpha_gradient_value.empty())
+			if (auto tag = make_tag(params.alpha_gradient_tag_name, params.new_alpha_gradient_value); !tag.empty())
+				start_alpha_tags.push_back(tag);
+
 		if (!whole_line) {
-			if (prev_alpha.has)
-				end_alpha_tags.push_back(make_tag(prev_alpha.name, prev_alpha.value));
-			else
-				end_alpha_tags.push_back(make_tag(params.alpha_tag_name, ""));
+			if (prev_alpha.has && !prev_alpha.name.empty())
+				if (auto tag = make_tag(prev_alpha.name, prev_alpha.value); !tag.empty())
+					end_alpha_tags.push_back(tag);
+			else if (!params.alpha_tag_name.empty())
+				if (auto tag = make_tag(params.alpha_tag_name, ""); !tag.empty())
+					end_alpha_tags.push_back(tag);
 		}
 	}
 
