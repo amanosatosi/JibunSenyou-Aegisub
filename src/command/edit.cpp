@@ -1135,9 +1135,13 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	const int sel_start = c->textSelectionController->GetSelectionStart();
 	const int sel_end = c->textSelectionController->GetSelectionEnd();
 	const int norm_sel_start = normalize_pos(active_line->Text, sel_start);
-	const bool using_shin = picker == GetColorFromUserShin;
 	const bool has_selection = sel_end > sel_start;
-	const bool use_selection_wrap = using_shin && has_selection;
+	const bool shin_requested = picker == GetColorFromUserShin;
+	const bool force_legacy_dialog = shin_requested && has_selection;
+	ColorPickerInvoker effective_picker = force_legacy_dialog ? GetColorFromUser : picker;
+	const bool using_shin = effective_picker == GetColorFromUserShin;
+	const bool allow_gradient = using_shin && !has_selection;
+	const bool use_selection_wrap = has_selection && !allow_gradient;
 	const int channel = GetChannelFromTags(tag, alt);
 
 	auto const& sel = c->selectionController->GetSelectedSet();
@@ -1193,7 +1197,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	const std::string alpha_tag_name = StripBackslash(alpha_tag_str);
 	const std::string gradient_alpha_tag_name = StripBackslash(agi::format("\\%dva", channel));
 
-	if (using_shin) {
+	if (allow_gradient) {
 		const std::string gradient_tag = agi::format("\\%dvc", channel);
 		const std::string gradient_alpha_tag = agi::format("\\%dva", channel);
 		const std::string gradient_tag_alt = channel == 1 ? "\\vc" : std::string();
@@ -1202,22 +1206,9 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		gradient_handler = [=, &lines, &sel, &gradient_used, &commit_id](wxWindow *owner) mutable {
 			if (!owner || !active_line) return;
 			gradient_used = true;
-			const bool selection_mode = has_selection;
-			int current_sel_start = sel_start;
-			int current_sel_end = sel_end;
 
-			if (selection_mode && commit_id != -1) {
-				c->subsController->Undo();
-				commit_id = -1;
-			}
-			if (selection_mode)
-				c->textSelectionController->SetSelection(sel_start, sel_end);
-
-			for (auto& entry : lines) {
-				if (selection_mode)
-					entry.parsed.line->Text = entry.original_text;
+			for (auto& entry : lines)
 				entry.parsed = parsed_line(entry.parsed.line);
-			}
 
 			std::vector<std::string> original_texts;
 			original_texts.reserve(lines.size());
@@ -1260,81 +1251,43 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 			int gradient_commit_id = -1;
 			auto apply_state = [&](bool use_color, bool use_alpha, const std::array<agi::Color, 4>& colors, const std::array<uint8_t, 4>& alphas) {
-				if (selection_mode) {
-					// Selection path: rebuild the full line via ApplyColorOrGradientToRange instead of the old caret-based preview.
-					int local_start_shift = 0;
-					int local_end_shift = 0;
-					int apply_sel_start = c->textSelectionController->GetSelectionStart();
-					int apply_sel_end = c->textSelectionController->GetSelectionEnd();
-					if (apply_sel_end < apply_sel_start)
-						std::swap(apply_sel_start, apply_sel_end);
-					for (size_t idx = 0; idx < lines.size(); ++idx) {
-						auto& entry = lines[idx];
-						SelectionApplyOptions options;
-						options.channel = channel;
-						options.use_gradient = use_color;
-						options.add_color_tag = use_color;
-						options.apply_alpha_gradient = use_alpha && !gradient_alpha_tag.empty();
-						options.new_color_value = use_color ? FormatGradientColors(colors) : std::string();
-						options.new_alpha_gradient_value = options.apply_alpha_gradient ? FormatGradientAlphas(alphas) : std::string();
-						options.color_tag_name = color_tag_name;
-						options.gradient_tag_name = StripBackslash(gradient_tag);
-						options.alpha_tag_name = alpha_tag_name;
-						options.alpha_gradient_tag_name = StripBackslash(gradient_alpha_tag);
-						SelectionApplyResult res = ApplyColorOrGradientToRange(original_texts[idx], apply_sel_start, apply_sel_end, options);
-						entry.parsed.line->Text = res.text;
-						entry.parsed = parsed_line(entry.parsed.line);
-						original_texts[idx] = entry.parsed.line->Text.get();
-						if (entry.parsed.line == active_line) {
-							local_start_shift = res.shift.start;
-							local_end_shift = res.shift.end;
-						}
+				// Gradient currently ignores selection wrapping to avoid crashes; apply at caret only.
+				int local_active_shift = 0;
+				for (size_t idx = 0; idx < lines.size(); ++idx) {
+					auto& entry = lines[idx];
+					entry.parsed.line->Text = original_texts[idx];
+					entry.parsed = parsed_line(entry.parsed.line);
+					int shift = 0;
+
+					if (use_color) {
+						shift += entry.parsed.remove_tag(gradient_tag, norm_sel_start, sel_start + shift);
+						if (!gradient_tag_alt.empty())
+							shift += entry.parsed.remove_tag(gradient_tag_alt, norm_sel_start, sel_start + shift);
+						if (!color_tag_str.empty())
+							shift += entry.parsed.remove_tag(color_tag_str, norm_sel_start, sel_start + shift);
+						if (!color_tag_alt_str.empty())
+							shift += entry.parsed.remove_tag(color_tag_alt_str, norm_sel_start, sel_start + shift);
+						shift += entry.parsed.set_tag(gradient_tag, FormatGradientColors(colors), norm_sel_start, sel_start + shift);
 					}
 
-					gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
-					current_sel_start = apply_sel_start + local_start_shift;
-					current_sel_end = apply_sel_end + local_end_shift;
-					if (local_start_shift || local_end_shift)
-						c->textSelectionController->SetSelection(current_sel_start, current_sel_end);
-				}
-				else {
-					int local_active_shift = 0;
-					for (size_t idx = 0; idx < lines.size(); ++idx) {
-						auto& entry = lines[idx];
-						entry.parsed.line->Text = original_texts[idx];
-						entry.parsed = parsed_line(entry.parsed.line);
-						int shift = 0;
-
-						if (use_color) {
-							shift += entry.parsed.remove_tag(gradient_tag, norm_sel_start, sel_start + shift);
-							if (!gradient_tag_alt.empty())
-								shift += entry.parsed.remove_tag(gradient_tag_alt, norm_sel_start, sel_start + shift);
-							if (!color_tag_str.empty())
-								shift += entry.parsed.remove_tag(color_tag_str, norm_sel_start, sel_start + shift);
-							if (!color_tag_alt_str.empty())
-								shift += entry.parsed.remove_tag(color_tag_alt_str, norm_sel_start, sel_start + shift);
-							shift += entry.parsed.set_tag(gradient_tag, FormatGradientColors(colors), norm_sel_start, sel_start + shift);
-						}
-
-						if (use_alpha) {
-							shift += entry.parsed.remove_tag(gradient_alpha_tag, norm_sel_start, sel_start + shift);
-							if (!gradient_alpha_tag_alt.empty())
-								shift += entry.parsed.remove_tag(gradient_alpha_tag_alt, norm_sel_start, sel_start + shift);
-							if (!alpha_tag_str.empty())
-								shift += entry.parsed.remove_tag(alpha_tag_str, norm_sel_start, sel_start + shift);
-							shift += entry.parsed.set_tag(gradient_alpha_tag, FormatGradientAlphas(alphas), norm_sel_start, sel_start + shift);
-						}
-
-						if (entry.parsed.line == active_line)
-							local_active_shift = shift;
-
-						entry.parsed = parsed_line(entry.parsed.line);
+					if (use_alpha) {
+						shift += entry.parsed.remove_tag(gradient_alpha_tag, norm_sel_start, sel_start + shift);
+						if (!gradient_alpha_tag_alt.empty())
+							shift += entry.parsed.remove_tag(gradient_alpha_tag_alt, norm_sel_start, sel_start + shift);
+						if (!alpha_tag_str.empty())
+							shift += entry.parsed.remove_tag(alpha_tag_str, norm_sel_start, sel_start + shift);
+						shift += entry.parsed.set_tag(gradient_alpha_tag, FormatGradientAlphas(alphas), norm_sel_start, sel_start + shift);
 					}
 
-					gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
-					if (local_active_shift)
-						c->textSelectionController->SetSelection(sel_start + local_active_shift, sel_start + local_active_shift);
+					if (entry.parsed.line == active_line)
+						local_active_shift = shift;
+
+					entry.parsed = parsed_line(entry.parsed.line);
 				}
+
+				gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
+				if (local_active_shift)
+					c->textSelectionController->SetSelection(sel_start + local_active_shift, sel_start + local_active_shift);
 			};
 
 			auto revert_preview = [&]() {
@@ -1343,10 +1296,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					gradient_commit_id = -1;
 					for (auto& entry : lines)
 						entry.parsed = parsed_line(entry.parsed.line);
-					if (selection_mode)
-						c->textSelectionController->SetSelection(current_sel_start, current_sel_end);
-					else
-						c->textSelectionController->SetSelection(sel_start, sel_end);
+					c->textSelectionController->SetSelection(sel_start, sel_end);
 				}
 			};
 
@@ -1373,7 +1323,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		SetShinGradientHandler({});
 
 	if (!use_selection_wrap) {
-		bool ok = picker(c->parent, initial_color, true, [&](agi::Color new_color) {
+		bool ok = effective_picker(c->parent, initial_color, true, [&](agi::Color new_color) {
 			for (auto& line : lines) {
 				int shift = line.parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);
 				if (new_color.a != line.color.a) {
@@ -1425,7 +1375,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			c->textSelectionController->SetSelection(sel_start + start_shift, sel_end + end_shift);
 	};
 
-	bool ok = picker(c->parent, initial_color, true, [&](agi::Color new_color) {
+	bool ok = effective_picker(c->parent, initial_color, true, [&](agi::Color new_color) {
 		apply_selection_color(new_color);
 	});
 
