@@ -580,13 +580,13 @@ struct ColorWrapResult {
 };
 
 enum class ChannelTagType {
-	None,
-	Color,
-	Gradient
+	TagNone,
+	TagColor,
+	TagGradient
 };
 
 struct ChannelTagState {
-	ChannelTagType type = ChannelTagType::None;
+	ChannelTagType type = ChannelTagType::TagNone;
 	std::string name;
 	std::string value;
 };
@@ -932,7 +932,7 @@ static SelectionContext ScanSelectionContext(const std::string& text, int sel_st
 		}
 		else {
 			auto& state = ctx.channels[channel - 1];
-			state.type = gradient_tag ? ChannelTagType::Gradient : ChannelTagType::Color;
+			state.type = gradient_tag ? ChannelTagType::TagGradient : ChannelTagType::TagColor;
 			state.name = name;
 			state.value = value;
 		}
@@ -1027,7 +1027,7 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 
 			bool alpha_ff = prev_alpha.has && !prev_alpha.gradient && prev_alpha.simple_value == 0xFF;
 			if (params.channel <= 2 && !params.alpha_tag_name.empty() && alpha_ff &&
-				(prev_color.type == ChannelTagType::Color || prev_color.type == ChannelTagType::None)) {
+								(prev_color.type == ChannelTagType::TagColor || prev_color.type == ChannelTagType::TagNone)) {
 				start_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0)));
 				if (!whole_line) {
 					const std::string restore_value = prev_alpha.gradient ? prev_alpha.value : FormatAlphaValue(prev_alpha.simple_value);
@@ -1036,9 +1036,9 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 			}
 
 			if (!whole_line) {
-				if (prev_color.type == ChannelTagType::Gradient)
+				if (prev_color.type == ChannelTagType::TagGradient)
 					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
-				else if (prev_color.type == ChannelTagType::Color)
+				else if (prev_color.type == ChannelTagType::TagColor)
 					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
 				else
 					end_color_tags.push_back(make_tag(params.color_tag_name, ""));
@@ -1047,7 +1047,7 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 		else {
 			start_color_tags.push_back(make_tag(params.color_tag_name, params.new_color_value));
 
-			bool prev_is_gradient = prev_color.type == ChannelTagType::Gradient;
+			bool prev_is_gradient = prev_color.type == ChannelTagType::TagGradient;
 			bool alpha_ff = prev_alpha.has && !prev_alpha.gradient && prev_alpha.simple_value == 0xFF;
 
 			if (params.channel <= 2 && !params.alpha_tag_name.empty()) {
@@ -1057,7 +1057,7 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 						end_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0x00)));
 				}
 
-				if ((prev_color.type == ChannelTagType::Color || prev_color.type == ChannelTagType::None) && alpha_ff) {
+				if ((prev_color.type == ChannelTagType::TagColor || prev_color.type == ChannelTagType::TagNone) && alpha_ff) {
 					start_alpha_tags.push_back(make_tag(params.alpha_tag_name, FormatAlphaValue(0)));
 					if (!whole_line) {
 						const std::string restore_value = prev_alpha.gradient ? prev_alpha.value : FormatAlphaValue(prev_alpha.simple_value);
@@ -1069,7 +1069,7 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 			if (!whole_line) {
 				if (prev_is_gradient)
 					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
-				else if (prev_color.type == ChannelTagType::Color)
+				else if (prev_color.type == ChannelTagType::TagColor)
 					end_color_tags.push_back(make_tag(prev_color.name, prev_color.value));
 				else
 					end_color_tags.push_back(make_tag(params.color_tag_name, ""));
@@ -1161,7 +1161,6 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 	std::function<void(wxWindow*)> gradient_handler;
 	bool gradient_used = false;
-	const bool has_selection = sel_end > sel_start;
 	const std::string color_tag_name = StripBackslash(MakeChannelColorTag(channel));
 	const std::string gradient_tag_name = StripBackslash(agi::format("\\%dvc", channel));
 	const std::string alpha_tag_name = StripBackslash(alpha_tag_str);
