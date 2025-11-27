@@ -1277,6 +1277,8 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 						options.alpha_gradient_tag_name = StripBackslash(gradient_alpha_tag);
 						SelectionApplyResult res = ApplyColorOrGradientToRange(original_texts[idx], sel_start, sel_end, options);
 						entry.parsed.line->Text = res.text;
+						entry.parsed = parsed_line(entry.parsed.line);
+						original_texts[idx] = entry.parsed.line->Text.get();
 						if (entry.parsed.line == active_line) {
 							local_start_shift = res.shift.start;
 							local_end_shift = res.shift.end;
