@@ -544,10 +544,7 @@ void SubsEditBox::OnBracketButton(wxCommandEvent &) {
 	for (size_t i = 0; i < kBracketPairs.size(); ++i) {
 		int id = base_id + static_cast<int>(i);
 		wxString label = kBracketPairs[i].left + wxS(" ") + kBracketPairs[i].right;
-		wxMenuItem *item = menu.AppendRadioItem(id, label);
-		if (i == last_bracket_pair_index_) {
-			item->Check();
-		}
+		menu.Append(id, label);
 	}
 
 	menu.Bind(wxEVT_MENU, [=](wxCommandEvent &evt) {
@@ -555,6 +552,9 @@ void SubsEditBox::OnBracketButton(wxCommandEvent &) {
 		if (index >= kBracketPairs.size()) return;
 		last_bracket_pair_index_ = index;
 		InsertBracketPair(kBracketPairs[index].left, kBracketPairs[index].right);
+		if (bracket_button_) {
+			bracket_button_->SetLabel(kBracketPairs[index].left + kBracketPairs[index].right);
+		}
 	});
 
 	wxPoint pos = bracket_button_ ? bracket_button_->GetPosition() : wxPoint(0, 0);
