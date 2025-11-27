@@ -56,9 +56,55 @@
 #include <boost/range/algorithm/copy.hpp>
 #include <wx/msgdlg.h>
 #include <wx/choicdlg.h>
+#include <wx/filedlg.h>
+#include <wx/filename.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace {
 	using cmd::Command;
+
+#ifdef _WIN32
+// Satoshi: detect if external app holds a lock on this subtitle file (Windows-only)
+static bool IsFileLockedByAnotherProcess(const wxString &path) {
+	HANDLE handle = CreateFileW(path.wc_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (handle == INVALID_HANDLE_VALUE) {
+		DWORD err = GetLastError();
+		if (err == ERROR_SHARING_VIOLATION || err == ERROR_LOCK_VIOLATION)
+			return true;
+		return false;
+	}
+
+	CloseHandle(handle);
+	return false;
+}
+#else
+static bool IsFileLockedByAnotherProcess(const wxString &) {
+	return false;
+}
+#endif
+
+// Satoshi: build a unique "[im done]" filename next to the original
+static wxString MakeImDoneName(const wxString& originalPath) {
+	wxFileName original(originalPath);
+	const wxString base = original.GetName();
+
+	int counter = 0;
+	while (true) {
+		wxFileName candidate(original);
+		if (counter == 0)
+			candidate.SetName(wxString::Format("[im done] %s", base));
+		else
+			candidate.SetName(wxString::Format("[im done] (%d) %s", counter + 1, base));
+
+		if (!candidate.FileExists())
+			return candidate.GetFullPath();
+
+		++counter;
+	}
+}
 
 struct validate_nonempty_selection : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
@@ -343,6 +389,8 @@ struct subtitle_properties final : public Command {
 };
 
 static void save_subtitles(agi::Context *c, agi::fs::path filename) {
+	FrameMain *frame = dynamic_cast<FrameMain*>(c->parent);
+
 	if (filename.empty()) {
 		c->videoController->Stop();
 		filename = SaveFileSelector(_("Save subtitles file"), "Path/Last/Subtitles",
@@ -351,8 +399,56 @@ static void save_subtitles(agi::Context *c, agi::fs::path filename) {
 		if (filename.empty()) return;
 	}
 
+#ifdef _WIN32
+	// Satoshi: file in use fun warning system
+	if (frame && !filename.empty()) {
+		const std::wstring widePath = filename.wstring();
+		const wxString pathWx(widePath.c_str());
+		if (!pathWx.empty() && IsFileLockedByAnotherProcess(pathWx)) {
+			const int warningCount = frame->IncrementFileLockWarnings();
+			if (warningCount <= 4) {
+				wxString msg;
+				switch (warningCount) {
+				case 1:
+					msg = _("The subtitle file seems to be in use by another program.\n\nPlease close that program before saving.");
+					break;
+				case 2:
+					msg = _("The file is still in use.\n\nPlease close any app that is using this subtitle before saving. Please.");
+					break;
+				case 3:
+					msg = wxString::FromUTF8("for the takamiya mio's sake, close any app that is using current subtitle.");
+					break;
+				default:
+					msg = wxString::FromUTF8("do it again. i sware you");
+					break;
+				}
+
+				wxMessageBox(msg, _("Error while saving"), wxOK | wxICON_WARNING | wxCENTER, frame);
+				return;
+			}
+
+			const wxString suggested = MakeImDoneName(pathWx);
+			wxFileName suggestedFn(suggested);
+			wxFileDialog dlg(
+				frame,
+				_("Error while saving"),
+				suggestedFn.GetPath(),
+				suggestedFn.GetFullName(),
+				_("Advanced Substation Alpha (*.ass)|*.ass|All files (*.*)|*.*"),
+				wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+
+			if (dlg.ShowModal() != wxID_OK)
+				return;
+
+			filename = from_wx(dlg.GetPath());
+		}
+	}
+#endif
+
 	try {
 		c->subsController->Save(filename);
+		if (frame)
+			frame->ResetFileLockWarnings();
 	}
 	catch (const agi::Exception& err) {
 		wxMessageBox(to_wx(err.GetMessage()), "Error", wxOK | wxICON_ERROR | wxCENTER, c->parent);

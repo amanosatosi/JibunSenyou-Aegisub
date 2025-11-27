@@ -51,6 +51,7 @@ class FrameMain : public wxFrame {
 
 	bool showVideo = true; ///< Is the video display shown?
 	bool showAudio = true; ///< Is the audio display shown?
+	int fileLockWarnings = 0; // Satoshi: count how many times save hit a lock
 	wxTimer StatusClear;   ///< Status bar timeout timer
 
 	void InitContents();
@@ -93,6 +94,9 @@ public:
 
 	bool IsVideoShown() const { return showVideo; }
 	bool IsAudioShown() const { return showAudio; }
+
+	int IncrementFileLockWarnings();
+	void ResetFileLockWarnings();
 
 	DECLARE_EVENT_TABLE()
 };

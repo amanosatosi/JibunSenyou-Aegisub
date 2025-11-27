@@ -350,3 +350,12 @@ void FrameMain::OnKeyDown(wxKeyEvent &event) {
 void FrameMain::OnMouseWheel(wxMouseEvent &evt) {
 	ForwardMouseWheelEvent(this, evt);
 }
+
+// Satoshi: file in use fun warning system
+int FrameMain::IncrementFileLockWarnings() {
+	return ++fileLockWarnings;
+}
+
+void FrameMain::ResetFileLockWarnings() {
+	fileLockWarnings = 0;
+}
