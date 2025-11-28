@@ -184,7 +184,7 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	// Prepare control values
 	wxString EncodingValue = std::to_wstring(style->encoding);
 	wxString alignValues[9] = { "7", "8", "9", "4", "5", "6", "1", "2", "3" };
-	wxString borderStyleValues[3] = { "normal", "outline as box", "shadow as box (libass only)" };
+	wxString borderStyleValues[3] = { "normal", "outline as box", "shadow as box\n(libass only)" };
 
 	// Encoding options
 	wxArrayString encodingStrings;
@@ -324,7 +324,7 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	// Outline
 	add_with_label(OutlineBox, _("Outline:"), Outline);
 	add_with_label(OutlineBox, _("Shadow:"), Shadow);
-	add_with_label(OutlineBox, _("Border style:"), OutlineType);
+	add_with_label(OutlineBox, _("Border\nstyle:"), OutlineType);
 
 	// Misc
 	auto MiscBoxTop = new wxFlexGridSizer(2, 4, 5, 5);
