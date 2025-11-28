@@ -184,7 +184,7 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	// Prepare control values
 	wxString EncodingValue = std::to_wstring(style->encoding);
 	wxString alignValues[9] = { "7", "8", "9", "4", "5", "6", "1", "2", "3" };
-	wxString borderStyleValues[3] = { "normal", "outline as box", "shadow as box\n(libass only)" };
+	wxString borderStyleValues[3] = { "no", "yes", "libass" };
 
 	// Encoding options
 	wxArrayString encodingStrings;
@@ -221,8 +221,8 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	}
 
 	Alignment = new wxRadioBox(this, -1, _("Alignment"), wxDefaultPosition, wxDefaultSize, 9, alignValues, 3, wxRA_SPECIFY_COLS);
-	auto Outline = num_text_ctrl(&work->outline_w, 0.0, 1000.0, 0.1, 2, 35);
-	auto Shadow = num_text_ctrl(&work->shadow_w, 0.0, 1000.0, 0.1, 2, 35);
+	auto Outline = num_text_ctrl(&work->outline_w, 0.0, 1000.0, 0.1, 2, 100);
+	auto Shadow = num_text_ctrl(&work->shadow_w, 0.0, 1000.0, 0.1, 2, 100);
 	OutlineType = new wxComboBox(this, -1, "", wxDefaultPosition, wxDefaultSize, 3, borderStyleValues, wxCB_READONLY);
 	auto ScaleX = num_text_ctrl(&work->scalex, 0.0, 10000.0, 1, 2);
 	auto ScaleY = num_text_ctrl(&work->scaley, 0.0, 10000.0, 1, 2);
@@ -324,7 +324,7 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	// Outline
 	add_with_label(OutlineBox, _("Outline:"), Outline);
 	add_with_label(OutlineBox, _("Shadow:"), Shadow);
-	add_with_label(OutlineBox, _("Border\nstyle:"), OutlineType);
+	add_with_label(OutlineBox, _("box"), OutlineType);
 
 	// Misc
 	auto MiscBoxTop = new wxFlexGridSizer(2, 4, 5, 5);
