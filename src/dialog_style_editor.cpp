@@ -149,10 +149,24 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 		sizer->Add(ctrl, wxSizerFlags(1).Left().Expand());
 	};
 
-	auto num_text_ctrl = [&](double *value, double min, double max, double step, int precision) -> wxSpinCtrlDouble * {
-		auto scd = new wxSpinCtrlDouble(this, -1, "", wxDefaultPosition,
-			wxDefaultSize, wxSP_ARROW_KEYS, min, max, *value, step);
-		scd->SetDigits(precision);
+	auto num_text_ctrl = [&](double *value,
+		double min,
+		double max,
+		double step,
+		int digits = 2,
+		int width = 75) -> wxSpinCtrlDouble * {
+		auto scd = new wxSpinCtrlDouble(
+			this,
+			-1,
+			"",
+			wxDefaultPosition,
+			wxSize(width, -1),
+			wxSP_ARROW_KEYS,
+			min,
+			max,
+			*value,
+			step);
+		scd->SetDigits(digits);
 		scd->SetValidator(DoubleSpinValidator(value));
 		scd->Bind(wxEVT_SPINCTRLDOUBLE, [=](wxSpinDoubleEvent &evt) {
 			evt.Skip();
@@ -207,8 +221,8 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	}
 
 	Alignment = new wxRadioBox(this, -1, _("Alignment"), wxDefaultPosition, wxDefaultSize, 9, alignValues, 3, wxRA_SPECIFY_COLS);
-	auto Outline = num_text_ctrl(&work->outline_w, 0.0, 1000.0, 0.1, 2);
-	auto Shadow = num_text_ctrl(&work->shadow_w, 0.0, 1000.0, 0.1, 2);
+	auto Outline = num_text_ctrl(&work->outline_w, 0.0, 1000.0, 0.1, 2, 60);
+	auto Shadow = num_text_ctrl(&work->shadow_w, 0.0, 1000.0, 0.1, 2, 60);
 	OutlineType = new wxComboBox(this, -1, "", wxDefaultPosition, wxDefaultSize, 3, borderStyleValues, wxCB_READONLY);
 	auto ScaleX = num_text_ctrl(&work->scalex, 0.0, 10000.0, 1, 2);
 	auto ScaleY = num_text_ctrl(&work->scaley, 0.0, 10000.0, 1, 2);
@@ -227,7 +241,7 @@ DialogStyleEditor::DialogStyleEditor(wxWindow *parent, AssStyle *style, agi::Con
 	margin[0]->SetToolTip(_("Distance from left edge, in pixels"));
 	margin[1]->SetToolTip(_("Distance from right edge, in pixels"));
 	margin[2]->SetToolTip(_("Distance from top/bottom edge, in pixels"));
-	OutlineType->SetToolTip(_("Choose between a normal outline, outline as box, or shadow as box (libass only)."));
+	OutlineType->SetToolTip(_("Choose how the border is drawn: normal outline, outline as box, or shadow as box (libass only)."));
 	Outline->SetToolTip(_("Outline width, in pixels"));
 	Shadow->SetToolTip(_("Shadow distance, in pixels"));
 	ScaleX->SetToolTip(_("Scale X, in percentage"));
