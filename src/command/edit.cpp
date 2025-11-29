@@ -1656,6 +1656,40 @@ struct edit_line_delete final : public validate_sel_nonempty {
 	}
 };
 
+// Toggle the comment flag for the current selection (or the active line when nothing is selected).
+struct edit_line_comment final : public Command {
+	CMD_NAME("edit/line/comment")
+	STR_MENU("Comment/Uncomment Lines")
+	STR_DISP("Comment/Uncomment Lines")
+	STR_HELP("Toggle comment state for selected lines")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return c->selectionController->GetActiveLine() != nullptr;
+	}
+
+	void operator()(agi::Context *c) override {
+		auto const& sel = c->selectionController->GetSelectedSet();
+		std::vector<AssDialogue*> lines(sel.begin(), sel.end());
+		if (lines.empty()) {
+			if (auto *active = c->selectionController->GetActiveLine())
+				lines.push_back(active);
+		}
+		if (lines.empty())
+			return;
+
+		bool all_commented = std::all_of(lines.begin(), lines.end(), [](AssDialogue const *line) {
+			return line->Comment;
+		});
+		bool new_state = !all_commented;
+
+		for (auto *line : lines)
+			line->Comment = new_state;
+
+		c->ass->Commit(_("toggle comment"), AssFile::COMMIT_DIAG_META);
+	}
+};
+
 static void duplicate_lines(agi::Context *c, int shift) {
 	auto const& sel = c->selectionController->GetSelectedSet();
 	auto in_selection = [&](AssDialogue const& d) { return sel.count(const_cast<AssDialogue *>(&d)); };
@@ -2474,6 +2508,7 @@ namespace cmd {
 		reg(agi::make_unique<edit_line_copy>());
 		reg(agi::make_unique<edit_line_cut>());
 		reg(agi::make_unique<edit_line_delete>());
+		reg(agi::make_unique<edit_line_comment>());
 		reg(agi::make_unique<edit_line_duplicate>());
 		reg(agi::make_unique<edit_line_duplicate_shift>());
 		reg(agi::make_unique<edit_line_duplicate_shift_back>());

@@ -28,6 +28,7 @@
         { "command" : "edit/line/copy" },
         { "command" : "edit/line/paste" },
         { "command" : "edit/line/paste/over" },
+        { "command" : "edit/line/comment" },
         {},
         { "command" : "edit/line/delete" }
     ],
