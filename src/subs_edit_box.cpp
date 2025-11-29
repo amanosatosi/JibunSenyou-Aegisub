@@ -272,7 +272,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	// Top controls
 	top_sizer = new wxBoxSizer(wxHORIZONTAL);
 
-	comment_box = new wxCheckBox(this,-1,_("&Comment"));
+	comment_box = new wxCheckBox(this,-1,_("Comment"));
 	comment_box->SetToolTip(_("Comment this line out. Commented lines don't show up on screen."));
 #ifdef __WXGTK__
 	// Only supported in wxgtk
