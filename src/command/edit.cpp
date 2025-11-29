@@ -1691,8 +1691,8 @@ struct edit_line_comment final : public Command {
 };
 
 // Flip the comment flag for each selected line individually.
-struct edit_line_mix_comment final : public Command {
-	CMD_NAME("edit/line/mix_comment")
+struct edit_line_comment_invert final : public Command {
+	CMD_NAME("edit/line/comment/invert")
 	STR_MENU("Invert Comment Flags")
 	STR_DISP("Invert Comment Flags")
 	STR_HELP("Invert comment state for each selected line")
@@ -2538,7 +2538,7 @@ namespace cmd {
 		reg(agi::make_unique<edit_line_cut>());
 		reg(agi::make_unique<edit_line_delete>());
 		reg(agi::make_unique<edit_line_comment>());
-		reg(agi::make_unique<edit_line_mix_comment>());
+		reg(agi::make_unique<edit_line_comment_invert>());
 		reg(agi::make_unique<edit_line_duplicate>());
 		reg(agi::make_unique<edit_line_duplicate_shift>());
 		reg(agi::make_unique<edit_line_duplicate_shift_back>());
