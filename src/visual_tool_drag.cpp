@@ -87,6 +87,9 @@ void VisualToolDrag::OnSubTool(wxCommandEvent &) {
 	// Toggle \move <-> \pos
 	VideoController *vc = c->videoController.get();
 	for (auto line : selection) {
+		if (FilterLockedLines() && IsLockedLine(line))
+			continue;
+
 		Vector2D p1, p2;
 		int t1, t2;
 
@@ -319,6 +322,9 @@ void VisualToolDrag::OnDoubleClick() {
 	Vector2D d = ToScriptCoords(mouse_pos) - (primary ? ToScriptCoords(primary->pos) : GetLinePosition(active_line));
 
 	for (auto line : c->selectionController->GetSelectedSet()) {
+		if (FilterLockedLines() && IsLockedLine(line))
+			continue;
+
 		Vector2D p1, p2;
 		int t1, t2;
 		if (GetLineMove(line, p1, p2, t1, t2)) {

@@ -118,6 +118,8 @@ class SubsEditBox final : public wxPanel {
 	bool actor_has_pending_selection_ = false;
 	long actor_selection_start_ = 0;
 	long actor_selection_end_ = 0;
+	bool actor_text_amend_ = false;
+	bool effect_text_amend_ = false;
 	std::deque<wxString> fast_recent_names_;
 	wxButton *actor_fast_button_ = nullptr;
 	FastNamePopup *fast_popup_ = nullptr;
@@ -188,6 +190,7 @@ class SubsEditBox final : public wxPanel {
 	void OnFastListDClick(wxCommandEvent &);
 	void OnFastListKeyDown(wxKeyEvent &);
 	void OnActorKillFocus(wxFocusEvent &);
+	void OnEffectKillFocus(wxFocusEvent &);
 	void OnSize(wxSizeEvent &event);
 	void OnSplit(wxCommandEvent&);
 	void OnBetterView(wxCommandEvent&);
