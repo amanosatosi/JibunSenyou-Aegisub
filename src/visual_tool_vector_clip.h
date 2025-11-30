@@ -71,6 +71,7 @@ class VisualToolVectorClip final : public VisualTool<VisualToolVectorClipDraggab
 
 	void DoRefresh() override;
 	void Draw() override;
+	bool FilterLockedLines() const override { return false; }
 
 public:
 	VisualToolVectorClip(VideoDisplay *parent, agi::Context *context);

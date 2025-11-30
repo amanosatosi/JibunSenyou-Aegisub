@@ -43,6 +43,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <boost/algorithm/string/trim.hpp>
 
 #include <algorithm>
 
@@ -119,9 +120,18 @@ void VisualToolBase::OnActiveLineChanged(AssDialogue *new_line) {
 	}
 }
 
+bool VisualToolBase::IsLockedLine(const AssDialogue *line) {
+	if (!line) return false;
+
+	std::string effect = line->Effect.get();
+	boost::algorithm::trim(effect);
+	return effect == "LOCK";
+}
+
 bool VisualToolBase::IsDisplayed(AssDialogue *line) const {
 	int frame = c->videoController->GetFrameN();
 	return line
+		&& (!FilterLockedLines() || !IsLockedLine(line))
 		&& !line->Comment
 		&& c->videoController->FrameAtTime(line->Start, agi::vfr::START) <= frame
 		&& c->videoController->FrameAtTime(line->End, agi::vfr::END) >= frame;
@@ -660,8 +670,12 @@ std::string VisualToolBase::GetLineVectorClip(AssDialogue *diag, int &scale, boo
 }
 
 void VisualToolBase::SetSelectedOverride(std::string const& tag, std::string const& value) {
-	for (auto line : c->selectionController->GetSelectedSet())
+	bool filter_locked = FilterLockedLines();
+	for (auto line : c->selectionController->GetSelectedSet()) {
+		if (filter_locked && IsLockedLine(line))
+			continue;
 		SetOverride(line, tag, value);
+	}
 }
 
 void VisualToolBase::RemoveOverride(AssDialogue *line, std::string const& tag) {

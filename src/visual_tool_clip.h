@@ -46,6 +46,7 @@ class VisualToolClip final : public VisualTool<ClipCorner> {
 	void UpdateDrag(ClipCorner *feature) override;
 
 	void Draw() override;
+	bool FilterLockedLines() const override { return false; }
 public:
 	VisualToolClip(VideoDisplay *parent, agi::Context *context);
 };

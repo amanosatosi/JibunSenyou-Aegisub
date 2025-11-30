@@ -121,6 +121,8 @@ protected:
 	/// @param message Description of changes for undo
 	virtual void Commit(wxString message = wxString());
 	bool IsDisplayed(AssDialogue *line) const;
+	static bool IsLockedLine(const AssDialogue *line);
+	virtual bool FilterLockedLines() const { return true; }
 
 	/// Get the line's position if it's set, or it's default based on style if not
 	Vector2D GetLinePosition(AssDialogue *diag);

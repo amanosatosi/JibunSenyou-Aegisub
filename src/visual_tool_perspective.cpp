@@ -709,6 +709,9 @@ bool VisualToolPerspective::InnerToText() {
 	}
 
 	for (auto line : c->selectionController->GetSelectedSet()) {
+		if (FilterLockedLines() && IsLockedLine(line))
+			continue;
+
 		auto style = c->ass->GetStyle(line->Style);
 		// Maybe just set the tags manually so the line doesn't need to be parsed again for every tag?
 		WrapSetOverride(line, "\\fax", fax, 6);
@@ -751,6 +754,9 @@ void VisualToolPerspective::SaveOuterToLines() {
 		uint32_t plane_extra = c->ass->AddExtradata(ambient_plane_key, plane_descriptor);
 
 		for (auto line : c->selectionController->GetSelectedSet()) {
+			if (FilterLockedLines() && IsLockedLine(line))
+				continue;
+
 			// Let's reinvent the wheel a bit since extradata tooling is nonexistent
 			std::vector<uint32_t> extra = line->ExtradataIds.get();
 			std::vector<ExtradataEntry> entries = c->ass->GetExtradata(extra);
