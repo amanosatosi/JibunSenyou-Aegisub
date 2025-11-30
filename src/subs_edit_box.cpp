@@ -308,6 +308,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	effect_box = new Placeholder<wxComboBox>(this, _("Effect"), wxDefaultSize, wxCB_DROPDOWN | wxTE_PROCESS_ENTER, _("Effect for this line. This can be used to store extra information for karaoke scripts, or for the effects supported by the renderer."));
 	Bind(wxEVT_TEXT, &SubsEditBox::OnEffectChange, this, effect_box->GetId());
 	Bind(wxEVT_COMBOBOX, &SubsEditBox::OnEffectChange, this, effect_box->GetId());
+	effect_box->Bind(wxEVT_KILL_FOCUS, &SubsEditBox::OnEffectKillFocus, this);
 	top_sizer->Add(effect_box, wxSizerFlags(3).Expand());
 
 	char_count = new wxTextCtrl(this, -1, "0", wxDefaultPosition, wxDefaultSize, wxTE_READONLY | wxTE_CENTER);
@@ -661,10 +662,12 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 		if (repopulate_lists) PopulateList(effect_box, AssDialogue_Effect);
 		effect_box->ChangeValue(to_wx(line->Effect));
 		effect_box->SetStringSelection(to_wx(line->Effect));
+		effect_text_amend_ = false;
 
 		if (repopulate_lists) PopulateActorList();
 		actor_box->ChangeValue(to_wx(line->Actor));
 		actor_box->SetStringSelection(to_wx(line->Actor));
+		actor_text_amend_ = false;
 		actor_should_autofill_ = false;
 		actor_has_pending_selection_ = false;
 		actor_selection_start_ = 0;
@@ -977,6 +980,7 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 
 void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
 	evt.Skip();
+	actor_text_amend_ = false;
 	if (!fast_mode_enabled_)
 		return;
 	fast_preview_active_ = false;
@@ -987,12 +991,18 @@ void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
 			wxString current = to_wx(line->Actor);
 			actor_box->ChangeValue(current);
 			actor_box->SetSelection(current.length(), current.length());
+			actor_text_amend_ = false;
 			actor_autofill_guard = false;
 		}
 		return;
 	}
 	fast_preview_index_ = -1;
 	FinalizeFastActiveFromActor(true);
+}
+
+void SubsEditBox::OnEffectKillFocus(wxFocusEvent &evt) {
+	evt.Skip();
+	effect_text_amend_ = false;
 }
 
 void SubsEditBox::AddFastRecentName(wxString const& name) {
@@ -1079,6 +1089,7 @@ void SubsEditBox::ApplyFastActiveToCurrentLine() {
 
 	actor_autofill_guard = true;
 	actor_box->ChangeValue(value);
+	actor_text_amend_ = false;
 	actor_box->SetSelection(0, value.length());
 	actor_autofill_guard = false;
 	actor_should_autofill_ = false;
@@ -1295,6 +1306,7 @@ void SubsEditBox::ApplyFastRecentSelection(int index, bool hide_popup, bool upda
 	fast_preview_index_ = applied_index;
 	actor_autofill_guard = true;
 	actor_box->ChangeValue(name);
+	actor_text_amend_ = false;
 	actor_box->SetSelection(0, name.length());
 	actor_should_autofill_ = false;
 	actor_has_pending_selection_ = true;
@@ -1841,8 +1853,12 @@ void SubsEditBox::OnActorChange(wxCommandEvent &evt) {
 		return;
 	}
 
+	if (!is_text)
+		actor_text_amend_ = false;
+
 	wxString value = actor_box->GetValue();
-	bool amend = is_text;
+	bool amend = is_text && actor_text_amend_;
+	actor_text_amend_ = is_text;
 	SetSelectedRows(AssDialogue_Actor, value, _("actor change"), AssFile::COMMIT_DIAG_META, amend);
 	if (fast_mode_enabled_)
 		FinalizeFastActiveFromActor(false);
@@ -1874,7 +1890,12 @@ void SubsEditBox::OnLayerEnter(wxCommandEvent &evt) {
 }
 
 void SubsEditBox::OnEffectChange(wxCommandEvent &evt) {
-	bool amend = evt.GetEventType() == wxEVT_TEXT;
+	bool is_text = evt.GetEventType() == wxEVT_TEXT;
+	if (!is_text)
+		effect_text_amend_ = false;
+
+	bool amend = is_text && effect_text_amend_;
+	effect_text_amend_ = is_text;
 	SetSelectedRows(AssDialogue_Effect, new_value(effect_box, evt), _("effect change"), AssFile::COMMIT_DIAG_META, amend);
 	PopulateList(effect_box, AssDialogue_Effect);
 }
