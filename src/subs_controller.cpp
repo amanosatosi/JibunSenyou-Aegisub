@@ -211,6 +211,7 @@ void SubsController::Save(agi::fs::path const& filename, std::string const& enco
 		this->filename = filename;
 		context->path->SetToken("?script", filename.parent_path());
 
+		UpdateProperties();
 		context->ass->CleanExtradata();
 		writer->WriteFile(context->ass.get(), filename, 0, encoding);
 		FileSave();

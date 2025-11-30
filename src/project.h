@@ -48,6 +48,7 @@ class Project {
 	bool video_has_subtitles = false;
 	DialogProgress *progress = nullptr;
 	agi::Context *context = nullptr;
+	agi::signal::Connection update_properties_connection;
 
 	void ShowError(wxString const& message);
 	void ShowError(std::string const& message);

@@ -645,6 +645,7 @@
 		"Disable Scroll Zoom" : false,
 		"Reverse Zoom" : false,
 		"Default Zoom" : 7,
+		"Force Default Zoom" : false,
 		"Detached" : {
 			"Enabled" : false,
 			"Last" : {

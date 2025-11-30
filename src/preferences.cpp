@@ -182,6 +182,8 @@ void Video(wxTreebook *book, Preferences *parent) {
 	const wxString czoom_arr[24] = { "12.5%", "25%", "37.5%", "50%", "62.5%", "75%", "87.5%", "100%", "112.5%", "125%", "137.5%", "150%", "162.5%", "175%", "187.5%", "200%", "212.5%", "225%", "237.5%", "250%", "262.5%", "275%", "287.5%", "300%" };
 	wxArrayString choice_zoom(24, czoom_arr);
 	p->OptionChoice(general, _("Default Zoom"), choice_zoom, "Video/Default Zoom");
+	auto force_default_zoom = p->OptionAdd(general, _("Force default video zoom"), "Video/Force Default Zoom");
+	force_default_zoom->SetToolTip(_("Ignore saved project video zoom and always start using the default video zoom level."));
 
 	p->OptionAdd(general, _("Fast jump step in frames"), "Video/Slider/Fast Jump Step");
 

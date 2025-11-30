@@ -59,6 +59,11 @@ Project::Project(agi::Context *c) : context(c) {
 	OPT_SUB("Provider/Video/FFmpegSource/Unsafe Seeking", &Project::ReloadVideo, this);
 	OPT_SUB("Subtitle/Provider", &Project::ReloadVideo, this);
 	OPT_SUB("Video/Provider", &Project::ReloadVideo, this);
+	update_properties_connection = context->subsController->UpdateProperties.Connect([this] {
+		if (!context->videoDisplay || !VideoProvider())
+			return;
+		context->ass->Properties.video_zoom = context->videoDisplay->GetZoom();
+	});
 }
 
 Project::~Project() { }
@@ -220,7 +225,10 @@ void Project::LoadUnloadFiles(ProjectProperties properties) {
 				vc->SetAspectRatio(properties.ar_value);
 			else
 				vc->SetAspectRatio(ar_mode);
-			context->videoDisplay->SetWindowZoom(properties.video_zoom);
+			double zoom = properties.video_zoom;
+			if (OPT_GET("Video/Force Default Zoom")->GetBool())
+				zoom = OPT_GET("Video/Default Zoom")->GetInt() * .125 + .125;
+			context->videoDisplay->SetWindowZoom(zoom);
 		}
 	}
 
