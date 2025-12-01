@@ -673,6 +673,7 @@
 			"Show Keyframes" : true
 		},
 		"Subtitle Sync" : true,
+		"Click Time Readout Action" : 0,
 		"Default to Video Zoom": false
 	}
 }

@@ -38,11 +38,16 @@
 #include "options.h"
 #include "project.h"
 #include "selection_controller.h"
+#include "subs_edit_box.h"
+#include "toast_popup.h"
 #include "video_controller.h"
 #include "video_display.h"
 #include "video_slider.h"
 
 #include <boost/range/algorithm/binary_search.hpp>
+#include <wx/clipbrd.h>
+#include <wx/cursor.h>
+#include <wx/dataobj.h>
 #include <wx/combobox.h>
 #include <wx/sizer.h>
 #include <wx/statline.h>
@@ -60,9 +65,13 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 
 	VideoPosition = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
 	VideoPosition->SetToolTip(_("Current frame time and number"));
+	VideoPosition->SetCursor(wxCursor(wxCURSOR_HAND));
+	VideoPosition->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnFrameReadoutClick, this);
 
 	VideoSubsPos = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
 	VideoSubsPos->SetToolTip(_("Time of this frame relative to start and end of current subs"));
+	VideoSubsPos->SetCursor(wxCursor(wxCURSOR_HAND));
+	VideoSubsPos->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnSubsReadoutClick, this);
 
 	wxArrayString choices;
 	for (int i = 1; i <= 24; ++i)
@@ -109,6 +118,9 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 }
 
 void VideoBox::UpdateTimeBoxes() {
+	frame_readout_.clear();
+	subs_offset_readout_.clear();
+	subs_remaining_readout_.clear();
 	if (!context->project->VideoProvider()) return;
 
 	int frame = context->videoController->GetFrameN();
@@ -116,6 +128,7 @@ void VideoBox::UpdateTimeBoxes() {
 
 	// Set the text box for frame number and time
 	VideoPosition->SetValue(fmt_wx("%s - %d", agi::Time(time).GetAssFormatted(true), frame));
+	frame_readout_ = fmt_wx("%d", frame);
 	if (boost::binary_search(context->project->Keyframes(), frame)) {
 		// Set the background color to indicate this is a keyframe
 		VideoPosition->SetBackgroundColour(to_wx(OPT_GET("Colour/Subtitle Grid/Background/Selection")->GetColor()));
@@ -127,12 +140,99 @@ void VideoBox::UpdateTimeBoxes() {
 	}
 
 	AssDialogue *active_line = context->selectionController->GetActiveLine();
-	if (!active_line)
+	if (!active_line) {
 		VideoSubsPos->SetValue("");
-	else {
-		VideoSubsPos->SetValue(fmt_wx(
-			"%+dms; %+dms",
-			time - active_line->Start,
-			time - active_line->End));
 	}
+	else {
+		int offset = time - active_line->Start;
+		int remaining = time - active_line->End;
+		subs_offset_readout_ = fmt_wx("%+dms", offset);
+		subs_remaining_readout_ = fmt_wx("%+dms", remaining);
+		VideoSubsPos->SetValue(fmt_wx("%s; %s", subs_offset_readout_, subs_remaining_readout_));
+	}
+}
+
+void VideoBox::OnFrameReadoutClick(wxMouseEvent &event) {
+	event.Skip(false);
+	if (!frame_readout_.IsEmpty())
+		HandleReadoutClick(frame_readout_);
+}
+
+void VideoBox::OnSubsReadoutClick(wxMouseEvent &event) {
+	event.Skip(false);
+	wxString value;
+	if (GetSubsReadoutForPosition(event.GetPosition(), value))
+		HandleReadoutClick(value);
+}
+
+bool VideoBox::GetSubsReadoutForPosition(wxPoint const& position, wxString &value) {
+	if (!VideoSubsPos || subs_offset_readout_.IsEmpty() || subs_remaining_readout_.IsEmpty())
+		return false;
+
+	wxString current = VideoSubsPos->GetValue();
+	if (current.IsEmpty())
+		return false;
+
+	wxCoord text_width = 0;
+	wxCoord text_height = 0;
+	VideoSubsPos->GetTextExtent(subs_offset_readout_ + "; ", &text_width, &text_height);
+	wxCoord client_width = VideoSubsPos->GetClientSize().GetWidth();
+	if (text_width <= 0 || text_width >= client_width)
+		text_width = client_width / 2;
+
+	int x = position.x;
+	if (x < 0) x = 0;
+	if (client_width > 0 && x > client_width) x = client_width;
+
+	if (x <= text_width)
+		value = subs_offset_readout_;
+	else
+		value = subs_remaining_readout_;
+	return true;
+}
+
+bool VideoBox::HandleReadoutClick(wxString const& value) {
+	if (value.IsEmpty() || value == wxS("---"))
+		return false;
+
+	int action = OPT_GET("Video/Click Time Readout Action")->GetInt();
+	bool want_copy = action == 0 || action == 2;
+	bool want_insert = action == 1 || action == 2;
+
+	bool copied = false;
+	bool inserted = false;
+	if (want_copy)
+		copied = CopyReadoutToClipboard(value);
+	if (want_insert)
+		inserted = InsertReadoutIntoEditBox(value);
+
+	if (!copied && !inserted)
+		return false;
+
+	wxWindow *toast_parent = context && context->frame ? static_cast<wxWindow*>(context->frame) : this;
+	if (copied && inserted)
+		ShowToast(toast_parent, _("Copied and inserted"));
+	else if (copied)
+		ShowToast(toast_parent, _("Copied to clipboard"));
+	else
+		ShowToast(toast_parent, _("Inserted into edit box"));
+	return true;
+}
+
+bool VideoBox::CopyReadoutToClipboard(wxString const& value) {
+	wxClipboard *cb = wxClipboard::Get();
+	if (!cb || !cb->Open())
+		return false;
+
+	bool ok = cb->SetData(new wxTextDataObject(value));
+	if (ok)
+		cb->Flush();
+	cb->Close();
+	return ok;
+}
+
+bool VideoBox::InsertReadoutIntoEditBox(wxString const& value) {
+	if (!context || !context->subsEditBox)
+		return false;
+	return context->subsEditBox->InsertTextAtCaret(value);
 }

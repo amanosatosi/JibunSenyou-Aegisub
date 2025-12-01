@@ -267,6 +267,9 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 , retina_helper(agi::make_unique<RetinaHelper>(parent))
 , undo_timer(GetEventHandler())
 {
+	if (c)
+		c->subsEditBox = this;
+
 	using std::bind;
 
 	// Top controls
@@ -461,6 +464,8 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 
 
 SubsEditBox::~SubsEditBox() {
+	if (c && c->subsEditBox == this)
+		c->subsEditBox = nullptr;
 	c->textSelectionController->SetControl(nullptr);
 }
 
@@ -497,6 +502,35 @@ void SubsEditBox::MakeButton(const char *cmd_name) {
 
 	middle_right_sizer->Add(btn, wxSizerFlags().Expand());
 	btn->Bind(wxEVT_BUTTON, std::bind(&SubsEditBox::CallCommand, this, cmd_name));
+}
+
+bool SubsEditBox::InsertTextAtCaret(wxString const& text) {
+	if (!line || text.empty())
+		return false;
+
+	int sel_start = edit_ctrl->GetSelectionStart();
+	int sel_end = edit_ctrl->GetSelectionEnd();
+	int start = std::min(sel_start, sel_end);
+	int end = std::max(sel_start, sel_end);
+
+	std::string text_utf8 = from_wx(text);
+
+	edit_ctrl->BeginUndoAction();
+	if (start != end) {
+		edit_ctrl->SetTargetStart(start);
+		edit_ctrl->SetTargetEnd(end);
+		edit_ctrl->ReplaceTarget(text);
+	}
+	else {
+		edit_ctrl->InsertText(start, text);
+	}
+
+	int caret = start + static_cast<int>(text_utf8.size());
+	edit_ctrl->SetSelection(caret, caret);
+	edit_ctrl->GotoPos(caret);
+	edit_ctrl->EndUndoAction();
+	edit_ctrl->SetFocus();
+	return true;
 }
 
 void SubsEditBox::InsertBracketPair(wxString const& left, wxString const& right) {

@@ -178,6 +178,11 @@ void Video(wxTreebook *book, Preferences *parent) {
 	p->OptionAdd(general, _("Disable zooming with scroll bar"), "Video/Disable Scroll Zoom")
 		->SetToolTip("Makes the scroll bar not zoom the video. Useful when using a track pad that often scrolls accidentally.");
 	p->OptionAdd(general, _("Reverse zoom direction"), "Video/Reverse Zoom");
+	wxArrayString readout_choices;
+	readout_choices.Add(_("Copy to clipboard"));
+	readout_choices.Add(_("Insert into edit box"));
+	readout_choices.Add(_("Copy and insert"));
+	p->OptionChoice(general, _("Click time readout action"), readout_choices, "Video/Click Time Readout Action");
 
 	const wxString czoom_arr[24] = { "12.5%", "25%", "37.5%", "50%", "62.5%", "75%", "87.5%", "100%", "112.5%", "125%", "137.5%", "150%", "162.5%", "175%", "187.5%", "200%", "212.5%", "225%", "237.5%", "250%", "262.5%", "275%", "287.5%", "300%" };
 	wxArrayString choice_zoom(24, czoom_arr);

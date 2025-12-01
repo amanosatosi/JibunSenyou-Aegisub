@@ -137,6 +137,7 @@ aegisub_src = files(
     'text_file_writer.cpp',
     'text_selection_controller.cpp',
     'thesaurus.cpp',
+    'toast_popup.cpp',
     'timeedit_ctrl.cpp',
     'toggle_bitmap.cpp',
     'toolbar.cpp',
