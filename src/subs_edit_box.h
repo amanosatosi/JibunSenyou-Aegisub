@@ -270,4 +270,5 @@ public:
 	/// Insert text into the main edit control, honouring the current selection.
 	/// @return True if text was inserted.
 	bool InsertTextAtCaret(wxString const& text);
+	void FocusTextCtrl();
 };

@@ -45,18 +45,17 @@ class VideoBox final : public wxPanel {
 	agi::Context *context;     ///< Project context
 	wxTextCtrl *VideoPosition; ///< Current frame/time
 	wxTextCtrl *VideoSubsPos;  ///< Time relative to the active subtitle line
-	wxString frame_readout_;
 	wxString subs_offset_readout_;
 	wxString subs_remaining_readout_;
 
 	/// Update VideoPosition and VideoSubsPos
 	void UpdateTimeBoxes();
-	void OnFrameReadoutClick(wxMouseEvent &event);
 	void OnSubsReadoutClick(wxMouseEvent &event);
 	bool HandleReadoutClick(wxString const& value);
 	bool CopyReadoutToClipboard(wxString const& value);
 	bool InsertReadoutIntoEditBox(wxString const& value);
 	bool GetSubsReadoutForPosition(wxPoint const& position, wxString &value);
+	wxString NormalizeReadout(wxString const& value) const;
 
 public:
 	VideoBox(wxWindow *parent, bool isDetached, agi::Context *context);

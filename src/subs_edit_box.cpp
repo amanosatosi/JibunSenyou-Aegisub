@@ -529,8 +529,13 @@ bool SubsEditBox::InsertTextAtCaret(wxString const& text) {
 	edit_ctrl->SetSelection(caret, caret);
 	edit_ctrl->GotoPos(caret);
 	edit_ctrl->EndUndoAction();
-	edit_ctrl->SetFocus();
+	FocusTextCtrl();
 	return true;
+}
+
+void SubsEditBox::FocusTextCtrl() {
+	if (edit_ctrl)
+		edit_ctrl->SetFocus();
 }
 
 void SubsEditBox::InsertBracketPair(wxString const& left, wxString const& right) {

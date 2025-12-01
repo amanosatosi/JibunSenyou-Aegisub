@@ -65,8 +65,6 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 
 	VideoPosition = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
 	VideoPosition->SetToolTip(_("Current frame time and number"));
-	VideoPosition->SetCursor(wxCursor(wxCURSOR_HAND));
-	VideoPosition->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnFrameReadoutClick, this);
 
 	VideoSubsPos = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
 	VideoSubsPos->SetToolTip(_("Time of this frame relative to start and end of current subs"));
@@ -118,7 +116,6 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 }
 
 void VideoBox::UpdateTimeBoxes() {
-	frame_readout_.clear();
 	subs_offset_readout_.clear();
 	subs_remaining_readout_.clear();
 	if (!context->project->VideoProvider()) return;
@@ -128,7 +125,6 @@ void VideoBox::UpdateTimeBoxes() {
 
 	// Set the text box for frame number and time
 	VideoPosition->SetValue(fmt_wx("%s - %d", agi::Time(time).GetAssFormatted(true), frame));
-	frame_readout_ = fmt_wx("%d", frame);
 	if (boost::binary_search(context->project->Keyframes(), frame)) {
 		// Set the background color to indicate this is a keyframe
 		VideoPosition->SetBackgroundColour(to_wx(OPT_GET("Colour/Subtitle Grid/Background/Selection")->GetColor()));
@@ -150,12 +146,6 @@ void VideoBox::UpdateTimeBoxes() {
 		subs_remaining_readout_ = fmt_wx("%+dms", remaining);
 		VideoSubsPos->SetValue(fmt_wx("%s; %s", subs_offset_readout_, subs_remaining_readout_));
 	}
-}
-
-void VideoBox::OnFrameReadoutClick(wxMouseEvent &event) {
-	event.Skip(false);
-	if (!frame_readout_.IsEmpty())
-		HandleReadoutClick(frame_readout_);
 }
 
 void VideoBox::OnSubsReadoutClick(wxMouseEvent &event) {
@@ -195,6 +185,10 @@ bool VideoBox::HandleReadoutClick(wxString const& value) {
 	if (value.IsEmpty() || value == wxS("---"))
 		return false;
 
+	wxString normalized = NormalizeReadout(value);
+	if (normalized.IsEmpty())
+		return false;
+
 	int action = OPT_GET("Video/Click Time Readout Action")->GetInt();
 	bool want_copy = action == 0 || action == 2;
 	bool want_insert = action == 1 || action == 2;
@@ -202,12 +196,15 @@ bool VideoBox::HandleReadoutClick(wxString const& value) {
 	bool copied = false;
 	bool inserted = false;
 	if (want_copy)
-		copied = CopyReadoutToClipboard(value);
+		copied = CopyReadoutToClipboard(normalized);
 	if (want_insert)
-		inserted = InsertReadoutIntoEditBox(value);
+		inserted = InsertReadoutIntoEditBox(normalized);
 
 	if (!copied && !inserted)
 		return false;
+
+	if (context && context->subsEditBox)
+		context->subsEditBox->FocusTextCtrl();
 
 	wxWindow *toast_parent = context && context->parent ? context->parent : this;
 	if (copied && inserted)
@@ -235,4 +232,25 @@ bool VideoBox::InsertReadoutIntoEditBox(wxString const& value) {
 	if (!context || !context->subsEditBox)
 		return false;
 	return context->subsEditBox->InsertTextAtCaret(value);
+}
+
+wxString VideoBox::NormalizeReadout(wxString const& value) const {
+	wxString trimmed = value;
+	trimmed.Trim(true).Trim(false);
+	if (trimmed.IsEmpty())
+		return wxString();
+
+	if (trimmed.StartsWith("+") || trimmed.StartsWith("-"))
+		trimmed = trimmed.Mid(1);
+
+	wxString lower = trimmed.Lower();
+	if (lower.EndsWith("ms")) {
+		trimmed.Truncate(trimmed.length() - 2);
+		trimmed.Trim(true).Trim(false);
+	}
+
+	if (trimmed == wxS("---") || trimmed.IsEmpty())
+		return wxString();
+
+	return trimmed;
 }
