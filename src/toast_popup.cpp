@@ -9,6 +9,9 @@
 #include <wx/timer.h>
 #include <wx/window.h>
 
+#include <algorithm>
+#include <chrono>
+
 namespace {
 
 class ToastPopup final : public wxPopupTransientWindow {
@@ -16,6 +19,7 @@ public:
 	ToastPopup(wxWindow *parent, const wxString &message)
 	: wxPopupTransientWindow(parent, wxBORDER_NONE)
 	, timer_(this)
+	, start_time_(std::chrono::steady_clock::now())
 	{
 		SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_INFOBK));
 
@@ -34,7 +38,7 @@ public:
 		SetSizerAndFit(root_sizer);
 
 		timer_.Bind(wxEVT_TIMER, &ToastPopup::OnTimer, this);
-		timer_.StartOnce(1800);
+		timer_.Start(30);
 	}
 
 	void ShowFor(wxWindow *anchor) {
@@ -71,9 +75,25 @@ protected:
 
 private:
 	wxTimer timer_;
+	std::chrono::steady_clock::time_point start_time_;
+	static constexpr int kLifetimeMs = 1000;
+	static constexpr int kFadeMs = 300;
+	bool supports_alpha_ = true;
 
 	void OnTimer(wxTimerEvent &) {
-		Dismiss();
+		using namespace std::chrono;
+		auto elapsed = duration_cast<milliseconds>(steady_clock::now() - start_time_).count();
+
+		if (elapsed >= kLifetimeMs) {
+			Dismiss();
+			return;
+		}
+
+		if (elapsed >= kLifetimeMs - kFadeMs) {
+			double ratio = std::clamp((kLifetimeMs - elapsed) / static_cast<double>(kFadeMs), 0.0, 1.0);
+			if (supports_alpha_)
+				supports_alpha_ = SetTransparent(static_cast<unsigned char>(ratio * 255));
+		}
 	}
 };
 
