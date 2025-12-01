@@ -7,6 +7,7 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/timer.h>
+#include <wx/window.h>
 
 namespace {
 
@@ -40,7 +41,7 @@ public:
 		if (!anchor)
 			anchor = GetParent();
 
-		wxWindow *top = anchor ? anchor->GetTopLevelParent() : nullptr;
+		wxWindow *top = anchor ? wxGetTopLevelParent(anchor) : nullptr;
 		if (!top)
 			top = anchor;
 
