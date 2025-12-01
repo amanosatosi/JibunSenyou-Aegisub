@@ -59,6 +59,10 @@ public:
 	}
 
 protected:
+	bool AcceptsFocus() const override { return false; }
+	bool AcceptsFocusFromKeyboard() const override { return false; }
+	bool AcceptsFocusRecursively() const override { return false; }
+
 	void OnDismiss() override {
 		timer_.Stop();
 		wxPopupTransientWindow::OnDismiss();
