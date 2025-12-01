@@ -209,7 +209,7 @@ bool VideoBox::HandleReadoutClick(wxString const& value) {
 	if (!copied && !inserted)
 		return false;
 
-	wxWindow *toast_parent = context && context->frame ? static_cast<wxWindow*>(context->frame) : this;
+	wxWindow *toast_parent = context && context->parent ? context->parent : this;
 	if (copied && inserted)
 		ShowToast(toast_parent, _("Copied and inserted"));
 	else if (copied)
