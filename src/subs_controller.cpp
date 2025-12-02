@@ -29,6 +29,7 @@
 #include "options.h"
 #include "project.h"
 #include "selection_controller.h"
+#include "video_controller.h"
 #include "subtitle_format.h"
 #include "text_selection_controller.h"
 
@@ -373,9 +374,15 @@ void SubsController::Undo() {
 
 	commit_id = undo_stack.back().commit_id;
 
+	bool had_video = context->project->VideoProvider() != nullptr;
+	int frame_to_restore = context->videoController->GetFrameN();
+
 	text_selection_connection.Block();
 	undo_stack.back().Apply(context);
 	text_selection_connection.Unblock();
+
+	if (had_video && context->project->VideoProvider())
+		context->videoController->JumpToFrame(frame_to_restore);
 }
 
 void SubsController::Redo() {
@@ -384,9 +391,15 @@ void SubsController::Redo() {
 
 	commit_id = undo_stack.back().commit_id;
 
+	bool had_video = context->project->VideoProvider() != nullptr;
+	int frame_to_restore = context->videoController->GetFrameN();
+
 	text_selection_connection.Block();
 	undo_stack.back().Apply(context);
 	text_selection_connection.Unblock();
+
+	if (had_video && context->project->VideoProvider())
+		context->videoController->JumpToFrame(frame_to_restore);
 }
 
 wxString SubsController::GetUndoDescription() const {

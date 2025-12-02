@@ -38,11 +38,16 @@
 #include "options.h"
 #include "project.h"
 #include "selection_controller.h"
+#include "subs_edit_box.h"
+#include "toast_popup.h"
 #include "video_controller.h"
 #include "video_display.h"
 #include "video_slider.h"
 
 #include <boost/range/algorithm/binary_search.hpp>
+#include <wx/clipbrd.h>
+#include <wx/cursor.h>
+#include <wx/dataobj.h>
 #include <wx/combobox.h>
 #include <wx/sizer.h>
 #include <wx/statline.h>
@@ -63,6 +68,8 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 
 	VideoSubsPos = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
 	VideoSubsPos->SetToolTip(_("Time of this frame relative to start and end of current subs"));
+	VideoSubsPos->SetCursor(wxCursor(wxCURSOR_HAND));
+	VideoSubsPos->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnSubsReadoutClick, this);
 
 	wxArrayString choices;
 	for (int i = 1; i <= 24; ++i)
@@ -109,6 +116,8 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 }
 
 void VideoBox::UpdateTimeBoxes() {
+	subs_offset_readout_.clear();
+	subs_remaining_readout_.clear();
 	if (!context->project->VideoProvider()) return;
 
 	int frame = context->videoController->GetFrameN();
@@ -127,12 +136,125 @@ void VideoBox::UpdateTimeBoxes() {
 	}
 
 	AssDialogue *active_line = context->selectionController->GetActiveLine();
-	if (!active_line)
+	if (!active_line) {
 		VideoSubsPos->SetValue("");
-	else {
-		VideoSubsPos->SetValue(fmt_wx(
-			"%+dms; %+dms",
-			time - active_line->Start,
-			time - active_line->End));
 	}
+	else {
+		int offset = time - active_line->Start;
+		int remaining = time - active_line->End;
+		subs_offset_readout_ = fmt_wx("%+dms", offset);
+		subs_remaining_readout_ = fmt_wx("%+dms", remaining);
+		VideoSubsPos->SetValue(fmt_wx("%s; %s", subs_offset_readout_, subs_remaining_readout_));
+	}
+}
+
+void VideoBox::OnSubsReadoutClick(wxMouseEvent &event) {
+	event.Skip(false);
+	wxString value;
+	if (GetSubsReadoutForPosition(event.GetPosition(), value))
+		HandleReadoutClick(value);
+}
+
+bool VideoBox::GetSubsReadoutForPosition(wxPoint const& position, wxString &value) {
+	if (!VideoSubsPos || subs_offset_readout_.IsEmpty() || subs_remaining_readout_.IsEmpty())
+		return false;
+
+	wxString current = VideoSubsPos->GetValue();
+	if (current.IsEmpty())
+		return false;
+
+	wxCoord text_width = 0;
+	wxCoord text_height = 0;
+	VideoSubsPos->GetTextExtent(subs_offset_readout_ + "; ", &text_width, &text_height);
+	wxCoord client_width = VideoSubsPos->GetClientSize().GetWidth();
+	if (text_width <= 0 || text_width >= client_width)
+		text_width = client_width / 2;
+
+	int x = position.x;
+	if (x < 0) x = 0;
+	if (client_width > 0 && x > client_width) x = client_width;
+
+	if (x <= text_width)
+		value = subs_offset_readout_;
+	else
+		value = subs_remaining_readout_;
+	return true;
+}
+
+bool VideoBox::HandleReadoutClick(wxString const& value) {
+	if (value.IsEmpty() || value == wxS("---"))
+		return false;
+
+	wxString normalized = NormalizeReadout(value);
+	if (normalized.IsEmpty())
+		return false;
+
+	int action = OPT_GET("Video/Click Time Readout Action")->GetInt();
+	if (action == 3)
+		return false;
+	bool want_copy = action == 0 || action == 2;
+	bool want_insert = action == 1 || action == 2;
+
+	bool copied = false;
+	bool inserted = false;
+	if (want_copy)
+		copied = CopyReadoutToClipboard(normalized);
+	if (want_insert)
+		inserted = InsertReadoutIntoEditBox(normalized);
+
+	if (!copied && !inserted)
+		return false;
+
+	if (context && context->subsEditBox)
+		context->subsEditBox->FocusTextCtrl();
+
+	if (!OPT_GET("Video/Disable Click Popup")->GetBool()) {
+		wxWindow *toast_parent = context && context->parent ? context->parent : this;
+		if (copied && inserted)
+			ShowToast(toast_parent, _("Copied and inserted"));
+		else if (copied)
+			ShowToast(toast_parent, _("Copied to clipboard"));
+		else
+			ShowToast(toast_parent, _("Inserted into edit box"));
+	}
+	return true;
+}
+
+bool VideoBox::CopyReadoutToClipboard(wxString const& value) {
+	wxClipboard *cb = wxClipboard::Get();
+	if (!cb || !cb->Open())
+		return false;
+
+	bool ok = cb->SetData(new wxTextDataObject(value));
+	if (ok)
+		cb->Flush();
+	cb->Close();
+	return ok;
+}
+
+bool VideoBox::InsertReadoutIntoEditBox(wxString const& value) {
+	if (!context || !context->subsEditBox)
+		return false;
+	return context->subsEditBox->InsertTextAtCaret(value);
+}
+
+wxString VideoBox::NormalizeReadout(wxString const& value) const {
+	wxString trimmed = value;
+	trimmed.Trim(true).Trim(false);
+	if (trimmed.IsEmpty())
+		return wxString();
+
+	if (trimmed.StartsWith("+") || trimmed.StartsWith("-"))
+		trimmed = trimmed.Mid(1);
+
+	wxString lower = trimmed.Lower();
+	if (lower.EndsWith("ms")) {
+		trimmed.Truncate(trimmed.length() - 2);
+		trimmed.Trim(true).Trim(false);
+	}
+
+	if (trimmed == wxS("---") || trimmed.IsEmpty())
+		return wxString();
+
+	return trimmed;
 }

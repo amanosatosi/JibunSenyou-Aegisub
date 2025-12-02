@@ -179,10 +179,20 @@ void Video(wxTreebook *book, Preferences *parent) {
 		->SetToolTip("Makes the scroll bar not zoom the video. Useful when using a track pad that often scrolls accidentally.");
 	p->OptionAdd(general, _("Reverse zoom direction"), "Video/Reverse Zoom");
 
+	auto relative = p->PageSizer(_("Relative time readouts"));
+	p->OptionAdd(relative, _("Disable the popup message for copy/inserting the relative time"), "Video/Disable Click Popup");
+	wxArrayString readout_choices;
+	readout_choices.Add(_("Copy to clipboard"));
+	readout_choices.Add(_("Insert into edit box"));
+	readout_choices.Add(_("Copy and insert"));
+	readout_choices.Add(_("Nothing happens"));
+	p->OptionChoice(relative, _("When you click relative time section"), readout_choices, "Video/Click Time Readout Action");
+
+	auto zoom_section = p->PageSizer(_("Default zoom"));
 	const wxString czoom_arr[24] = { "12.5%", "25%", "37.5%", "50%", "62.5%", "75%", "87.5%", "100%", "112.5%", "125%", "137.5%", "150%", "162.5%", "175%", "187.5%", "200%", "212.5%", "225%", "237.5%", "250%", "262.5%", "275%", "287.5%", "300%" };
 	wxArrayString choice_zoom(24, czoom_arr);
-	p->OptionChoice(general, _("Default Zoom"), choice_zoom, "Video/Default Zoom");
-	auto force_default_zoom = p->OptionAdd(general, _("Force default video zoom"), "Video/Force Default Zoom");
+	p->OptionChoice(zoom_section, _("Default zoom (%)"), choice_zoom, "Video/Default Zoom");
+	auto force_default_zoom = p->OptionAdd(zoom_section, _("Force default video zoom"), "Video/Force Default Zoom");
 	force_default_zoom->SetToolTip(_("Ignore saved project video zoom and always start using the default video zoom level."));
 
 	p->OptionAdd(general, _("Fast jump step in frames"), "Video/Slider/Fast Jump Step");
