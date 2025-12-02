@@ -49,6 +49,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <algorithm>
 #include <functional>
 
 #include <wx/clipbrd.h>
@@ -398,6 +399,11 @@ void SubsTextEditCtrl::UpdateCallTip() {
 
 void SubsTextEditCtrl::SetTextTo(std::string const& text) {
 	osx::ime::invalidate(this);
+
+	// Remember where the user was looking before the text gets replaced.
+	int old_first_visible = GetFirstVisibleLine();
+	int old_x_offset = GetXOffset();
+
 	SetEvtHandlerEnabled(false);
 	Freeze();
 
@@ -422,6 +428,19 @@ void SubsTextEditCtrl::SetTextTo(std::string const& text) {
 
 	SetEvtHandlerEnabled(true);
 	Thaw();
+
+	// Restore the previous scroll position so SetTextRaw doesn't snap to top.
+	int visible_lines = LinesOnScreen();
+	if (visible_lines <= 0)
+		visible_lines = 1;
+	int max_first_line = std::max(0, GetLineCount() - visible_lines);
+	int desired_first_line = std::max(0, std::min(old_first_visible, max_first_line));
+	int delta = desired_first_line - GetFirstVisibleLine();
+	if (delta != 0)
+		LineScroll(0, delta);
+
+	if (old_x_offset != GetXOffset())
+		SetXOffset(std::max(0, old_x_offset));
 }
 
 void SubsTextEditCtrl::Paste() {
