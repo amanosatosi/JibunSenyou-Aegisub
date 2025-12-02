@@ -190,6 +190,8 @@ bool VideoBox::HandleReadoutClick(wxString const& value) {
 		return false;
 
 	int action = OPT_GET("Video/Click Time Readout Action")->GetInt();
+	if (action == 3)
+		return false;
 	bool want_copy = action == 0 || action == 2;
 	bool want_insert = action == 1 || action == 2;
 
