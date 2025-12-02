@@ -178,6 +178,7 @@ void Video(wxTreebook *book, Preferences *parent) {
 	p->OptionAdd(general, _("Disable zooming with scroll bar"), "Video/Disable Scroll Zoom")
 		->SetToolTip("Makes the scroll bar not zoom the video. Useful when using a track pad that often scrolls accidentally.");
 	p->OptionAdd(general, _("Reverse zoom direction"), "Video/Reverse Zoom");
+	p->OptionAdd(general, _("Disable the popup message for copy/inserting the relative time"), "Video/Disable Click Popup");
 	wxArrayString readout_choices;
 	readout_choices.Add(_("Copy to clipboard"));
 	readout_choices.Add(_("Insert into edit box"));

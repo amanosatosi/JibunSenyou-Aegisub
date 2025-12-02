@@ -674,6 +674,7 @@
 		},
 		"Subtitle Sync" : true,
 		"Click Time Readout Action" : 0,
+		"Disable Click Popup" : false,
 		"Default to Video Zoom": false
 	}
 }

@@ -206,13 +206,15 @@ bool VideoBox::HandleReadoutClick(wxString const& value) {
 	if (context && context->subsEditBox)
 		context->subsEditBox->FocusTextCtrl();
 
-	wxWindow *toast_parent = context && context->parent ? context->parent : this;
-	if (copied && inserted)
-		ShowToast(toast_parent, _("Copied and inserted"));
-	else if (copied)
-		ShowToast(toast_parent, _("Copied to clipboard"));
-	else
-		ShowToast(toast_parent, _("Inserted into edit box"));
+	if (!OPT_GET("Video/Disable Click Popup")->GetBool()) {
+		wxWindow *toast_parent = context && context->parent ? context->parent : this;
+		if (copied && inserted)
+			ShowToast(toast_parent, _("Copied and inserted"));
+		else if (copied)
+			ShowToast(toast_parent, _("Copied to clipboard"));
+		else
+			ShowToast(toast_parent, _("Inserted into edit box"));
+	}
 	return true;
 }
 
