@@ -1,5 +1,6 @@
 #include "toast_popup.h"
 
+#include <wx/event.h>
 #include <wx/gdicmn.h>
 #include <wx/panel.h>
 #include <wx/popupwin.h>
@@ -9,9 +10,6 @@
 #include <wx/timer.h>
 #include <wx/window.h>
 
-#include <algorithm>
-#include <chrono>
-
 namespace {
 
 class ToastPopup final : public wxPopupTransientWindow {
@@ -19,7 +17,6 @@ public:
 	ToastPopup(wxWindow *parent, const wxString &message)
 	: wxPopupTransientWindow(parent, wxBORDER_NONE)
 	, timer_(this)
-	, start_time_(std::chrono::steady_clock::now())
 	{
 		SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_INFOBK));
 
@@ -38,7 +35,6 @@ public:
 		SetSizerAndFit(root_sizer);
 
 		timer_.Bind(wxEVT_TIMER, &ToastPopup::OnTimer, this);
-		SetTransparency(255);
 	}
 
 	void ShowFor(wxWindow *anchor) {
@@ -59,9 +55,8 @@ public:
 		int y = origin.y + margin_top;
 
 		Move(x, y);
-		start_time_ = std::chrono::steady_clock::now();
-		SetTransparency(255);
-		timer_.Start(timer_interval_ms_);
+		BindKeyHook(top);
+		timer_.Start(kLifetimeMs, wxTIMER_ONE_SHOT);
 		Popup(top);
 	}
 
@@ -72,42 +67,40 @@ protected:
 
 	void OnDismiss() override {
 		timer_.Stop();
+		UnbindKeyHook();
 		wxPopupTransientWindow::OnDismiss();
 		Destroy();
 	}
 
 private:
 	wxTimer timer_;
-	std::chrono::steady_clock::time_point start_time_;
 	static constexpr int kLifetimeMs = 1700;
-	static constexpr int kFadeMs = 300;
-	static constexpr int timer_interval_ms_ = 30;
-	bool supports_alpha_ = false;
+	wxWindow *top_parent_ = nullptr;
+	bool bound_key_hook_ = false;
 
-	void SetTransparency(unsigned char alpha) {
-#ifdef __WXMSW__
-		supports_alpha_ = wxPopupTransientWindow::SetTransparent(alpha);
-#else
-		(void)alpha;
-		supports_alpha_ = false;
-#endif
+	void BindKeyHook(wxWindow *anchor) {
+		top_parent_ = anchor ? wxGetTopLevelParent(anchor) : nullptr;
+		if (top_parent_ && !bound_key_hook_) {
+			top_parent_->Bind(wxEVT_CHAR_HOOK, &ToastPopup::OnCharHook, this);
+			bound_key_hook_ = true;
+		}
+	}
+
+	void UnbindKeyHook() {
+		if (bound_key_hook_ && top_parent_) {
+			top_parent_->Unbind(wxEVT_CHAR_HOOK, &ToastPopup::OnCharHook, this);
+		}
+		top_parent_ = nullptr;
+		bound_key_hook_ = false;
 	}
 
 	void OnTimer(wxTimerEvent &) {
-		using namespace std::chrono;
-		auto elapsed = duration_cast<milliseconds>(steady_clock::now() - start_time_).count();
+		Dismiss();
+	}
 
-		if (elapsed >= kLifetimeMs) {
-			timer_.Stop();
-			Dismiss();
-			return;
-		}
-
-		if (elapsed >= kLifetimeMs - kFadeMs) {
-			double ratio = std::clamp((kLifetimeMs - elapsed) / static_cast<double>(kFadeMs), 0.0, 1.0);
-			if (supports_alpha_)
-				SetTransparency(static_cast<unsigned char>(ratio * 255));
-		}
+	void OnCharHook(wxKeyEvent &evt) {
+		Dismiss();
+		evt.Skip();
 	}
 };
 
