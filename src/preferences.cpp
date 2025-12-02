@@ -30,13 +30,8 @@
 #include "include/aegisub/subtitles_provider.h"
 #include "libresrc/libresrc.h"
 #include "options.h"
-#include <libaegisub/make_unique.h>
-#include <libaegisub/option_value.h>
 #include "preferences_base.h"
 #include "video_provider_manager.h"
-
-#include <wx/combobox.h>
-#include <wx/stattext.h>
 
 #ifdef WITH_PORTAUDIO
 #include "audio_player_portaudio.h"
@@ -191,37 +186,13 @@ void Video(wxTreebook *book, Preferences *parent) {
 	readout_choices.Add(_("Insert into edit box"));
 	readout_choices.Add(_("Copy and insert"));
 	readout_choices.Add(_("Nothing happens"));
-	auto click_choice = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, readout_choices, wxCB_READONLY | wxCB_DROPDOWN);
-	relative->Add(new wxStaticText(p, wxID_ANY, _("When you click relative time section")), 0, wxALIGN_CENTER_VERTICAL);
-	relative->Add(click_choice, wxSizerFlags().Expand());
-	p->parent->AddChangeableOption("Video/Click Time Readout Action");
-	int click_val = OPT_GET("Video/Click Time Readout Action")->GetInt();
-	click_choice->Select(click_val < (int)readout_choices.size() ? click_val : 0);
-	click_choice->Bind(wxEVT_COMBOBOX, [parent = p->parent](wxCommandEvent &evt) {
-		parent->SetOption(agi::make_unique<agi::OptionValueInt>("Video/Click Time Readout Action", evt.GetInt()));
-	});
+	p->OptionChoice(relative, _("When you click relative time section"), readout_choices, "Video/Click Time Readout Action");
 
 	auto zoom_section = p->PageSizer(_("Default zoom"));
-	const wxString czoom_arr[24] = { "12.5", "25", "37.5", "50", "62.5", "75", "87.5", "100", "112.5", "125", "137.5", "150", "162.5", "175", "187.5", "200", "212.5", "225", "237.5", "250", "262.5", "275", "287.5", "300" };
+	const wxString czoom_arr[24] = { "12.5%", "25%", "37.5%", "50%", "62.5%", "75%", "87.5%", "100%", "112.5%", "125%", "137.5%", "150%", "162.5%", "175%", "187.5%", "200%", "212.5%", "225%", "237.5%", "250%", "262.5%", "275%", "287.5%", "300%" };
 	wxArrayString choice_zoom(24, czoom_arr);
-	auto zoom_control = new wxBoxSizer(wxHORIZONTAL);
-	auto zoom_choice = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, choice_zoom, wxCB_READONLY | wxCB_DROPDOWN);
-	zoom_control->Add(zoom_choice, wxSizerFlags(1));
-	auto force_default_zoom = new wxCheckBox(p, wxID_ANY, _("Force default video zoom"));
-	zoom_control->Add(force_default_zoom, wxSizerFlags().Border(wxLEFT, 8).CenterVertical());
-	zoom_section->Add(new wxStaticText(p, wxID_ANY, _("Default zoom (%)")), 0, wxALIGN_CENTER_VERTICAL);
-	zoom_section->Add(zoom_control, 1, wxEXPAND);
-	p->parent->AddChangeableOption("Video/Default Zoom");
-	int zoom_val = OPT_GET("Video/Default Zoom")->GetInt();
-	zoom_choice->Select(zoom_val < (int)choice_zoom.size() ? zoom_val : 0);
-	zoom_choice->Bind(wxEVT_COMBOBOX, [parent = p->parent](wxCommandEvent &evt) {
-		parent->SetOption(agi::make_unique<agi::OptionValueInt>("Video/Default Zoom", evt.GetInt()));
-	});
-	p->parent->AddChangeableOption("Video/Force Default Zoom");
-	force_default_zoom->SetValue(OPT_GET("Video/Force Default Zoom")->GetBool());
-	force_default_zoom->Bind(wxEVT_CHECKBOX, [parent = p->parent](wxCommandEvent &evt) {
-		parent->SetOption(agi::make_unique<agi::OptionValueBool>("Video/Force Default Zoom", !!evt.GetInt()));
-	});
+	p->OptionChoice(zoom_section, _("Default zoom (%)"), choice_zoom, "Video/Default Zoom");
+	auto force_default_zoom = p->OptionAdd(zoom_section, _("Force default video zoom"), "Video/Force Default Zoom");
 	force_default_zoom->SetToolTip(_("Ignore saved project video zoom and always start using the default video zoom level."));
 
 	p->OptionAdd(general, _("Fast jump step in frames"), "Video/Slider/Fast Jump Step");
