@@ -263,24 +263,20 @@ void SubsTextEditCtrl::OnKeyDown(wxKeyEvent &event) {
 	if (event.GetKeyCode() == WXK_TAB)
 		Navigate(event.ShiftDown() ? wxNavigationKeyEvent::IsBackward : wxNavigationKeyEvent::IsForward);
 	else if (event.GetKeyCode() == WXK_RETURN && event.GetModifiers() == wxMOD_SHIFT) {
-		auto sel_start = GetSelectionStart(), sel_end = GetSelectionEnd();
-		wxCharBuffer old = GetTextRaw();
-		std::string new_text(old.data(), sel_start);
-
 		bool soft_break = OPT_GET("Subtitle/Edit Box/Soft Line Break")->GetBool();
 		bool better_view = OPT_GET("Subtitle/Better View")->GetBool();
+		wxString insert;
 		if (soft_break)
-			new_text.append("\\n");
+			insert = wxS("\\n");
 		else if (better_view)
-			new_text.push_back('\n');
+			insert = wxS("\n");
 		else
-			new_text.append("\\N");
+			insert = wxS("\\N");
 
-		new_text.append(old.data() + sel_end, old.length() - sel_end);
-		SetTextRaw(new_text.c_str());
-
-		int advance = soft_break ? 2 : (better_view ? 1 : 2);
-		SetSelection(sel_start + advance, sel_start + advance);
+		ReplaceSelection(insert);
+		int caret = GetSelectionEnd();
+		SetSelection(caret, caret);
+		EnsureCaretVisible();
 		event.Skip(false);
 	}
 }
@@ -446,32 +442,25 @@ void SubsTextEditCtrl::SetTextTo(std::string const& text) {
 void SubsTextEditCtrl::Paste() {
 	std::string clipboard = GetClipboard();
 
-	wxCharBuffer old = GetTextRaw();
-	std::string new_text(old.data(), GetSelectionStart());
-	int sel_start = 0;
+	bool better_view = OPT_GET("Subtitle/Better View")->GetBool();
+	wxString insert;
 
-	if (OPT_GET("Subtitle/Better View")->GetBool()) {
+	if (better_view) {
 		boost::replace_all(clipboard, "\r\n", "\n");
 		boost::replace_all(clipboard, "\r", "\n");
-		wxString display_text = AssToEditorDisplay(to_wx(clipboard));
-		std::string insert_text = from_wx(display_text);
-		new_text.append(insert_text);
-		sel_start = new_text.size();
+		insert = AssToEditorDisplay(to_wx(clipboard));
 	}
 	else {
 		boost::replace_all(clipboard, "\r\n", "\\N");
 		boost::replace_all(clipboard, "\n", "\\N");
 		boost::replace_all(clipboard, "\r", "\\N");
-		new_text.append(clipboard);
-		sel_start = new_text.size();
+		insert = to_wx(clipboard);
 	}
 
-	new_text.append(old.data() + GetSelectionEnd());
-
-	SetTextRaw(new_text.c_str());
-
-	SetSelectionStart(sel_start);
-	SetSelectionEnd(sel_start);
+	ReplaceSelection(insert);
+	int caret = GetSelectionEnd();
+	SetSelection(caret, caret);
+	EnsureCaretVisible();
 }
 
 void SubsTextEditCtrl::OnContextMenu(wxContextMenuEvent &event) {
