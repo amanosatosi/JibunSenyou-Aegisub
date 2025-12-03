@@ -3,6 +3,7 @@
 
 #include "ass_dialogue.h"
 #include "ass_file.h"
+#include "compat.h"
 #include "subs_edit_box.h"
 #include "utils.h"
 

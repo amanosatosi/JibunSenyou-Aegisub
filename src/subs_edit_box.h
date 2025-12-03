@@ -64,6 +64,7 @@ class ActorMRUManager;
 ///
 /// Controls the text edit and all surrounding controls
 class SubsEditBox final : public wxPanel {
+	friend class ActorMRUManager; // [actor_MRU]
 	class FastNamePopup;
 	enum TimeField {
 		TIME_START = 0,
