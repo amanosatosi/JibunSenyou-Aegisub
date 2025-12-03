@@ -9,6 +9,8 @@
 
 #include <algorithm>
 
+#include <wx/app.h>
+#include <wx/combobox.h>
 #include <wx/listbox.h>
 #include <wx/panel.h>
 #include <wx/sizer.h>
@@ -84,7 +86,10 @@ ActorMRUManager::ActorMRUManager(SubsEditBox *owner, wxComboBox *actor_ctrl, wxB
 {
 }
 
-ActorMRUManager::~ActorMRUManager() = default;
+ActorMRUManager::~ActorMRUManager() {
+	if (top_level_parent_ && app_activate_bound_)
+		top_level_parent_->Unbind(wxEVT_ACTIVATE_APP, &ActorMRUManager::OnAppActivate, this);
+}
 
 void ActorMRUManager::SetFastModeEnabled(bool enabled) {
 	if (fast_mode_enabled_ == enabled)
@@ -114,6 +119,10 @@ void ActorMRUManager::OnActorCommitted(wxString const& new_actor, wxString const
 
 void ActorMRUManager::OnActorFocusChanged(bool has_focus) {
 	actor_has_focus_ = has_focus;
+	if (!actor_has_focus_)
+		HideWindow();
+	else if (fast_mode_enabled_)
+		ShowWindow();
 	UpdateActiveState();
 }
 
@@ -190,10 +199,18 @@ void ActorMRUManager::EnsureWindow() {
 	}
 	window_->Hide();
 	window_visible_ = false;
+
+	if (!app_activate_bound_) {
+		top_level_parent_ = actor_ctrl_->GetTopLevelParent();
+		if (top_level_parent_) {
+			top_level_parent_->Bind(wxEVT_ACTIVATE_APP, &ActorMRUManager::OnAppActivate, this);
+			app_activate_bound_ = true;
+		}
+	}
 }
 
 void ActorMRUManager::ShowWindow() {
-	if (!fast_mode_enabled_ || !actor_ctrl_)
+	if (!fast_mode_enabled_ || !actor_ctrl_ || !actor_has_focus_)
 		return;
 
 	EnsureWindow();
@@ -254,11 +271,27 @@ void ActorMRUManager::UpdateActiveState() {
 	window_->SetActive(actor_has_focus_ && fast_mode_enabled_);
 }
 
+void ActorMRUManager::ApplySelectionToActorControl(bool select_all) {
+	if (!actor_ctrl_ || !HasSelection())
+		return;
+	wxString name = GetSelectedName();
+	if (name.empty())
+		return;
+
+	actor_ctrl_->ChangeValue(name);
+	long end = static_cast<long>(name.length());
+	if (select_all)
+		actor_ctrl_->SetSelection(0, end);
+	else
+		actor_ctrl_->SetInsertionPoint(end);
+}
+
 bool ActorMRUManager::SelectIndex(int index) {
 	if (index < 0 || index >= static_cast<int>(names_.size()))
 		return false;
 	current_selection_ = index;
 	RefreshWindow();
+	ApplySelectionToActorControl(true);
 	return true;
 }
 
@@ -270,6 +303,7 @@ bool ActorMRUManager::StepSelection(int delta) {
 	int count = static_cast<int>(names_.size());
 	current_selection_ = (current_selection_ + delta + count) % count;
 	RefreshWindow();
+	ApplySelectionToActorControl(true);
 	return true;
 }
 
@@ -341,6 +375,7 @@ void ActorMRUManager::ResetSelection() {
 void ActorMRUManager::OnListSelect(wxCommandEvent &evt) {
 	current_selection_ = evt.GetSelection();
 	RefreshWindow();
+	ApplySelectionToActorControl(true);
 	evt.StopPropagation();
 	evt.Skip(false);
 }
@@ -352,6 +387,14 @@ void ActorMRUManager::OnListDClick(wxCommandEvent &evt) {
 		evt.Skip(false);
 		return;
 	}
+	evt.Skip();
+}
+
+void ActorMRUManager::OnAppActivate(wxActivateEvent &evt) {
+	if (!evt.GetActive())
+		HideWindow();
+	else if (fast_mode_enabled_ && actor_has_focus_)
+		ShowWindow();
 	evt.Skip();
 }
 // [actor_MRU] END

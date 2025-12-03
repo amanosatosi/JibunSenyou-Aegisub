@@ -12,6 +12,8 @@
 #include <wx/event.h>
 #include <wx/popupwin.h>
 #include <wx/string.h>
+#include <wx/window.h>
+#include <wx/string.h>
 
 class AssFile;
 class SubsEditBox;
@@ -48,9 +50,11 @@ private:
 	wxComboBox *actor_ctrl_ = nullptr;
 	wxButton *anchor_button_ = nullptr;
 	std::unique_ptr<ActorMRUWindow> window_;
+	wxWindow *top_level_parent_ = nullptr;
 	std::vector<wxString> names_;
 	bool fast_mode_enabled_ = false;
 	bool actor_has_focus_ = false;
+	bool app_activate_bound_ = false;
 	bool window_visible_ = false;
 	int current_selection_ = wxNOT_FOUND;
 
@@ -60,6 +64,7 @@ private:
 	void PositionWindow();
 	void RefreshWindow();
 	void UpdateActiveState();
+	void ApplySelectionToActorControl(bool select_all);
 	bool SelectIndex(int index);
 	bool StepSelection(int delta);
 	bool HasSelection() const;
@@ -73,6 +78,7 @@ private:
 
 	void OnListSelect(wxCommandEvent &evt);
 	void OnListDClick(wxCommandEvent &evt);
+	void OnAppActivate(wxActivateEvent &evt);
 };
 
 /// Simple popup window showing the MRU entries.
