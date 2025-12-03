@@ -2,6 +2,7 @@ subdir('libresrc')
 
 aegisub_src = files(
     'MatroskaParser.c',
+    'actor_MRU.cpp',
     'aegisublocale.cpp',
     'ass_attachment.cpp',
     'ass_dialogue.cpp',
