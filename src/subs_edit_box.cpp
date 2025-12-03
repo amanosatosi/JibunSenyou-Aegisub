@@ -841,7 +841,7 @@ void SubsEditBox::ApplyActorNameFromMRU(wxString const& name) {
 	actor_selection_start_ = 0;
 	actor_selection_end_ = name.length();
 
-	SetSelectedRows(AssDialogue_Actor, name, _("actor change"), AssFile::COMMIT_DIAG_META, false);
+	CommitActorToCurrentLine(name);
 	PopulateActorList();
 
 	if (fast_mode_enabled_) {
@@ -854,12 +854,28 @@ void SubsEditBox::AdvanceLineAfterMRU() {
 	if (!c)
 		return;
 
-	FinalizeFastActiveFromActor(false);
 	cmd::call("grid/line/next/create", c);
 	if (actor_box)
 		actor_box->SetFocus();
 	if (actor_mru_manager_)
 		actor_mru_manager_->UpdateWindowVisibility();
+}
+
+void SubsEditBox::CommitActorToCurrentLine(wxString const& name) {
+	if (!c || !c->ass)
+		return;
+
+	AssDialogue *target = c->selectionController ? c->selectionController->GetActiveLine() : nullptr;
+	if (!target)
+		target = line;
+	if (!target)
+		return;
+
+	auto fly_value = boost::flyweight<std::string>(from_wx(name));
+	target->Actor = fly_value;
+
+	// [actor_MRU] Ensure MRU choices update the active line before advancing.
+	Commit(_("actor change"), AssFile::COMMIT_DIAG_META, false, target);
 }
 // [actor_MRU] END
 

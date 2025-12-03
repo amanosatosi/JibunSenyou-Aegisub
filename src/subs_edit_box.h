@@ -234,6 +234,7 @@ class SubsEditBox final : public wxPanel {
 	// [actor_MRU] BEGIN
 	void ApplyActorNameFromMRU(wxString const& name);
 	void AdvanceLineAfterMRU();
+	void CommitActorToCurrentLine(wxString const& name);
 	// [actor_MRU] END
 	void ToggleFastMode();
 	void InsertBracketPair(wxString const& left, wxString const& right);
