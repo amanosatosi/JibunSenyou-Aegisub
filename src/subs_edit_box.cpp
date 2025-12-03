@@ -777,7 +777,7 @@ void SubsEditBox::PopulateActorList() {
 	long pos = actor_box->GetInsertionPoint();
 	wxString value = actor_box->GetValue();
 	wxString trimmed_leading = value;
-	trimmed_leading.Trim(true);
+	trimmed_leading.Trim(false);
 	bool removed_leading = trimmed_leading.length() != value.length();
 	wxString trimmed_value = trimmed_leading;
 
