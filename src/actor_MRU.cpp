@@ -201,7 +201,7 @@ void ActorMRUManager::EnsureWindow() {
 	window_visible_ = false;
 
 	if (!app_activate_bound_) {
-		top_level_parent_ = actor_ctrl_->GetTopLevelParent();
+		top_level_parent_ = wxGetTopLevelParent(actor_ctrl_);
 		if (top_level_parent_) {
 			top_level_parent_->Bind(wxEVT_ACTIVATE_APP, &ActorMRUManager::OnAppActivate, this);
 			app_activate_bound_ = true;
