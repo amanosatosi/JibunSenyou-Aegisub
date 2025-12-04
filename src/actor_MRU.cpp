@@ -17,7 +17,7 @@
 #include <wx/stattext.h>
 #include <wx/settings.h>
 #include <wx/intl.h>
-#include <wx/log.h>
+#include <libaegisub/log.h>
 
 wxBEGIN_EVENT_TABLE(ActorMRUWindow, wxPopupWindow)
 	EVT_KEY_DOWN(ActorMRUWindow::OnKeyDown)
@@ -201,7 +201,7 @@ void ActorMRUManager::UpdateWindowVisibility() {
 }
 
 bool ActorMRUManager::HandleUpKey() {
-	wxLogDebug("[actor_MRU] HandleUpKey()");
+	LOG_D("actor/MRU") << "HandleUpKey()";
 	if (!fast_mode_enabled_)
 		return false;
 	ShowWindow();
@@ -218,7 +218,7 @@ bool ActorMRUManager::HandleUpKey() {
 }
 
 bool ActorMRUManager::HandleDownKey() {
-	wxLogDebug("[actor_MRU] HandleDownKey()");
+	LOG_D("actor/MRU") << "HandleDownKey()";
 	if (!fast_mode_enabled_)
 		return false;
 	ShowWindow();
@@ -238,8 +238,9 @@ bool ActorMRUManager::HandleDownKey() {
 }
 
 bool ActorMRUManager::HandleEnterKey() {
-	wxLogDebug("[actor_MRU] HandleEnterKey called: fast=%d hasEntries=%d hasSelection=%d owner=%p",
-		fast_mode_enabled_, HasEntries(), HasSelection(), owner_);
+	LOG_D("actor/MRU") << "HandleEnterKey called: fast=" << fast_mode_enabled_
+		<< " hasEntries=" << HasEntries() << " hasSelection=" << HasSelection()
+		<< " owner=" << owner_;
 	if (!fast_mode_enabled_ || !HasEntries() || !HasSelection() || !owner_)
 		return false;
 
@@ -248,7 +249,7 @@ bool ActorMRUManager::HandleEnterKey() {
 		return false;
 
 	int current_row = owner_->line ? owner_->line->Row : -1;
-	wxLogDebug("[actor_MRU] HandleEnterKey applying '%s' on row %d", selected, current_row);
+	LOG_D("actor/MRU") << "HandleEnterKey applying '" << from_wx(selected) << "' on row " << current_row;
 	owner_->ApplyActorNameFromMRU(selected);
 	owner_->AdvanceLineAfterMRU();
 	PromoteName(selected);
