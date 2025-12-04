@@ -888,9 +888,10 @@ void SubsEditBox::CommitActorToCurrentLine(wxString const& name) {
 	if (!c || !c->ass)
 		return;
 
-	AssDialogue *target = c->selectionController ? c->selectionController->GetActiveLine() : nullptr;
-	if (!target)
-		target = line;
+	// [actor_MRU] Prefer the edit box's current line; fall back to selection controller if needed
+	AssDialogue *target = line;
+	if (!target && c->selectionController)
+		target = c->selectionController->GetActiveLine();
 	if (!target)
 		return;
 
@@ -898,7 +899,8 @@ void SubsEditBox::CommitActorToCurrentLine(wxString const& name) {
 	auto fly_value = boost::flyweight<std::string>(from_wx(name));
 	target->Actor = fly_value;
 
-	wxLogDebug("[actor_MRU] CommitActorToCurrentLine row=%d old='%s' new='%s'", target->Row, previous, name);
+	wxLogDebug("[actor_MRU] CommitActorToCurrentLine line_row=%d target_row=%d old='%s' new='%s'",
+		line ? line->Row : -1, target->Row, previous, name);
 
 	// [actor_MRU] Ensure MRU choices update the active line before advancing.
 	Commit(_("actor change"), AssFile::COMMIT_DIAG_META, false, target);
