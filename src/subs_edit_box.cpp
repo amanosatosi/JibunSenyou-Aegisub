@@ -809,7 +809,15 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	evt.Skip();
 }
 
+void SubsEditBox::OnActorSetFocus(wxFocusEvent &evt) {
+	LOG_D("actor/MRU") << "OnActorSetFocus fast=" << fast_mode_enabled_;
+	if (actor_mru_manager_)
+		actor_mru_manager_->OnActorFocusChanged(true);
+	evt.Skip();
+}
+
 void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
+	LOG_D("actor/MRU") << "OnActorKillFocus fast=" << fast_mode_enabled_;
 	evt.Skip();
 	actor_text_amend_ = false;
 	if (!fast_mode_enabled_)

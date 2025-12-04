@@ -185,6 +185,8 @@ void ActorMRUManager::OnActorCommitted(wxString const& new_actor, wxString const
 
 void ActorMRUManager::OnActorFocusChanged(bool has_focus) {
 	actor_has_focus_ = has_focus;
+	LOG_D("actor/MRU") << "OnActorFocusChanged has_focus=" << actor_has_focus_
+		<< " fast=" << fast_mode_enabled_ << " visible=" << window_visible_;
 	if (!actor_has_focus_)
 		HideWindow();
 	else if (fast_mode_enabled_)
@@ -295,6 +297,9 @@ void ActorMRUManager::ShowWindow() {
 	if (!window_visible_) {
 		window_->ShowForActor(actor_ctrl_);
 		window_visible_ = true;
+	}
+	else {
+		window_->ShowForActor(actor_ctrl_);
 	}
 
 	// [actor_MRU] Keep actor control focused so key events reach the manager
