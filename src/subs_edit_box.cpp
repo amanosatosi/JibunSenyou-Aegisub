@@ -87,6 +87,7 @@
 #include <wx/stattext.h>
 #include <wx/intl.h>
 #include <wx/textentry.h>
+#include <wx/log.h>
 
 namespace {
 
@@ -828,24 +829,31 @@ void SubsEditBox::OnEffectKillFocus(wxFocusEvent &evt) {
 
 // [actor_MRU] BEGIN
 void SubsEditBox::ApplyActorNameFromMRU(wxString const& name) {
-	if (!actor_box || name.empty())
+	if (!actor_box)
+		return;
+
+	wxString trimmed = name;
+	trimmed.Trim(true);
+	trimmed.Trim(false);
+	if (trimmed.empty())
 		return;
 
 	actor_autofill_guard = true;
-	actor_box->ChangeValue(name);
+	actor_box->ChangeValue(trimmed);
 	actor_text_amend_ = false;
-	actor_box->SetSelection(0, name.length());
+	actor_box->SetSelection(0, trimmed.length());
 	actor_autofill_guard = false;
 	actor_should_autofill_ = false;
 	actor_has_pending_selection_ = true;
 	actor_selection_start_ = 0;
-	actor_selection_end_ = name.length();
+	actor_selection_end_ = trimmed.length();
 
-	CommitActorToCurrentLine(name);
+	wxLogDebug("[actor_MRU] ApplyActorNameFromMRU row=%d value='%s'", line ? line->Row : -1, trimmed);
+	CommitActorToCurrentLine(trimmed);
 	PopulateActorList();
 
 	if (fast_mode_enabled_) {
-		fast_active_name_ = name;
+		fast_active_name_ = trimmed;
 		fast_has_active_name_ = true;
 	}
 }
@@ -854,7 +862,21 @@ void SubsEditBox::AdvanceLineAfterMRU() {
 	if (!c)
 		return;
 
+	int from_row = -1;
+	if (c->selectionController) {
+		if (auto *active = c->selectionController->GetActiveLine())
+			from_row = active->Row;
+	}
+
 	cmd::call("grid/line/next/create", c);
+
+	int to_row = -1;
+	if (c->selectionController) {
+		if (auto *active = c->selectionController->GetActiveLine())
+			to_row = active->Row;
+	}
+	wxLogDebug("[actor_MRU] AdvanceLineAfterMRU from row %d to row %d", from_row, to_row);
+
 	if (actor_box)
 		actor_box->SetFocus();
 	if (actor_mru_manager_)
@@ -871,11 +893,19 @@ void SubsEditBox::CommitActorToCurrentLine(wxString const& name) {
 	if (!target)
 		return;
 
+	wxString previous = to_wx(target->Actor);
 	auto fly_value = boost::flyweight<std::string>(from_wx(name));
 	target->Actor = fly_value;
 
+	wxLogDebug("[actor_MRU] CommitActorToCurrentLine row=%d old='%s' new='%s'", target->Row, previous, name);
+
 	// [actor_MRU] Ensure MRU choices update the active line before advancing.
 	Commit(_("actor change"), AssFile::COMMIT_DIAG_META, false, target);
+
+	if (actor_mru_manager_ && c && c->ass)
+		actor_mru_manager_->OnActorCommitted(name, previous, c->ass.get());
+
+	actor_line_initial_value_ = name;
 }
 // [actor_MRU] END
 

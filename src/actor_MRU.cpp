@@ -17,6 +17,7 @@
 #include <wx/stattext.h>
 #include <wx/settings.h>
 #include <wx/intl.h>
+#include <wx/log.h>
 
 namespace {
 constexpr size_t kMaxEntries = 20;
@@ -177,6 +178,8 @@ bool ActorMRUManager::HandleEnterKey() {
 	if (selected.empty())
 		return false;
 
+	int current_row = owner_->line ? owner_->line->Row : -1;
+	wxLogDebug("[actor_MRU] HandleEnterKey applying '%s' on row %d", selected, current_row);
 	owner_->ApplyActorNameFromMRU(selected);
 	owner_->AdvanceLineAfterMRU();
 	PromoteName(selected);
