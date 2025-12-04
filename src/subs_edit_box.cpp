@@ -829,14 +829,6 @@ void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
 	// [actor_MRU] END
 }
 
-// [actor_MRU] BEGIN
-void SubsEditBox::OnActorSetFocus(wxFocusEvent &evt) {
-	evt.Skip();
-	if (actor_mru_manager_)
-		actor_mru_manager_->OnActorFocusChanged(true);
-}
-// [actor_MRU] END
-
 void SubsEditBox::OnEffectKillFocus(wxFocusEvent &evt) {
 	evt.Skip();
 	effect_text_amend_ = false;
