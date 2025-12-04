@@ -22,8 +22,8 @@ class wxComboBox;
 class wxListBox;
 class wxPanel;
 class wxStaticText;
-
 class ActorMRUWindow;
+class ActorMRUManager;
 
 /// Manager that tracks recently used actor names and drives the popup window
 /// displayed next to the actor field.
@@ -76,28 +76,36 @@ private:
 	void TrimList();
 	void ResetSelection();
 
-	void OnListSelect(wxCommandEvent &evt);
-	void OnListDClick(wxCommandEvent &evt);
-	void OnAppActivate(wxActivateEvent &evt);
+void OnListSelect(wxCommandEvent &evt);
+void OnListDClick(wxCommandEvent &evt);
+void OnAppActivate(wxActivateEvent &evt);
 };
 
 /// Simple popup window showing the MRU entries.
 class ActorMRUWindow final : public wxPopupWindow {
 public:
-	explicit ActorMRUWindow(wxWindow *parent);
+	ActorMRUWindow(wxWindow *parent, ActorMRUManager *manager);
 
 	void SetNames(std::vector<wxString> const& names);
 	void SetActive(bool active);
 	void SetSelection(int index);
 	int GetSelection() const;
 	wxListBox *GetListBox() const { return list_; }
+	void ShowForActor(wxWindow *anchor);
+	void HideWindow();
 
 private:
+	ActorMRUManager *manager_ = nullptr;
 	wxPanel *panel_ = nullptr;
 	wxStaticText *label_ = nullptr;
 	wxListBox *list_ = nullptr;
 	bool is_active_ = false;
 
 	void UpdateLabel(bool has_entries);
+	void OnKeyDown(wxKeyEvent &evt);
+	void OnListBoxKeyDown(wxKeyEvent &evt);
+	void OnActivate(wxActivateEvent &evt);
+
+	wxDECLARE_EVENT_TABLE();
 };
 // [actor_MRU] END

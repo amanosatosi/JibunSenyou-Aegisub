@@ -19,12 +19,18 @@
 #include <wx/intl.h>
 #include <wx/log.h>
 
+wxBEGIN_EVENT_TABLE(ActorMRUWindow, wxPopupWindow)
+	EVT_KEY_DOWN(ActorMRUWindow::OnKeyDown)
+	EVT_ACTIVATE(ActorMRUWindow::OnActivate)
+wxEND_EVENT_TABLE()
+
 namespace {
 constexpr size_t kMaxEntries = 20;
 }
 
-ActorMRUWindow::ActorMRUWindow(wxWindow *parent)
+ActorMRUWindow::ActorMRUWindow(wxWindow *parent, ActorMRUManager *manager)
 : wxPopupWindow(parent, wxBORDER_SIMPLE)
+, manager_(manager)
 {
 	panel_ = new wxPanel(this);
 	panel_->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
@@ -33,6 +39,7 @@ ActorMRUWindow::ActorMRUWindow(wxWindow *parent)
 	panel_sizer->Add(label_, 0, wxALL, 4);
 	list_ = new wxListBox(panel_, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0, nullptr,
 		wxLB_SINGLE | wxLB_NEEDED_SB | wxWANTS_CHARS);
+	list_->Bind(wxEVT_KEY_DOWN, &ActorMRUWindow::OnListBoxKeyDown, this);
 	panel_sizer->Add(list_, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 4);
 	panel_->SetSizer(panel_sizer);
 
@@ -73,11 +80,68 @@ int ActorMRUWindow::GetSelection() const {
 	return list_->GetSelection();
 }
 
+void ActorMRUWindow::ShowForActor(wxWindow *anchor) {
+	if (!anchor)
+		return;
+	if (!IsShown()) {
+		Show();
+		Raise();
+	}
+}
+
+void ActorMRUWindow::HideWindow() {
+	if (IsShown())
+		Hide();
+}
+
 void ActorMRUWindow::UpdateLabel(bool has_entries) {
 	wxString status = has_entries ? _("Recent actors") : _("Recent actors (empty)");
 	if (!is_active_)
 		status += wxS(" [") + _("inactive") + wxS("]");
 	label_->SetLabel(wxS(">> ") + status);
+}
+
+void ActorMRUWindow::OnKeyDown(wxKeyEvent &evt) {
+	if (!manager_) {
+		evt.Skip();
+		return;
+	}
+
+	int key = evt.GetKeyCode();
+	bool handled = false;
+	switch (key) {
+	case WXK_RETURN:
+	case WXK_NUMPAD_ENTER:
+		handled = manager_->HandleEnterKey();
+		break;
+	case WXK_UP:
+	case WXK_NUMPAD_UP:
+		handled = manager_->HandleUpKey();
+		break;
+	case WXK_DOWN:
+	case WXK_NUMPAD_DOWN:
+		handled = manager_->HandleDownKey();
+		break;
+	default:
+		break;
+	}
+
+	if (handled) {
+		evt.Skip(false);
+		return;
+	}
+	evt.Skip();
+}
+
+void ActorMRUWindow::OnListBoxKeyDown(wxKeyEvent &evt) {
+	// [actor_MRU] Forward list events to window handler so manager sees arrows/enter
+	OnKeyDown(evt);
+}
+
+void ActorMRUWindow::OnActivate(wxActivateEvent &evt) {
+	if (!evt.GetActive())
+		HideWindow();
+	evt.Skip();
 }
 
 ActorMRUManager::ActorMRUManager(SubsEditBox *owner, wxComboBox *actor_ctrl, wxButton *anchor_button)
@@ -195,7 +259,7 @@ void ActorMRUManager::EnsureWindow() {
 	if (window_ || !actor_ctrl_)
 		return;
 
-	window_ = std::make_unique<ActorMRUWindow>(actor_ctrl_);
+	window_ = std::make_unique<ActorMRUWindow>(actor_ctrl_, this);
 	if (auto *list = window_->GetListBox()) {
 		list->Bind(wxEVT_LISTBOX, &ActorMRUManager::OnListSelect, this);
 		list->Bind(wxEVT_LISTBOX_DCLICK, &ActorMRUManager::OnListDClick, this);
@@ -223,16 +287,19 @@ void ActorMRUManager::ShowWindow() {
 	RefreshWindow();
 	PositionWindow();
 	if (!window_visible_) {
-		window_->Show();
-		window_->Raise();
+		window_->ShowForActor(actor_ctrl_);
 		window_visible_ = true;
 	}
+
+	// [actor_MRU] Keep actor control focused so key events reach the manager
+	if (actor_ctrl_ && actor_ctrl_->IsShownOnScreen())
+		actor_ctrl_->SetFocus();
 }
 
 void ActorMRUManager::HideWindow() {
 	if (!window_ || !window_visible_)
 		return;
-	window_->Hide();
+	window_->HideWindow();
 	window_visible_ = false;
 }
 
