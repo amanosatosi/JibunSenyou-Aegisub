@@ -102,6 +102,7 @@ void ActorMRUWindow::UpdateLabel(bool has_entries) {
 }
 
 void ActorMRUWindow::OnKeyDown(wxKeyEvent &evt) {
+	wxLogDebug("[actor_MRU] ActorMRUWindow::OnKeyDown key=%d", evt.GetKeyCode());
 	if (!manager_) {
 		evt.Skip();
 		return;
@@ -200,6 +201,7 @@ void ActorMRUManager::UpdateWindowVisibility() {
 }
 
 bool ActorMRUManager::HandleUpKey() {
+	wxLogDebug("[actor_MRU] HandleUpKey()");
 	if (!fast_mode_enabled_)
 		return false;
 	ShowWindow();
@@ -216,6 +218,7 @@ bool ActorMRUManager::HandleUpKey() {
 }
 
 bool ActorMRUManager::HandleDownKey() {
+	wxLogDebug("[actor_MRU] HandleDownKey()");
 	if (!fast_mode_enabled_)
 		return false;
 	ShowWindow();
@@ -235,6 +238,8 @@ bool ActorMRUManager::HandleDownKey() {
 }
 
 bool ActorMRUManager::HandleEnterKey() {
+	wxLogDebug("[actor_MRU] HandleEnterKey called: fast=%d hasEntries=%d hasSelection=%d owner=%p",
+		fast_mode_enabled_, HasEntries(), HasSelection(), owner_);
 	if (!fast_mode_enabled_ || !HasEntries() || !HasSelection() || !owner_)
 		return false;
 

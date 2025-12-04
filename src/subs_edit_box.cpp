@@ -756,6 +756,7 @@ void SubsEditBox::AutoFillActor() {
 }
 
 void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
+	wxLogDebug("[actor_MRU] OnActorKeyDown key=%d unicode=%d", evt.GetKeyCode(), evt.GetUnicodeKey());
 	actor_should_autofill_ = false;
 	actor_has_pending_selection_ = false;
 
@@ -991,8 +992,10 @@ void SubsEditBox::ToggleFastMode() {
 		fast_has_active_name_ = false;
 		actor_selection_start_ = 0;
 		actor_selection_end_ = 0;
-		if (actor_box)
+		if (actor_box && actor_box->IsShownOnScreen())
 			actor_box->SetFocus();
+		if (actor_mru_manager_)
+			actor_mru_manager_->OnActorFocusChanged(true);
 	}
 	else {
 		actor_has_pending_selection_ = false;
@@ -1000,6 +1003,8 @@ void SubsEditBox::ToggleFastMode() {
 		actor_selection_end_ = 0;
 		fast_active_name_.clear();
 		fast_has_active_name_ = false;
+		if (actor_mru_manager_)
+			actor_mru_manager_->OnActorFocusChanged(false);
 	}
 }
 
