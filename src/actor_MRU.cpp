@@ -164,10 +164,7 @@ void ActorMRUManager::SetFastModeEnabled(bool enabled) {
 	fast_mode_enabled_ = enabled;
 	LOG_D("actor/MRU") << "SetFastModeEnabled fast=" << fast_mode_enabled_;
 
-	if (fast_mode_enabled_)
-		ShowWindow();
-	else
-		HideWindow();
+	UpdateWindowVisibility();
 }
 
 void ActorMRUManager::OnActorCommitted(wxString const& new_actor, wxString const& old_actor, AssFile *subs) {
@@ -191,15 +188,16 @@ void ActorMRUManager::OnActorFocusChanged(bool has_focus) {
 	LOG_D("actor/MRU") << "OnActorFocusChanged has_focus=" << actor_has_focus_
 		<< " fast=" << fast_mode_enabled_ << " visible=" << window_visible_;
 
-	// Focus changes affect only the popup's active styling.
 	UpdateActiveState();
+	UpdateWindowVisibility();
 }
 
 void ActorMRUManager::UpdateWindowVisibility() {
-	if (!fast_mode_enabled_)
+	if (!fast_mode_enabled_ || !actor_ctrl_ || !actor_has_focus_) {
 		HideWindow();
-	else
-		ShowWindow();
+		return;
+	}
+	ShowWindow();
 }
 
 bool ActorMRUManager::HandleUpKey() {
