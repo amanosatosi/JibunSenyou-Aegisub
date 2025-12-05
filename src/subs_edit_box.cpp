@@ -813,6 +813,8 @@ void SubsEditBox::OnActorSetFocus(wxFocusEvent &evt) {
 	LOG_D("actor/MRU") << "OnActorSetFocus fast=" << fast_mode_enabled_;
 	if (actor_mru_manager_)
 		actor_mru_manager_->OnActorFocusChanged(true);
+	if (fast_mode_enabled_ && fast_mode_restart_needed_ && !fast_mode_restarting_)
+		RestartFastModeAfterFocus();
 	evt.Skip();
 }
 
@@ -822,6 +824,7 @@ void SubsEditBox::OnActorKillFocus(wxFocusEvent &evt) {
 	actor_text_amend_ = false;
 	if (!fast_mode_enabled_)
 		return;
+	fast_mode_restart_needed_ = true;
 	FinalizeFastActiveFromActor(false);
 	// [actor_MRU] BEGIN
 	if (actor_mru_manager_)
@@ -985,6 +988,7 @@ void SubsEditBox::ApplyFastActiveToCurrentLine() {
 
 void SubsEditBox::ToggleFastMode() {
 	fast_mode_enabled_ = !fast_mode_enabled_;
+	fast_mode_restart_needed_ = false;
 	if (actor_fast_button_) {
 		actor_fast_button_->SetLabel(fast_mode_enabled_ ? wxS(">>") : wxS(">"));
 		actor_fast_button_->SetToolTip(fast_mode_enabled_
@@ -1015,6 +1019,21 @@ void SubsEditBox::ToggleFastMode() {
 		if (actor_mru_manager_)
 			actor_mru_manager_->OnActorFocusChanged(false);
 	}
+}
+
+void SubsEditBox::RestartFastModeAfterFocus() {
+	if (!fast_mode_enabled_ || fast_mode_restarting_)
+		return;
+
+	LOG_D("actor/MRU") << "RestartFastModeAfterFocus";
+	fast_mode_restarting_ = true;
+	fast_mode_restart_needed_ = false;
+
+	ToggleFastMode();
+	if (!fast_mode_enabled_)
+		ToggleFastMode();
+
+	fast_mode_restarting_ = false;
 }
 
 void SubsEditBox::OnFastButton(wxCommandEvent &) {
