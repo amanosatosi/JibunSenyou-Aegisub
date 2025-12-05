@@ -198,6 +198,14 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	// [actor_MRU] BEGIN
 	actor_box->Bind(wxEVT_SET_FOCUS, &SubsEditBox::OnActorSetFocus, this);
 	// [actor_MRU] END
+#ifdef wxHAS_COMBOBOX_TEXT_ENTRY
+	if (wxTextCtrl *actor_text = actor_box->GetTextCtrl()) {
+		actor_text->Bind(wxEVT_KEY_DOWN, &SubsEditBox::OnActorKeyDown, this);
+		actor_text->Bind(wxEVT_CHAR_HOOK, &SubsEditBox::OnActorKeyDown, this);
+		actor_text->Bind(wxEVT_KILL_FOCUS, &SubsEditBox::OnActorKillFocus, this);
+		actor_text->Bind(wxEVT_SET_FOCUS, &SubsEditBox::OnActorSetFocus, this);
+	}
+#endif
 	top_sizer->Add(actor_box, wxSizerFlags(2).Expand().Border(wxRIGHT));
 
 	actor_fast_button_ = new wxButton(this, wxID_ANY, wxS(">"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
