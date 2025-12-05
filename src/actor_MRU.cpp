@@ -160,11 +160,14 @@ ActorMRUManager::~ActorMRUManager() {
 void ActorMRUManager::SetFastModeEnabled(bool enabled) {
 	if (fast_mode_enabled_ == enabled)
 		return;
+
 	fast_mode_enabled_ = enabled;
-	if (!fast_mode_enabled_)
-		HideWindow();
+	LOG_D("actor/MRU") << "SetFastModeEnabled fast=" << fast_mode_enabled_;
+
+	if (fast_mode_enabled_)
+		ShowWindow();
 	else
-		UpdateWindowVisibility();
+		HideWindow();
 }
 
 void ActorMRUManager::OnActorCommitted(wxString const& new_actor, wxString const& old_actor, AssFile *subs) {
@@ -187,19 +190,16 @@ void ActorMRUManager::OnActorFocusChanged(bool has_focus) {
 	actor_has_focus_ = has_focus;
 	LOG_D("actor/MRU") << "OnActorFocusChanged has_focus=" << actor_has_focus_
 		<< " fast=" << fast_mode_enabled_ << " visible=" << window_visible_;
-	if (!actor_has_focus_)
-		HideWindow();
-	else if (fast_mode_enabled_)
-		ShowWindow();
+
+	// Focus changes affect only the popup's active styling.
 	UpdateActiveState();
 }
 
 void ActorMRUManager::UpdateWindowVisibility() {
-	if (!fast_mode_enabled_ || !actor_ctrl_) {
+	if (!fast_mode_enabled_)
 		HideWindow();
-		return;
-	}
-	ShowWindow();
+	else
+		ShowWindow();
 }
 
 bool ActorMRUManager::HandleUpKey() {
@@ -285,7 +285,7 @@ void ActorMRUManager::EnsureWindow() {
 }
 
 void ActorMRUManager::ShowWindow() {
-	if (!fast_mode_enabled_ || !actor_ctrl_ || !actor_has_focus_)
+	if (!fast_mode_enabled_ || !actor_ctrl_)
 		return;
 
 	EnsureWindow();
@@ -294,17 +294,8 @@ void ActorMRUManager::ShowWindow() {
 
 	RefreshWindow();
 	PositionWindow();
-	if (!window_visible_) {
-		window_->ShowForActor(actor_ctrl_);
-		window_visible_ = true;
-	}
-	else {
-		window_->ShowForActor(actor_ctrl_);
-	}
-
-	// [actor_MRU] Keep actor control focused so key events reach the manager
-	if (actor_ctrl_ && actor_ctrl_->IsShownOnScreen())
-		actor_ctrl_->SetFocus();
+	window_->ShowForActor(actor_ctrl_);
+	window_visible_ = true;
 }
 
 void ActorMRUManager::HideWindow() {

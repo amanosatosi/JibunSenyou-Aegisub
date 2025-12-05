@@ -130,8 +130,6 @@ class SubsEditBox final : public wxPanel {
 	bool fast_mode_enabled_ = false;
 	bool fast_has_active_name_ = false;
 	wxString fast_active_name_;
-	bool fast_mode_restart_needed_ = false;
-	bool fast_mode_restarting_ = false;
 
 	size_t last_bracket_pair_index_ = 1;
 	bool better_view_enabled_ = true;
@@ -239,7 +237,6 @@ class SubsEditBox final : public wxPanel {
 	void CommitActorToCurrentLine(wxString const& name);
 	// [actor_MRU] END
 	void ToggleFastMode();
-	void RestartFastModeAfterFocus();
 	void InsertBracketPair(wxString const& left, wxString const& right);
 	void FinalizeFastActiveFromActor(bool add_to_recent);
 	void ClearFastActiveName();
