@@ -264,8 +264,7 @@ void Interface(wxTreebook *book, Preferences *parent) {
 		Preferences *prefs_parent = p->parent;
 		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
 			wxString token = evt.GetSelection() == 1 ? wxS("rpg") : wxS("normal");
-			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Mode");
-			new_value->SetString(from_wx(token));
+			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Mode", from_wx(token));
 			prefs_parent->SetOption(std::move(new_value));
 		});
 	}
