@@ -104,15 +104,13 @@ void ActorMRUWindow::UpdateLabel(bool has_entries) {
 
 void ActorMRUWindow::SetMinActorWidth(int width) {
 	min_actor_width_ = std::max(0, width);
-	ApplyBestSize();
 }
 
 void ActorMRUWindow::ApplyBestSize() {
 	wxSize best = GetBestSize();
-	if (min_actor_width_ > 0 && best.GetWidth() < min_actor_width_)
-		best.SetWidth(min_actor_width_);
+	if (min_actor_width_ > 0)
+		best.SetWidth(std::max(best.GetWidth(), min_actor_width_));
 
-	SetMinSize(best);
 	SetSize(best);
 }
 
@@ -305,9 +303,9 @@ void ActorMRUManager::ShowWindow() {
 	if (!window_)
 		return;
 
-	window_->SetMinActorWidth(actor_ctrl_->GetSize().GetWidth());
 	RefreshWindow();
 	PositionWindow();
+	window_->SetMinActorWidth(actor_ctrl_->GetSize().GetWidth());
 	window_->ShowForActor(actor_ctrl_);
 	window_visible_ = true;
 }
@@ -322,8 +320,6 @@ void ActorMRUManager::HideWindow() {
 void ActorMRUManager::PositionWindow() {
 	if (!window_ || !actor_ctrl_)
 		return;
-
-	window_->SetMinActorWidth(actor_ctrl_->GetSize().GetWidth());
 
 	wxWindow *anchor = anchor_button_
 		? static_cast<wxWindow*>(anchor_button_)
