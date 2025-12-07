@@ -87,6 +87,7 @@
 #include <wx/stattext.h>
 #include <wx/intl.h>
 #include <wx/textentry.h>
+#include <wx/utils.h>
 #include <libaegisub/log.h>
 
 namespace {
@@ -776,7 +777,10 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 
 	int key_code = evt.GetKeyCode();
 	int unicode = evt.GetUnicodeKey();
-	bool modifier = evt.ControlDown() || evt.CmdDown() || evt.MetaDown() || evt.AltDown();
+	bool ctrl_modifier = evt.ControlDown() || evt.CmdDown() || evt.MetaDown();
+	bool alt_modifier = evt.AltDown();
+	bool modifier = ctrl_modifier || alt_modifier;
+	bool shift_down = evt.ShiftDown();
 	bool printable = false;
 	if (!modifier) {
 		if (unicode != WXK_NONE)
@@ -812,6 +816,33 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		}
 	}
 	// [actor_MRU] END
+
+	bool rpg_mode = false;
+	{
+		wxString fast_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
+		fast_mode.MakeLower();
+		rpg_mode = fast_mode == wxS("rpg");
+	}
+	if (rpg_mode && fast_mode_enabled_ && actor_mru_manager_ && actor_mru_manager_->IsWindowVisible() && has_focus) {
+		if (!shift_down && !ctrl_modifier && !alt_modifier) {
+			int letter = unicode != WXK_NONE ? unicode : key_code;
+			letter = wxTolower(letter);
+			if (letter == 'z') {
+				if (actor_mru_manager_->HandleEnterKey()) {
+					evt.StopPropagation();
+					evt.Skip(false);
+					return;
+				}
+			}
+			else if (letter == 'x') {
+				if (c)
+					cmd::call("grid/line/prev", c);
+				evt.StopPropagation();
+				evt.Skip(false);
+				return;
+			}
+		}
+	}
 
 	actor_should_autofill_ = printable && key_code != WXK_SPACE;
 	evt.Skip();

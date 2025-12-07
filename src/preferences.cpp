@@ -246,6 +246,29 @@ void Interface(wxTreebook *book, Preferences *parent) {
 
 	auto visual_tools = p->PageSizer(_("Visual Tools"));
 	p->OptionAdd(visual_tools, _("Shape handle size"), "Tool/Visual/Shape Handle Size");
+	{
+		p->parent->AddChangeableOption("App/Fast Naming Mode");
+		wxArrayString fast_mode_choices;
+		fast_mode_choices.Add(_("Normal"));
+		fast_mode_choices.Add(_("RPG (Z/X controls)"));
+		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_mode_choices, wxCB_READONLY | wxCB_DROPDOWN);
+		visual_tools->Add(new wxStaticText(p, wxID_ANY, _("Fast naming mode")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
+		visual_tools->Add(combo, wxSizerFlags().Expand());
+
+		wxString current_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
+		int selection = current_mode.CmpNoCase(wxS("rpg")) == 0 ? 1 : 0;
+		if (selection < 0 || selection >= (int)fast_mode_choices.size())
+			selection = 0;
+		combo->SetSelection(selection);
+
+		Preferences *prefs_parent = p->parent;
+		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
+			wxString token = evt.GetSelection() == 1 ? wxS("rpg") : wxS("normal");
+			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Mode");
+			new_value->SetString(from_wx(token));
+			prefs_parent->SetOption(std::move(new_value));
+		});
+	}
 
 	auto color_picker = p->PageSizer(_("Colour Picker"));
 	p->OptionAdd(color_picker, _("Restrict Screen Picker to Window"), "Tool/Colour Picker/Restrict to Window");
