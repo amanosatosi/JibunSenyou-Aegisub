@@ -87,7 +87,6 @@ public:
 	ActorMRUWindow(wxWindow *parent, ActorMRUManager *manager);
 
 	void SetNames(std::vector<wxString> const& names);
-	void SetMinActorWidth(int width);
 	void SetActive(bool active);
 	void SetSelection(int index);
 	int GetSelection() const;
@@ -101,13 +100,11 @@ private:
 	wxStaticText *label_ = nullptr;
 	wxListBox *list_ = nullptr;
 	bool is_active_ = false;
-	int min_actor_width_ = 0;
 
 	void UpdateLabel(bool has_entries);
 	void OnKeyDown(wxKeyEvent &evt);
 	void OnListBoxKeyDown(wxKeyEvent &evt);
 	void OnActivate(wxActivateEvent &evt);
-	void ApplyBestSize();
 
 	wxDECLARE_EVENT_TABLE();
 };
