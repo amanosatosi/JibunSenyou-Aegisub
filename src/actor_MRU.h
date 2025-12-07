@@ -34,6 +34,7 @@ public:
 
 	void SetFastModeEnabled(bool enabled);
 	bool IsFastModeEnabled() const { return fast_mode_enabled_; }
+	bool IsWindowVisible() const { return window_visible_; }
 
 	/// Update MRU data when a line is committed in fast mode.
 	void OnActorCommitted(wxString const& new_actor, wxString const& old_actor, AssFile *subs);
@@ -100,11 +101,13 @@ private:
 	wxStaticText *label_ = nullptr;
 	wxListBox *list_ = nullptr;
 	bool is_active_ = false;
+	int visible_rows_cache_ = 0;
 
 	void UpdateLabel(bool has_entries);
 	void OnKeyDown(wxKeyEvent &evt);
 	void OnListBoxKeyDown(wxKeyEvent &evt);
 	void OnActivate(wxActivateEvent &evt);
+	void AdjustHeightForRows(int rows);
 
 	wxDECLARE_EVENT_TABLE();
 };

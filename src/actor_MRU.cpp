@@ -25,7 +25,7 @@ wxBEGIN_EVENT_TABLE(ActorMRUWindow, wxPopupWindow)
 wxEND_EVENT_TABLE()
 
 namespace {
-constexpr size_t kMaxEntries = 20;
+constexpr size_t kMaxEntries = 15;
 }
 
 ActorMRUWindow::ActorMRUWindow(wxWindow *parent, ActorMRUManager *manager)
@@ -57,6 +57,17 @@ void ActorMRUWindow::SetNames(std::vector<wxString> const& names) {
 	list_->Thaw();
 	UpdateLabel(!names.empty());
 	panel_->Layout();
+	int count = list_->GetCount();
+	if (count < 0)
+		count = 0;
+	if (manager_ && manager_->IsWindowVisible())
+		AdjustHeightForRows(count);
+	else {
+		constexpr int kMaxVisibleRows = 15;
+		if (count > kMaxVisibleRows)
+			count = kMaxVisibleRows;
+		visible_rows_cache_ = count;
+	}
 }
 
 void ActorMRUWindow::SetActive(bool active) {
@@ -98,6 +109,30 @@ void ActorMRUWindow::UpdateLabel(bool has_entries) {
 	if (!is_active_)
 		status += wxS(" [") + _("inactive") + wxS("]");
 	label_->SetLabel(wxS(">> ") + status);
+}
+
+void ActorMRUWindow::AdjustHeightForRows(int rows) {
+	constexpr int kMaxVisibleRows = 15;
+	if (rows < 0)
+		rows = 0;
+	if (rows > kMaxVisibleRows)
+		rows = kMaxVisibleRows;
+	if (rows <= visible_rows_cache_)
+		return;
+	if (!list_)
+		return;
+
+	int row_height = list_->GetCharHeight();
+	if (row_height <= 0)
+		row_height = 1;
+	int list_height = row_height * rows + 8;
+
+	wxSize current = GetSize();
+	int new_height = std::max(current.GetHeight(), list_height);
+	if (new_height > current.GetHeight())
+		SetSize(current.GetWidth(), new_height);
+
+	visible_rows_cache_ = rows;
 }
 
 void ActorMRUWindow::OnKeyDown(wxKeyEvent &evt) {
