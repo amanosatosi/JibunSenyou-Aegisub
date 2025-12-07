@@ -58,6 +58,7 @@ void ActorMRUWindow::SetNames(std::vector<wxString> const& names) {
 	UpdateLabel(!names.empty());
 	panel_->Layout();
 	GetSizer()->Fit(this);
+	ApplyBestSize();
 }
 
 void ActorMRUWindow::SetActive(bool active) {
@@ -99,6 +100,20 @@ void ActorMRUWindow::UpdateLabel(bool has_entries) {
 	if (!is_active_)
 		status += wxS(" [") + _("inactive") + wxS("]");
 	label_->SetLabel(wxS(">> ") + status);
+}
+
+void ActorMRUWindow::SetMinActorWidth(int width) {
+	min_actor_width_ = std::max(0, width);
+	ApplyBestSize();
+}
+
+void ActorMRUWindow::ApplyBestSize() {
+	wxSize best = GetBestSize();
+	if (min_actor_width_ > 0 && best.GetWidth() < min_actor_width_)
+		best.SetWidth(min_actor_width_);
+
+	SetMinSize(best);
+	SetSize(best);
 }
 
 void ActorMRUWindow::OnKeyDown(wxKeyEvent &evt) {
@@ -290,6 +305,7 @@ void ActorMRUManager::ShowWindow() {
 	if (!window_)
 		return;
 
+	window_->SetMinActorWidth(actor_ctrl_->GetSize().GetWidth());
 	RefreshWindow();
 	PositionWindow();
 	window_->ShowForActor(actor_ctrl_);
@@ -306,6 +322,8 @@ void ActorMRUManager::HideWindow() {
 void ActorMRUManager::PositionWindow() {
 	if (!window_ || !actor_ctrl_)
 		return;
+
+	window_->SetMinActorWidth(actor_ctrl_->GetSize().GetWidth());
 
 	wxWindow *anchor = anchor_button_
 		? static_cast<wxWindow*>(anchor_button_)
