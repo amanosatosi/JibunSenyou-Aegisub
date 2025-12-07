@@ -119,29 +119,21 @@ void ActorMRUWindow::AdjustHeightForRows(int rows) {
 	if (rows > kMaxVisibleRows)
 		rows = kMaxVisibleRows;
 
-	// If we already sized for this many (or more) rows, nothing to do.
+	// Already sized for this many (or more) rows → nothing to do.
 	if (rows <= visible_rows_cache_)
 		return;
 
 	if (!list_)
 		return;
 
-	// Grow height by the number of additional rows, using the actual
-	// item height (including platform spacing) when possible.
-	int row_height = 0;
-	wxRect item_rect;
-
-	if (rows > 0 && list_->GetCount() > 0 && list_->GetItemRect(0, item_rect)) {
-		row_height = item_rect.GetHeight();
-	} else {
-		row_height = list_->GetCharHeight();
-	}
-
+	// Approximate one row height from font metrics.
+	int row_height = list_->GetCharHeight();
 	if (row_height <= 0)
 		row_height = 1;
 
+	// Grow by the number of new rows.
 	int delta_rows   = rows - visible_rows_cache_;
-	int extra_height = row_height * delta_rows;
+	int extra_height = delta_rows * row_height;
 
 	if (extra_height <= 0) {
 		visible_rows_cache_ = rows;
