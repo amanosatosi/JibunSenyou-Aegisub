@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -101,13 +102,24 @@ private:
 	wxStaticText *label_ = nullptr;
 	wxListBox *list_ = nullptr;
 	bool is_active_ = false;
+	/// Number of rows the popup is currently sized for.
 	int visible_rows_cache_ = 0;
+	/// Pending rows requested while hidden. Used to size on next show.
+	int pending_rows_ = 0;
+	/// Cached chrome height (label/padding) added on top of list rows.
+	int chrome_height_ = -1;
 
 	void UpdateLabel(bool has_entries);
 	void OnKeyDown(wxKeyEvent &evt);
 	void OnListBoxKeyDown(wxKeyEvent &evt);
 	void OnActivate(wxActivateEvent &evt);
 	void AdjustHeightForRows(int rows);
+	int ClampVisibleRows(int rows) const;
+	int GetRowHeight() const;
+	int ComputeChromeHeight(int row_height, int rows) const;
+
+public:
+	int GetPendingVisibleRows() const { return pending_rows_ > 0 ? pending_rows_ : visible_rows_cache_; }
 
 	wxDECLARE_EVENT_TABLE();
 };

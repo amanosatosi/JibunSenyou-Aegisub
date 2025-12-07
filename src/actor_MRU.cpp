@@ -57,17 +57,18 @@ void ActorMRUWindow::SetNames(std::vector<wxString> const& names) {
 	list_->Thaw();
 	UpdateLabel(!names.empty());
 	panel_->Layout();
-	int count = list_->GetCount();
-	if (count < 0)
-		count = 0;
+	int count = ClampVisibleRows(list_ ? static_cast<int>(list_->GetCount()) : 0);
+
+	if (chrome_height_ < 0) {
+		int row_height = GetRowHeight();
+		int rows_for_chrome = list_ ? static_cast<int>(list_->GetCount()) : 0;
+		chrome_height_ = ComputeChromeHeight(row_height, rows_for_chrome);
+	}
+
 	if (manager_ && manager_->IsWindowVisible())
 		AdjustHeightForRows(count);
-	else {
-		constexpr int kMaxVisibleRows = 15;
-		if (count > kMaxVisibleRows)
-			count = kMaxVisibleRows;
-		visible_rows_cache_ = count;
-	}
+	else
+		pending_rows_ = count;
 }
 
 void ActorMRUWindow::SetActive(bool active) {
@@ -111,39 +112,57 @@ void ActorMRUWindow::UpdateLabel(bool has_entries) {
 	label_->SetLabel(wxS(">> ") + status);
 }
 
+// Grow the popup height to accommodate the requested number of rows. Once the
+// window is visible we only grow (never shrink) to avoid flicker; while hidden
+// we may reduce the height so the next show starts at the correct size.
 void ActorMRUWindow::AdjustHeightForRows(int rows) {
-	constexpr int kMaxVisibleRows = 15;
-
-	if (rows < 0)
-		rows = 0;
-	if (rows > kMaxVisibleRows)
-		rows = kMaxVisibleRows;
-
-	// Already sized for this many (or more) rows → nothing to do.
-	if (rows <= visible_rows_cache_)
-		return;
-
+	rows = ClampVisibleRows(rows);
 	if (!list_)
 		return;
 
-	// Approximate one row height from font metrics.
-	int row_height = list_->GetCharHeight();
-	if (row_height <= 0)
-		row_height = 1;
-
-	// Grow by the number of new rows.
-	int delta_rows   = rows - visible_rows_cache_;
-	int extra_height = delta_rows * row_height;
-
-	if (extra_height <= 0) {
-		visible_rows_cache_ = rows;
-		return;
+	if (chrome_height_ < 0) {
+		int row_height = GetRowHeight();
+		int current_rows = list_->GetCount() ? static_cast<int>(list_->GetCount()) : 0;
+		chrome_height_ = ComputeChromeHeight(row_height, current_rows);
 	}
 
+	bool window_shown = IsShown();
+	if (rows <= visible_rows_cache_ && window_shown)
+		return;
+
+	int row_height = GetRowHeight();
+	int target_height = chrome_height_ + row_height * rows;
+
 	wxSize current = GetSize();
-	SetSize(current.GetWidth(), current.GetHeight() + extra_height);
+	if (!window_shown && target_height < current.GetHeight())
+		SetSize(current.GetWidth(), target_height);
+	else if (target_height > current.GetHeight())
+		SetSize(current.GetWidth(), target_height);
 
 	visible_rows_cache_ = rows;
+	pending_rows_ = rows;
+}
+
+int ActorMRUWindow::ClampVisibleRows(int rows) const {
+	if (rows < 0)
+		return 0;
+	int max_rows = static_cast<int>(kMaxEntries);
+	return rows > max_rows ? max_rows : rows;
+}
+
+int ActorMRUWindow::GetRowHeight() const {
+	if (!list_)
+		return 1;
+	int row_height = list_->GetCharHeight();
+	return row_height > 0 ? row_height : 1;
+}
+
+int ActorMRUWindow::ComputeChromeHeight(int row_height, int rows) const {
+	int best_height = GetBestSize().GetHeight();
+	if (rows < 0)
+		rows = 0;
+	int chrome = best_height - row_height * rows;
+	return chrome < 0 ? 0 : chrome;
 }
 
 void ActorMRUWindow::OnKeyDown(wxKeyEvent &evt) {
@@ -337,6 +356,7 @@ void ActorMRUManager::ShowWindow() {
 
 	RefreshWindow();
 	if (!window_visible_) {
+		window_->AdjustHeightForRows(window_->GetPendingVisibleRows());
 		PositionWindow();
 		window_->ShowForActor(actor_ctrl_);
 		window_visible_ = true;
