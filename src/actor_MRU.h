@@ -119,6 +119,8 @@ private:
 	int ComputeChromeHeight(int row_height, int rows) const;
 
 public:
+	friend class ActorMRUManager;
+
 	int GetPendingVisibleRows() const { return pending_rows_ > 0 ? pending_rows_ : visible_rows_cache_; }
 
 	wxDECLARE_EVENT_TABLE();
