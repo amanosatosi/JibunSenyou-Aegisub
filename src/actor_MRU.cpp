@@ -26,6 +26,7 @@ wxEND_EVENT_TABLE()
 
 namespace {
 constexpr size_t kMaxEntries = 15;
+constexpr int kMaxVisibleRows = 15;
 }
 
 ActorMRUWindow::ActorMRUWindow(wxWindow *parent, ActorMRUManager *manager)
@@ -57,18 +58,12 @@ void ActorMRUWindow::SetNames(std::vector<wxString> const& names) {
 	list_->Thaw();
 	UpdateLabel(!names.empty());
 	panel_->Layout();
-	int count = ClampVisibleRows(list_ ? static_cast<int>(list_->GetCount()) : 0);
-
-	if (chrome_height_ < 0) {
-		int row_height = GetRowHeight();
-		int rows_for_chrome = list_ ? static_cast<int>(list_->GetCount()) : 0;
-		chrome_height_ = ComputeChromeHeight(row_height, rows_for_chrome);
-	}
+	int count = list_ ? static_cast<int>(list_->GetCount()) : 0;
+	int rows = ClampVisibleRows(count);
+	pending_rows_ = rows;
 
 	if (manager_ && manager_->IsWindowVisible())
-		AdjustHeightForRows(count);
-	else
-		pending_rows_ = count;
+		AdjustHeightForRows(rows);
 }
 
 void ActorMRUWindow::SetActive(bool active) {
@@ -112,62 +107,85 @@ void ActorMRUWindow::UpdateLabel(bool has_entries) {
 	label_->SetLabel(wxS(">> ") + status);
 }
 
-// Grow the popup height to accommodate the requested number of rows. Once the
-// window is visible we only grow (never shrink) to avoid flicker; while hidden
-// we may reduce the height so the next show starts at the correct size.
-void ActorMRUWindow::AdjustHeightForRows(int rows) {
-	rows = ClampVisibleRows(rows);
-	if (!list_)
-		return;
-
-	if (chrome_height_ < 0) {
-		int row_height = GetRowHeight();
-		int current_rows = list_->GetCount() ? static_cast<int>(list_->GetCount()) : 0;
-		chrome_height_ = ComputeChromeHeight(row_height, current_rows);
-	}
-
-	bool window_shown = IsShown();
-	if (rows <= visible_rows_cache_ && window_shown)
-		return;
-
-	int row_height = GetRowHeight();
-	int target_height = chrome_height_ + row_height * rows;
-
-	wxSize current = GetSize();
-	if (!window_shown && target_height < current.GetHeight())
-		SetSize(current.GetWidth(), target_height);
-	else if (target_height > current.GetHeight())
-		SetSize(current.GetWidth(), target_height);
-
-	visible_rows_cache_ = rows;
-	pending_rows_ = rows;
-}
-
 int ActorMRUWindow::ClampVisibleRows(int rows) const {
 	if (rows < 0)
-		return 0;
-	int max_rows = static_cast<int>(kMaxEntries);
-	return rows > max_rows ? max_rows : rows;
+		rows = 0;
+	if (rows > kMaxVisibleRows)
+		rows = kMaxVisibleRows;
+	return rows;
 }
 
-int ActorMRUWindow::GetRowHeight() const {
+void ActorMRUWindow::EnsureMetrics() {
 	if (!list_)
-		return 1;
-	int row_height = list_->GetCharHeight();
-	return row_height > 0 ? row_height : 1;
-}
+		return;
 
-int ActorMRUWindow::ComputeChromeHeight(int row_height, int rows_hint) const {
-	int best_height = GetBestSize().GetHeight();
-	if (row_height <= 0)
-		return best_height;
+	if (row_height_ <= 0) {
+		row_height_ = list_->GetCharHeight();
+		if (row_height_ <= 0)
+			row_height_ = 12;
+	}
 
-	int approx_rows = best_height / row_height;
+	if (chrome_height_ >= 0)
+		return;
+
+	panel_->Layout();
+	if (GetSize().GetHeight() == 0)
+		Fit();
+
+	wxSize full = GetSize();
+	wxSize list_client = list_->GetClientSize();
+	int client_height = list_client.GetHeight();
+	if (client_height <= 0) {
+		int approx_rows = kMaxVisibleRows;
+		client_height = approx_rows * row_height_;
+	}
+
+	int approx_rows = client_height / row_height_;
 	if (approx_rows < 1)
 		approx_rows = 1;
 
-	int chrome = best_height - approx_rows * row_height;
-	return chrome < 0 ? 0 : chrome;
+	int rows_pixels = approx_rows * row_height_;
+	int chrome = full.GetHeight() - rows_pixels;
+	if (chrome < 0)
+		chrome = 0;
+	chrome_height_ = chrome;
+}
+
+void ActorMRUWindow::AdjustHeightForRows(int rows) {
+	if (!list_)
+		return;
+
+	rows = ClampVisibleRows(rows);
+	if (rows < 0)
+		rows = 0;
+
+	pending_rows_ = rows;
+
+	EnsureMetrics();
+
+	bool window_shown = IsShown();
+	if (window_shown && rows <= visible_rows_cache_)
+		return;
+
+	int target_height = chrome_height_;
+	if (rows > 0)
+		target_height += row_height_ * rows;
+
+	wxSize current = GetSize();
+	int current_height = current.GetHeight();
+
+	if (!window_shown) {
+		if (current_height == 0 || target_height < current_height)
+			SetSize(current.GetWidth(), target_height);
+		else if (target_height > current_height)
+			SetSize(current.GetWidth(), target_height);
+	}
+	else if (target_height > current_height) {
+		SetSize(current.GetWidth(), target_height);
+	}
+
+	if (window_shown && rows > visible_rows_cache_)
+		visible_rows_cache_ = rows;
 }
 
 void ActorMRUWindow::OnKeyDown(wxKeyEvent &evt) {

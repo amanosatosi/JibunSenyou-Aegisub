@@ -102,26 +102,23 @@ private:
 	wxStaticText *label_ = nullptr;
 	wxListBox *list_ = nullptr;
 	bool is_active_ = false;
-	/// Number of rows the popup is currently sized for.
-	int visible_rows_cache_ = 0;
-	/// Pending rows requested while hidden. Used to size on next show.
-	int pending_rows_ = 0;
-	/// Cached chrome height (label/padding) added on top of list rows.
+	int row_height_ = -1;
 	int chrome_height_ = -1;
+	int visible_rows_cache_ = 0;
+	int pending_rows_ = 0;
 
 	void UpdateLabel(bool has_entries);
 	void OnKeyDown(wxKeyEvent &evt);
 	void OnListBoxKeyDown(wxKeyEvent &evt);
 	void OnActivate(wxActivateEvent &evt);
-	void AdjustHeightForRows(int rows);
 	int ClampVisibleRows(int rows) const;
-	int GetRowHeight() const;
-	int ComputeChromeHeight(int row_height, int rows) const;
+	void EnsureMetrics();
+	void AdjustHeightForRows(int rows);
 
 public:
 	friend class ActorMRUManager;
 
-	int GetPendingVisibleRows() const { return pending_rows_ > 0 ? pending_rows_ : visible_rows_cache_; }
+	int GetPendingVisibleRows() const { return pending_rows_; }
 
 	wxDECLARE_EVENT_TABLE();
 };
