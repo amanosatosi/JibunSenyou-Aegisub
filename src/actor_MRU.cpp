@@ -157,11 +157,16 @@ int ActorMRUWindow::GetRowHeight() const {
 	return row_height > 0 ? row_height : 1;
 }
 
-int ActorMRUWindow::ComputeChromeHeight(int row_height, int rows) const {
+int ActorMRUWindow::ComputeChromeHeight(int row_height, int rows_hint) const {
 	int best_height = GetBestSize().GetHeight();
-	if (rows < 0)
-		rows = 0;
-	int chrome = best_height - row_height * rows;
+	if (row_height <= 0)
+		return best_height;
+
+	int approx_rows = best_height / row_height;
+	if (approx_rows < 1)
+		approx_rows = 1;
+
+	int chrome = best_height - approx_rows * row_height;
 	return chrome < 0 ? 0 : chrome;
 }
 
