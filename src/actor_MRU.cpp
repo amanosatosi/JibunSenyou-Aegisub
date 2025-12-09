@@ -328,23 +328,28 @@ bool ActorMRUManager::HandleEnterKey() {
 	LOG_D("actor/MRU") << "HandleEnterKey called: fast=" << fast_mode_enabled_
 		<< " hasEntries=" << HasEntries() << " hasSelection=" << HasSelection()
 		<< " owner=" << owner_;
-	if (!fast_mode_enabled_ || !HasEntries() || !owner_)
+	if (!fast_mode_enabled_ || !owner_ || !actor_ctrl_)
 		return false;
+	wxString typed = actor_ctrl_->GetValue();
+	typed.Trim(true);
+	typed.Trim(false);
 
-	if (!HasSelection())
-		SelectIndex(0);
-	if (!HasSelection())
-		return false;
-
-	wxString selected = GetSelectedName();
-	if (selected.empty())
-		return false;
+	bool has_selection = HasSelection();
+	wxString final_actor;
+	if (has_selection)
+		final_actor = GetSelectedName();
+	else if (!typed.empty())
+		final_actor = typed;
+	else if (!names_.empty())
+		final_actor = names_.front();
+	// MRU behaviour: prefer explicit selection, then typed text, then entry[0] if text is empty.
 
 	int current_row = owner_->line ? owner_->line->Row : -1;
-	LOG_D("actor/MRU") << "HandleEnterKey applying '" << from_wx(selected) << "' on row " << current_row;
-	owner_->ApplyActorNameFromMRU(selected);
+	LOG_D("actor/MRU") << "HandleEnterKey applying '" << from_wx(final_actor) << "' on row " << current_row;
+	owner_->ApplyActorNameFromMRU(final_actor);
 	owner_->AdvanceLineAfterMRU();
-	PromoteName(selected);
+	if (!final_actor.empty())
+		PromoteName(final_actor);
 	ResetSelection();
 	RefreshWindow();
 	ShowWindow();
