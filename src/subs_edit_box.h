@@ -71,6 +71,11 @@ class SubsEditBox final : public wxPanel {
 		TIME_END,
 		TIME_DURATION
 	};
+	enum class FastNamingMode {
+		Off,
+		Normal,
+		Nanashi // Ctrl/Alt shortcuts for fast naming navigation
+	};
 
 	std::vector<agi::signal::Connection> connections;
 
@@ -235,8 +240,10 @@ class SubsEditBox final : public wxPanel {
 	void ApplyActorNameFromMRU(wxString const& name);
 	void AdvanceLineAfterMRU();
 	void PlayFastNamingPreviewForCurrentLine();
+	void RefocusActorAfterFastLineChange();
 	void CommitActorToCurrentLine(wxString const& name);
 	// [actor_MRU] END
+	FastNamingMode GetFastNamingMode() const;
 	void ToggleFastMode();
 	void InsertBracketPair(wxString const& left, wxString const& right);
 	void FinalizeFastActiveFromActor(bool add_to_recent);

@@ -25,8 +25,8 @@ wxBEGIN_EVENT_TABLE(ActorMRUWindow, wxPopupWindow)
 wxEND_EVENT_TABLE()
 
 namespace {
-constexpr size_t kMaxEntries = 15;
-constexpr int kMaxVisibleRows = 15;
+constexpr size_t kMaxEntries = 10; // actor MRU max size = 10
+constexpr int kMaxVisibleRows = 10;
 }
 
 ActorMRUWindow::ActorMRUWindow(wxWindow *parent, ActorMRUManager *manager)

@@ -249,21 +249,30 @@ void Interface(wxTreebook *book, Preferences *parent) {
 	{
 		p->parent->AddChangeableOption("App/Fast Naming Mode");
 		wxArrayString fast_mode_choices;
+		fast_mode_choices.Add(_("Off"));
 		fast_mode_choices.Add(_("Normal"));
-		fast_mode_choices.Add(_("RPG (Z/X controls)"));
+		fast_mode_choices.Add(_("Nanashi"));
 		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_mode_choices, wxCB_READONLY | wxCB_DROPDOWN);
 		visual_tools->Add(new wxStaticText(p, wxID_ANY, _("Fast naming mode")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
 		visual_tools->Add(combo, wxSizerFlags().Expand());
 
 		wxString current_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
-		int selection = current_mode.CmpNoCase(wxS("rpg")) == 0 ? 1 : 0;
-		if (selection < 0 || selection >= (int)fast_mode_choices.size())
-			selection = 0;
+		current_mode.MakeLower();
+		int selection = 0;
+		if (current_mode == wxS("normal"))
+			selection = 1;
+		else if (current_mode == wxS("nanashi"))
+			selection = 2;
 		combo->SetSelection(selection);
 
 		Preferences *prefs_parent = p->parent;
 		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
-			wxString token = evt.GetSelection() == 1 ? wxS("rpg") : wxS("normal");
+			wxString token = wxS("off");
+			switch (evt.GetSelection()) {
+			case 1: token = wxS("normal"); break;
+			case 2: token = wxS("nanashi"); break;
+			default: break;
+			}
 			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Mode", from_wx(token));
 			prefs_parent->SetOption(std::move(new_value));
 		});

@@ -791,8 +791,10 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	if (key_code == WXK_BACK || key_code == WXK_DELETE)
 		printable = false;
 
+	FastNamingMode fast_mode = GetFastNamingMode();
+
 	// [actor_MRU] BEGIN
-	if (fast_mode_enabled_ && actor_mru_manager_ && !modifier) {
+	if (fast_mode_enabled_ && fast_mode != FastNamingMode::Off && actor_mru_manager_ && !modifier) {
 		if (key_code == WXK_DOWN || key_code == WXK_NUMPAD_DOWN) {
 			if (actor_mru_manager_->HandleDownKey()) {
 				evt.StopPropagation();
@@ -817,32 +819,42 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	}
 	// [actor_MRU] END
 
-	bool rpg_mode = false;
-	{
-		wxString fast_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
-		fast_mode.MakeLower();
-		rpg_mode = fast_mode == wxS("rpg");
-	}
-	if (rpg_mode && fast_mode_enabled_ && actor_mru_manager_ && actor_mru_manager_->IsWindowVisible() && has_focus) {
-		if (!shift_down && !ctrl_modifier && !alt_modifier) {
-			int letter = unicode != WXK_NONE ? unicode : key_code;
-			letter = wxTolower(letter);
-			if (letter == 'z') {
-				if (actor_mru_manager_->HandleEnterKey()) {
-					evt.StopPropagation();
-					evt.Skip(false);
-					return;
-				}
-			}
-			else if (letter == 'x') {
-				if (c) {
-					cmd::call("grid/line/prev", c);
-					PlayFastNamingPreviewForCurrentLine(); // Auto-play video/audio for current line when fast naming is active and actor has focus.
-				}
+	if (fast_mode == FastNamingMode::Nanashi && fast_mode_enabled_ && actor_mru_manager_ && actor_mru_manager_->IsWindowVisible() && has_focus) {
+		bool ctrl_only = ctrl_modifier && !alt_modifier && !shift_down &&
+			(key_code == WXK_CONTROL
+#ifdef WXK_RCONTROL
+			|| key_code == WXK_RCONTROL
+#endif
+#ifdef WXK_RAW_CONTROL
+			|| key_code == WXK_RAW_CONTROL
+#endif
+			);
+		bool alt_only = alt_modifier && !ctrl_modifier && !shift_down &&
+			(key_code == WXK_ALT
+#ifdef WXK_RALT
+			|| key_code == WXK_RALT
+#endif
+			|| key_code == WXK_MENU);
+
+		// Nanashi mode: Ctrl = confirm/next line, Alt = previous line (fast naming only)
+		if (ctrl_only) {
+			if (actor_mru_manager_->HandleEnterKey()) {
 				evt.StopPropagation();
 				evt.Skip(false);
 				return;
 			}
+			evt.StopPropagation();
+			evt.Skip(false);
+			return;
+		}
+		if (alt_only) {
+			if (c) {
+				cmd::call("grid/line/prev", c);
+				RefocusActorAfterFastLineChange();
+			}
+			evt.StopPropagation();
+			evt.Skip(false);
+			return;
 		}
 	}
 
@@ -926,12 +938,7 @@ void SubsEditBox::AdvanceLineAfterMRU() {
 		: -1;
 	LOG_D("actor/MRU") << "AdvanceLineAfterMRU from row " << from_row << " to row " << to_row;
 
-	if (actor_box)
-		actor_box->SetFocus();
-	if (actor_mru_manager_)
-		actor_mru_manager_->UpdateWindowVisibility();
-
-	PlayFastNamingPreviewForCurrentLine(); // Auto-play video/audio for current line when fast naming is active and actor has focus.
+	RefocusActorAfterFastLineChange();
 }
 
 void SubsEditBox::PlayFastNamingPreviewForCurrentLine() {
@@ -950,6 +957,24 @@ void SubsEditBox::PlayFastNamingPreviewForCurrentLine() {
 	}
 
 	cmd::call("video/play/line", c);
+}
+
+void SubsEditBox::RefocusActorAfterFastLineChange() {
+	if (actor_box)
+		actor_box->SetFocus();
+	if (actor_mru_manager_)
+		actor_mru_manager_->UpdateWindowVisibility();
+	PlayFastNamingPreviewForCurrentLine(); // Auto-play video/audio for current line when fast naming is active and actor has focus.
+}
+
+SubsEditBox::FastNamingMode SubsEditBox::GetFastNamingMode() const {
+	wxString fast_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
+	fast_mode.MakeLower();
+	if (fast_mode == wxS("off"))
+		return FastNamingMode::Off;
+	if (fast_mode == wxS("nanashi"))
+		return FastNamingMode::Nanashi;
+	return FastNamingMode::Normal;
 }
 
 void SubsEditBox::CommitActorToCurrentLine(wxString const& name) {
