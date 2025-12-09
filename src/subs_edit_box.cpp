@@ -835,8 +835,10 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 				}
 			}
 			else if (letter == 'x') {
-				if (c)
+				if (c) {
 					cmd::call("grid/line/prev", c);
+					PlayFastNamingPreviewForCurrentLine(); // Auto-play video/audio for current line when fast naming is active and actor has focus.
+				}
 				evt.StopPropagation();
 				evt.Skip(false);
 				return;
@@ -928,6 +930,26 @@ void SubsEditBox::AdvanceLineAfterMRU() {
 		actor_box->SetFocus();
 	if (actor_mru_manager_)
 		actor_mru_manager_->UpdateWindowVisibility();
+
+	PlayFastNamingPreviewForCurrentLine(); // Auto-play video/audio for current line when fast naming is active and actor has focus.
+}
+
+void SubsEditBox::PlayFastNamingPreviewForCurrentLine() {
+	if (!c || !fast_mode_enabled_ || !actor_box)
+		return;
+	if (wxWindow::FindFocus() != actor_box)
+		return;
+
+	std::string mode = OPT_GET("App/Fast Naming Playback Mode")->GetString();
+	// Respect user's fast naming playback preference (video, audio, or off).
+	if (mode == "off")
+		return;
+	if (mode == "audio") {
+		cmd::call("audio/play/line", c);
+		return;
+	}
+
+	cmd::call("video/play/line", c);
 }
 
 void SubsEditBox::CommitActorToCurrentLine(wxString const& name) {

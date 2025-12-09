@@ -268,6 +268,39 @@ void Interface(wxTreebook *book, Preferences *parent) {
 			prefs_parent->SetOption(std::move(new_value));
 		});
 	}
+	{
+		p->parent->AddChangeableOption("App/Fast Naming Playback Mode");
+		wxArrayString fast_playback_choices;
+		fast_playback_choices.Add(_("Video"));
+		fast_playback_choices.Add(_("Audio"));
+		fast_playback_choices.Add(_("Off"));
+		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_playback_choices, wxCB_READONLY | wxCB_DROPDOWN);
+		visual_tools->Add(new wxStaticText(p, wxID_ANY, _("Fast naming auto playback")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
+		visual_tools->Add(combo, wxSizerFlags().Expand());
+
+		wxString playback_mode = to_wx(OPT_GET("App/Fast Naming Playback Mode")->GetString());
+		playback_mode.MakeLower();
+		int playback_selection = 0;
+		if (playback_mode == wxS("audio"))
+			playback_selection = 1;
+		else if (playback_mode == wxS("off"))
+			playback_selection = 2;
+		if (playback_selection < 0 || playback_selection >= (int)fast_playback_choices.size())
+			playback_selection = 0;
+		combo->SetSelection(playback_selection);
+
+		Preferences *prefs_parent = p->parent;
+		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
+			wxString token = wxS("video");
+			switch (evt.GetSelection()) {
+			case 1: token = wxS("audio"); break;
+			case 2: token = wxS("off"); break;
+			default: token = wxS("video"); break;
+			}
+			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Playback Mode", from_wx(token));
+			prefs_parent->SetOption(std::move(new_value));
+		});
+	}
 
 	auto color_picker = p->PageSizer(_("Colour Picker"));
 	p->OptionAdd(color_picker, _("Restrict Screen Picker to Window"), "Tool/Colour Picker/Restrict to Window");
