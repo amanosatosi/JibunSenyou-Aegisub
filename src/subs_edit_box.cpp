@@ -792,9 +792,10 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 		printable = false;
 
 	FastNamingMode fast_mode = GetFastNamingMode();
+	bool fast_mode_active = fast_mode_enabled_ && fast_mode != FastNamingMode::Off;
 
 	// [actor_MRU] BEGIN
-	if (fast_mode_enabled_ && fast_mode != FastNamingMode::Off && actor_mru_manager_ && !modifier) {
+	if (fast_mode_active && actor_mru_manager_ && !modifier) {
 		if (key_code == WXK_DOWN || key_code == WXK_NUMPAD_DOWN) {
 			if (actor_mru_manager_->HandleDownKey()) {
 				evt.StopPropagation();
@@ -819,7 +820,9 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 	}
 	// [actor_MRU] END
 
-	if (fast_mode == FastNamingMode::Nanashi && fast_mode_enabled_ && actor_mru_manager_ && actor_mru_manager_->IsWindowVisible() && has_focus) {
+	bool nanashi_active = fast_mode_active && fast_mode == FastNamingMode::Nanashi && has_focus;
+	if (nanashi_active) {
+		// Nanashi mode: Ctrl = confirm/next line, Alt = previous line (fast naming only)
 		bool ctrl_only = ctrl_modifier && !alt_modifier && !shift_down &&
 			(key_code == WXK_CONTROL
 #ifdef WXK_RCONTROL
@@ -836,8 +839,7 @@ void SubsEditBox::OnActorKeyDown(wxKeyEvent &evt) {
 #endif
 			|| key_code == WXK_MENU);
 
-		// Nanashi mode: Ctrl = confirm/next line, Alt = previous line (fast naming only)
-		if (ctrl_only) {
+		if (ctrl_only && actor_mru_manager_) {
 			if (actor_mru_manager_->HandleEnterKey()) {
 				evt.StopPropagation();
 				evt.Skip(false);
@@ -942,13 +944,13 @@ void SubsEditBox::AdvanceLineAfterMRU() {
 }
 
 void SubsEditBox::PlayFastNamingPreviewForCurrentLine() {
+	// Auto-play preview whenever fast naming navigation changes the active line.
 	if (!c || !fast_mode_enabled_ || !actor_box)
 		return;
-	if (wxWindow::FindFocus() != actor_box)
+	if (GetFastNamingMode() == FastNamingMode::Off)
 		return;
 
 	std::string mode = OPT_GET("App/Fast Naming Playback Mode")->GetString();
-	// Respect user's fast naming playback preference (video, audio, or off).
 	if (mode == "off")
 		return;
 	if (mode == "audio") {

@@ -328,7 +328,12 @@ bool ActorMRUManager::HandleEnterKey() {
 	LOG_D("actor/MRU") << "HandleEnterKey called: fast=" << fast_mode_enabled_
 		<< " hasEntries=" << HasEntries() << " hasSelection=" << HasSelection()
 		<< " owner=" << owner_;
-	if (!fast_mode_enabled_ || !HasEntries() || !HasSelection() || !owner_)
+	if (!fast_mode_enabled_ || !HasEntries() || !owner_)
+		return false;
+
+	if (!HasSelection())
+		SelectIndex(0);
+	if (!HasSelection())
 		return false;
 
 	wxString selected = GetSelectedName();
