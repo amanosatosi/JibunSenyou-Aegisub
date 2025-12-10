@@ -24,20 +24,12 @@
 #include <wx/mstream.h>
 
 namespace {
+bool g_use_dark_icons = false;
+
 struct BitmapResourceView {
 	const unsigned char *data = nullptr;
 	size_t size = 0;
 };
-
-bool IsExperimentalDarkModeEnabled() {
-#ifdef __WXMSW__
-	// TODO: wire the actual experimental dark mode state from higher-level wxmaster Windows code.
-	return false;
-#else
-	// Non-Windows builds currently do not use dark button icons.
-	return false;
-#endif
-}
 
 #if defined(__WXMSW__) && wxVERSION_NUMBER >= 3300
 const std::unordered_map<std::string_view, BitmapResourceView>& GetDarkBitmapMap() {
@@ -67,13 +59,17 @@ BitmapResourceView GetDarkBitmap(std::string_view name) {
 #endif
 } // namespace
 
+void libresrc_set_dark_icons_enabled(bool enabled) {
+	g_use_dark_icons = enabled;
+}
+
 wxBitmap libresrc_getimage([[maybe_unused]] const char *name, const unsigned char *buff, size_t size, double scale, int dir) {
 	const unsigned char *selected = buff;
 	size_t selected_size = size;
 
 #if defined(__WXMSW__) && wxVERSION_NUMBER >= 3300
 	// In the wxWidgets master build, prefer dark toolbar icons when experimental dark mode is enabled.
-	if (IsExperimentalDarkModeEnabled()) {
+	if (g_use_dark_icons) {
 		if (auto dark = GetDarkBitmap(name); dark.data) {
 			selected = dark.data;
 			selected_size = dark.size;

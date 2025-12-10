@@ -21,6 +21,9 @@
 class wxBitmap;
 class wxIcon;
 
+// Global toggle to tell libresrc whether to use dark icons for toolbars/buttons.
+void libresrc_set_dark_icons_enabled(bool enabled);
+
 wxBitmap libresrc_getimage(const char *name, const unsigned char *image, size_t size, double scale=1.0, int dir=0);
 wxIcon libresrc_geticon(const unsigned char *image, size_t size);
 #define GETIMAGE(a) libresrc_getimage(#a, a, sizeof(a))
