@@ -22,8 +22,6 @@
 #include <memory>
 #include <vector>
 
-#include <libaegisub/option_value.h>
-
 #include <wx/dialog.h>
 #include <wx/string.h>
 
@@ -31,7 +29,7 @@ class wxButton;
 class wxTreebook;
 class wxControl;
 class ColourButton;
-namespace agi { class OptionValue; }
+namespace agi { class OptionValue; enum class OptionType; }
 
 class Preferences final : public wxDialog {
 public:
