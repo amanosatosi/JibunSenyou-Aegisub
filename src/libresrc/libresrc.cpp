@@ -14,8 +14,6 @@
 
 #include "libresrc.h"
 
-#include "options.h"
-
 #include <string_view>
 #include <unordered_map>
 
@@ -26,16 +24,22 @@
 #include <wx/mstream.h>
 
 namespace {
-#if defined(__WXMSW__) && wxVERSION_NUMBER >= 3300
 struct BitmapResourceView {
 	const unsigned char *data = nullptr;
 	size_t size = 0;
 };
 
 bool IsExperimentalDarkModeEnabled() {
-	return OPT_GET("App/Dark Mode")->GetBool();
+#ifdef __WXMSW__
+	// TODO: wire the actual experimental dark mode state from higher-level wxmaster Windows code.
+	return false;
+#else
+	// Non-Windows builds currently do not use dark button icons.
+	return false;
+#endif
 }
 
+#if defined(__WXMSW__) && wxVERSION_NUMBER >= 3300
 const std::unordered_map<std::string_view, BitmapResourceView>& GetDarkBitmapMap() {
 	static const auto map = [] {
 		std::unordered_map<std::string_view, BitmapResourceView> result;
