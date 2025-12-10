@@ -73,6 +73,73 @@ void General(wxTreebook *book, Preferences *parent) {
 	p->OptionChoice(general, _("Automatically load linked files"), autoload_modes_arr, "App/Auto/Load Linked Files");
 	p->OptionAdd(general, _("Undo Levels"), "Limits/Undo Levels", 2, 10000);
 
+	// Fast actor naming options (moved from Interface)
+	auto fast_naming = p->PageSizer(_("Fast naming"));
+	{
+		p->parent->AddChangeableOption("App/Fast Naming Mode");
+		wxArrayString fast_mode_choices;
+		fast_mode_choices.Add(_("Off"));
+		fast_mode_choices.Add(_("Normal"));
+		fast_mode_choices.Add(_("Nanashi"));
+		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_mode_choices, wxCB_READONLY | wxCB_DROPDOWN);
+		fast_naming->Add(new wxStaticText(p, wxID_ANY, _("Fast naming mode")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
+		fast_naming->Add(combo, wxSizerFlags().Expand());
+
+		wxString current_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
+		current_mode.MakeLower();
+		int selection = 0;
+		if (current_mode == wxS("normal"))
+			selection = 1;
+		else if (current_mode == wxS("nanashi"))
+			selection = 2;
+		combo->SetSelection(selection);
+
+		Preferences *prefs_parent = p->parent;
+		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
+			wxString token = wxS("off");
+			switch (evt.GetSelection()) {
+			case 1: token = wxS("normal"); break;
+			case 2: token = wxS("nanashi"); break;
+			default: break;
+			}
+			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Mode", from_wx(token));
+			prefs_parent->SetOption(std::move(new_value));
+		});
+	}
+	{
+		p->parent->AddChangeableOption("App/Fast Naming Playback Mode");
+		wxArrayString fast_playback_choices;
+		fast_playback_choices.Add(_("Video"));
+		fast_playback_choices.Add(_("Audio"));
+		fast_playback_choices.Add(_("Off"));
+		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_playback_choices, wxCB_READONLY | wxCB_DROPDOWN);
+		fast_naming->Add(new wxStaticText(p, wxID_ANY, _("Fast naming auto playback")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
+		fast_naming->Add(combo, wxSizerFlags().Expand());
+
+		wxString playback_mode = to_wx(OPT_GET("App/Fast Naming Playback Mode")->GetString());
+		playback_mode.MakeLower();
+		int playback_selection = 0;
+		if (playback_mode == wxS("audio"))
+			playback_selection = 1;
+		else if (playback_mode == wxS("off"))
+			playback_selection = 2;
+		if (playback_selection < 0 || playback_selection >= (int)fast_playback_choices.size())
+			playback_selection = 0;
+		combo->SetSelection(playback_selection);
+
+		Preferences *prefs_parent = p->parent;
+		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
+			wxString token = wxS("video");
+			switch (evt.GetSelection()) {
+			case 1: token = wxS("audio"); break;
+			case 2: token = wxS("off"); break;
+			default: token = wxS("video"); break;
+			}
+			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Playback Mode", from_wx(token));
+			prefs_parent->SetOption(std::move(new_value));
+		});
+	}
+
 	auto recent = p->PageSizer(_("Recently Used Lists"));
 	p->OptionAdd(recent, _("Files"), "Limits/MRU", 0, 16);
 	p->OptionAdd(recent, _("Find/Replace"), "Limits/Find Replace");
@@ -246,70 +313,6 @@ void Interface(wxTreebook *book, Preferences *parent) {
 
 	auto visual_tools = p->PageSizer(_("Visual Tools"));
 	p->OptionAdd(visual_tools, _("Shape handle size"), "Tool/Visual/Shape Handle Size");
-	{
-		p->parent->AddChangeableOption("App/Fast Naming Mode");
-		wxArrayString fast_mode_choices;
-		fast_mode_choices.Add(_("Off"));
-		fast_mode_choices.Add(_("Normal"));
-		fast_mode_choices.Add(_("Nanashi"));
-		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_mode_choices, wxCB_READONLY | wxCB_DROPDOWN);
-		visual_tools->Add(new wxStaticText(p, wxID_ANY, _("Fast naming mode")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
-		visual_tools->Add(combo, wxSizerFlags().Expand());
-
-		wxString current_mode = to_wx(OPT_GET("App/Fast Naming Mode")->GetString());
-		current_mode.MakeLower();
-		int selection = 0;
-		if (current_mode == wxS("normal"))
-			selection = 1;
-		else if (current_mode == wxS("nanashi"))
-			selection = 2;
-		combo->SetSelection(selection);
-
-		Preferences *prefs_parent = p->parent;
-		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
-			wxString token = wxS("off");
-			switch (evt.GetSelection()) {
-			case 1: token = wxS("normal"); break;
-			case 2: token = wxS("nanashi"); break;
-			default: break;
-			}
-			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Mode", from_wx(token));
-			prefs_parent->SetOption(std::move(new_value));
-		});
-	}
-	{
-		p->parent->AddChangeableOption("App/Fast Naming Playback Mode");
-		wxArrayString fast_playback_choices;
-		fast_playback_choices.Add(_("Video"));
-		fast_playback_choices.Add(_("Audio"));
-		fast_playback_choices.Add(_("Off"));
-		auto combo = new wxComboBox(p, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, fast_playback_choices, wxCB_READONLY | wxCB_DROPDOWN);
-		visual_tools->Add(new wxStaticText(p, wxID_ANY, _("Fast naming auto playback")), 1, wxALIGN_CENTRE_VERTICAL | wxRIGHT, 5);
-		visual_tools->Add(combo, wxSizerFlags().Expand());
-
-		wxString playback_mode = to_wx(OPT_GET("App/Fast Naming Playback Mode")->GetString());
-		playback_mode.MakeLower();
-		int playback_selection = 0;
-		if (playback_mode == wxS("audio"))
-			playback_selection = 1;
-		else if (playback_mode == wxS("off"))
-			playback_selection = 2;
-		if (playback_selection < 0 || playback_selection >= (int)fast_playback_choices.size())
-			playback_selection = 0;
-		combo->SetSelection(playback_selection);
-
-		Preferences *prefs_parent = p->parent;
-		combo->Bind(wxEVT_COMBOBOX, [prefs_parent](wxCommandEvent &evt) {
-			wxString token = wxS("video");
-			switch (evt.GetSelection()) {
-			case 1: token = wxS("audio"); break;
-			case 2: token = wxS("off"); break;
-			default: token = wxS("video"); break;
-			}
-			auto new_value = std::make_unique<agi::OptionValueString>("App/Fast Naming Playback Mode", from_wx(token));
-			prefs_parent->SetOption(std::move(new_value));
-		});
-	}
 
 	auto color_picker = p->PageSizer(_("Colour Picker"));
 	p->OptionAdd(color_picker, _("Restrict Screen Picker to Window"), "Tool/Colour Picker/Restrict to Window");
