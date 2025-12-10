@@ -46,8 +46,7 @@ bool ApplyTheme(const std::string& id) {
 
 	try {
 		auto stream = agi::io::Open(theme_path);
-		// ignore_errors = true so we only replace existing options and keep defaults intact
-		config::opt->LoadConfig(*stream, true);
+		config::opt->ConfigNext(*stream);
 		return true;
 	}
 	catch (agi::Exception const& e) {
