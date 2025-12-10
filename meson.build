@@ -47,6 +47,7 @@ else
     dataroot = datadir / 'aegisub'
 endif
 docdir = prefix / 'doc'
+install_subdir('src/themes', install_dir: dataroot / 'themes')
 
 # MSVC sets this automatically with -MDd, but it has a different meaning on other platforms
 if get_option('debug') and host_machine.system() != 'windows'

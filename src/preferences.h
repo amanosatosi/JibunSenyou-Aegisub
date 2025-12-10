@@ -22,10 +22,15 @@
 #include <memory>
 #include <vector>
 
+#include <libaegisub/option_value.h>
+
 #include <wx/dialog.h>
+#include <wx/string.h>
 
 class wxButton;
 class wxTreebook;
+class wxControl;
+class ColourButton;
 namespace agi { class OptionValue; }
 
 class Preferences final : public wxDialog {
@@ -38,11 +43,24 @@ private:
 	std::map<std::string, std::unique_ptr<agi::OptionValue>> pending_changes;
 	std::vector<Thunk> pending_callbacks;
 	std::vector<std::string> option_names;
+	struct ColourControlBinding {
+		wxControl *control = nullptr;
+		std::string option_name;
+		agi::OptionType type;
+		wxArrayString choices;
+	};
+	std::vector<ColourControlBinding> colour_controls;
+	std::string theme_preset_pending_id;
+	bool theme_preset_only_if_default = false;
+	bool theme_preset_callback_added = false;
 
 	void OnOK(wxCommandEvent &);
 	void OnCancel(wxCommandEvent &);
 	void OnApply(wxCommandEvent &);
 	void OnResetDefault(wxCommandEvent&);
+	void ApplyPendingThemePreset();
+	bool AreColourOptionsDefault() const;
+	void RefreshColourControls();
 
 public:
 	Preferences(wxWindow *parent);
@@ -62,4 +80,10 @@ public:
 	/// simply revert to the default config file as a bunch of things other than
 	/// user options are stored in it. Perhaps that should change in the future.
 	void AddChangeableOption(std::string const& name);
+
+	/// Register a colour page control so it can be refreshed when presets apply.
+	void RegisterColourControl(wxControl *ctrl, const std::string& opt_name, agi::OptionType type, const wxArrayString& choices = wxArrayString());
+
+	/// Set the pending theme preset to apply on OK/Apply.
+	void SetPendingThemePreset(std::string id, bool only_if_default);
 };

@@ -1,0 +1,114 @@
+{
+	"Name" : "Ayu Dark",
+	"Id" : "ayu_dark",
+	"Colour" : {
+		"Audio Display" : {
+			"Keyframe" : "rgb(255,0,255)",
+			"Line Boundary Inactive Line" : "rgb(190,190,190)",
+			"Line boundary End" : "rgb(0, 0, 216)",
+			"Line boundary Start" : "rgb(216, 0, 0)",
+			"Play Cursor" : "rgb(255,255,255)",
+			"Seconds Line" : "rgb(0,100,255)",
+			"Spectrum" : "Icy Blue",
+			"Syllable Boundaries" : "rgb(255,255,0)",
+			"Waveform" : "Green"
+		},
+		"Schemes" : {
+			"Green" : {
+				"Normal" : {
+					"Hue Offset" : 85.0,
+					"Hue Scale" : 0.0,
+					"Saturation Offset" : 255.0,
+					"Saturation Scale" : 0.0,
+					"Lightness Offset" : 0.0,
+					"Lightness Scale" : 0.0,
+					"Alpha Offset" : 0.0,
+					"Alpha Scale" : 1.0
+				},
+				"Inverse" : {
+					"Hue Offset" : 128.0,
+					"Hue Scale" : 1.0,
+					"Saturation Offset" : 0.0,
+					"Saturation Scale" : -1.0,
+					"Lightness Offset" : 0.0,
+					"Lightness Scale" : -1.0,
+					"Alpha Offset" : 0.0,
+					"Alpha Scale" : 1.0
+				}
+			},
+			"Icy Blue" : {
+				"Normal" : {
+					"Hue Offset" : 188.0,
+					"Hue Scale" : 0.0,
+					"Saturation Offset" : 88.0,
+					"Saturation Scale" : 0.7,
+					"Lightness Offset" : 0.0,
+					"Lightness Scale" : 1.0,
+					"Alpha Offset" : 0.0,
+					"Alpha Scale" : 1.0
+				},
+				"Inverse" : {
+					"Hue Offset" : -180.0,
+					"Hue Scale" : 0.0,
+					"Saturation Offset" : 0.0,
+					"Saturation Scale" : -1.0,
+					"Lightness Offset" : 255.0,
+					"Lightness Scale" : -1.0,
+					"Alpha Offset" : 0.0,
+					"Alpha Scale" : 1.0
+				}
+			}
+		},
+		"Subtitle" : {
+			"Background" : "#ffffffff",
+			"Syntax" : {
+				"Background" : {
+					"Error" : "rgb(255,120,120)",
+					"Error Line Number" : "rgb(255,120,120)",
+					"Error Prefix" : "rgb(255,120,120)",
+					"Error Tag" : "rgb(255,120,120)"
+				},
+				"Brackets" : "rgb(0,132,95)",
+				"Comment" : "rgb(89,89,89)",
+				"Drawing Command" : "#000000",
+				"Drawing X" : "#aa0000",
+				"Drawing Y" : "#aa5e00",
+				"Error" : "rgb(255,0,0)",
+				"Karaoke Template" : "rgb(193,90,255)",
+				"Karaoke Variable" : "rgb(225,135,255)",
+				"Line Break" : "rgb(217,0,117)",
+				"Normal" : "rgb(0,170,0)",
+				"Parameters" : "rgb(130,69,255)",
+				"Slashes" : "rgb(31,67,76)",
+				"Tags" : "rgb(0,91,132)",
+				"Underline Drawing Endpoint" : "rgb(230,130,30)"
+			}
+		},
+		"Subtitle Grid" : {
+			"Active Border" : "rgb(59,117,196)",
+			"Background" : {
+				"Background" : "rgb(255,255,255)",
+				"Closed Fold" : "rgb(242,242,242)",
+				"Comment" : "#e0f0c3",
+				"Inframe" : "rgb(210,250,230)",
+				"Open Fold" : "#fffee7",
+				"Selection" : "rgb(225,239,255)",
+				"Selected Comment" : "#d8e7bf"
+			},
+			"CPS Error" : "rgb(255,0,0)",
+			"Collision" : "rgb(255,0,0)",
+			"Header" : "rgb(0, 76, 129)",
+			"Left Column" : "rgb(235,235,235)",
+			"Lines" : "rgb(163,208,219)",
+			"Selection" : "rgb(0, 0, 0)",
+			"Standard" : "rgb(0, 0, 0)"
+		},
+		"Visual Tools" : {
+			"Highlight Primary" : "rgb(255, 169, 40)",
+			"Highlight Secondary" : "rgb(255, 253, 185)",
+			"Lines Primary" : "rgb(187, 0, 0)",
+			"Lines Secondary" : "rgb(106, 32, 19)",
+			"Shaded Area Alpha" : 0.5
+		}
+	}
+}

@@ -109,6 +109,7 @@ aegisub_src = files(
     'persist_location.cpp',
     'preferences.cpp',
     'preferences_base.cpp',
+    'theme_preset.cpp',
     'project.cpp',
     'resolution_resampler.cpp',
     'search_replace_engine.cpp',
