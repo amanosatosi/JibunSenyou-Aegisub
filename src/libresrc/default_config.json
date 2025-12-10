@@ -17,7 +17,9 @@
 		"Save UI State" : true,
 		"Show Toolbar" : true,
 		"Toolbar Icon Size" : 16,
-		"Dark Mode" : false
+		"Dark Mode" : false,
+		"Fast Naming Mode" : "normal",
+		"Fast Naming Playback Mode" : "video"
 	},
 
 

@@ -28,7 +28,7 @@
 // Aegisub Project http://www.aegisub.org/
 
 #include <array>
-#include <deque>
+#include <memory>
 #include <boost/container/map.hpp>
 #include <boost/flyweight/flyweight_fwd.hpp>
 #include <vector>
@@ -58,16 +58,23 @@ class wxTextCtrl;
 struct AssDialogueBase;
 
 template<class Base> class Placeholder;
+class ActorMRUManager;
 
 /// @brief Main subtitle edit box
 ///
 /// Controls the text edit and all surrounding controls
 class SubsEditBox final : public wxPanel {
+	friend class ActorMRUManager; // [actor_MRU]
 	class FastNamePopup;
 	enum TimeField {
 		TIME_START = 0,
 		TIME_END,
 		TIME_DURATION
+	};
+	enum class FastNamingMode {
+		Off,
+		Normal,
+		Nanashi // Ctrl/Alt shortcuts for fast naming navigation
 	};
 
 	std::vector<agi::signal::Connection> connections;
@@ -118,20 +125,16 @@ class SubsEditBox final : public wxPanel {
 	bool actor_has_pending_selection_ = false;
 	long actor_selection_start_ = 0;
 	long actor_selection_end_ = 0;
+	wxString actor_line_initial_value_;
 	bool actor_text_amend_ = false;
 	bool effect_text_amend_ = false;
-	std::deque<wxString> fast_recent_names_;
+	// [actor_MRU] BEGIN
+	std::unique_ptr<ActorMRUManager> actor_mru_manager_;
+	// [actor_MRU] END
 	wxButton *actor_fast_button_ = nullptr;
-	FastNamePopup *fast_popup_ = nullptr;
 	bool fast_mode_enabled_ = false;
-	bool fast_popup_visible_ = false;
 	bool fast_has_active_name_ = false;
 	wxString fast_active_name_;
-	bool fast_preview_active_ = false;
-	int fast_preview_index_ = -1;
-	int fast_target_row_ = -1;
-	AssDialogue *fast_target_line_ = nullptr;
-	bool fast_list_changing_ = false;
 
 	size_t last_bracket_pair_index_ = 1;
 	bool better_view_enabled_ = true;
@@ -186,10 +189,10 @@ class SubsEditBox final : public wxPanel {
 	void OnEffectChange(wxCommandEvent &);
 	void OnFastButton(wxCommandEvent &);
 	void OnBracketButton(wxCommandEvent &);
-	void OnFastListSelect(wxCommandEvent &);
-	void OnFastListDClick(wxCommandEvent &);
-	void OnFastListKeyDown(wxKeyEvent &);
 	void OnActorKillFocus(wxFocusEvent &);
+	// [actor_MRU] BEGIN
+	void OnActorSetFocus(wxFocusEvent &);
+	// [actor_MRU] END
 	void OnEffectKillFocus(wxFocusEvent &);
 	void OnSize(wxSizeEvent &event);
 	void OnSplit(wxCommandEvent&);
@@ -233,16 +236,16 @@ class SubsEditBox final : public wxPanel {
 	void PopulateActorList();
 	void AutoFillActor();
 	void OnActorKeyDown(wxKeyEvent &evt);
-	void AddFastRecentName(wxString const& name);
+	// [actor_MRU] BEGIN
+	void ApplyActorNameFromMRU(wxString const& name);
+	void AdvanceLineAfterMRU();
+	void PlayFastNamingPreviewForCurrentLine();
+	void RefocusActorAfterFastLineChange();
+	void CommitActorToCurrentLine(wxString const& name);
+	// [actor_MRU] END
+	FastNamingMode GetFastNamingMode() const;
 	void ToggleFastMode();
-	void UpdateFastPopup();
-	void ShowFastPopup(bool focus_list);
-	void HideFastPopup();
 	void InsertBracketPair(wxString const& left, wxString const& right);
-	void OnFastPopupDismiss();
-	void OnFastPopupCharHook(wxKeyEvent &evt);
-	void ApplyFastRecentSelection(int index, bool hide_popup = true, bool update_mru = true, bool restore_focus = true);
-	void PreviewFastSelection(int index, bool keep_popup_focus = false);
 	void FinalizeFastActiveFromActor(bool add_to_recent);
 	void ClearFastActiveName();
 	void ApplyFastActiveToCurrentLine();
