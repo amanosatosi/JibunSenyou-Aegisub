@@ -1069,7 +1069,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 		case agi::OptionType::ListString: {
 			json::Array arr;
 			for (auto const& v : opt->GetListString()) {
-				json::Object obj; obj["string"] = v; arr.push_back(obj);
+				json::Object obj; obj["string"] = v; arr.emplace_back(std::move(obj));
 			}
 			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
@@ -1077,7 +1077,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 		case agi::OptionType::ListInt: {
 			json::Array arr;
 			for (auto const& v : opt->GetListInt()) {
-				json::Object obj; obj["int"] = (int64_t)v; arr.push_back(obj);
+				json::Object obj; obj["int"] = (int64_t)v; arr.emplace_back(std::move(obj));
 			}
 			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
@@ -1085,7 +1085,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 		case agi::OptionType::ListDouble: {
 			json::Array arr;
 			for (auto const& v : opt->GetListDouble()) {
-				json::Object obj; obj["double"] = v; arr.push_back(obj);
+				json::Object obj; obj["double"] = v; arr.emplace_back(std::move(obj));
 			}
 			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
@@ -1093,7 +1093,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 		case agi::OptionType::ListColor: {
 			json::Array arr;
 			for (auto const& v : opt->GetListColor()) {
-				json::Object obj; obj["color"] = v.GetRgbFormatted(); arr.push_back(obj);
+				json::Object obj; obj["color"] = v.GetRgbFormatted(); arr.emplace_back(std::move(obj));
 			}
 			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
@@ -1101,7 +1101,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 		case agi::OptionType::ListBool: {
 			json::Array arr;
 			for (auto const& v : opt->GetListBool()) {
-				json::Object obj; obj["bool"] = v; arr.push_back(obj);
+				json::Object obj; obj["bool"] = v; arr.emplace_back(std::move(obj));
 			}
 			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
