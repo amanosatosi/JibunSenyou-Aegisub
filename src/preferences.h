@@ -24,6 +24,8 @@
 
 #include <wx/dialog.h>
 #include <wx/string.h>
+#include <wx/choice.h>
+#include <wx/button.h>
 
 class wxButton;
 class wxTreebook;
@@ -37,6 +39,8 @@ public:
 private:
 	wxTreebook *book;
 	wxButton *applyButton;
+	wxChoice *theme_choice = nullptr;
+	std::vector<std::string> theme_ids;
 
 	std::map<std::string, std::unique_ptr<agi::OptionValue>> pending_changes;
 	std::vector<Thunk> pending_callbacks;
@@ -59,6 +63,9 @@ private:
 	void ApplyPendingThemePreset();
 	bool AreColourOptionsDefault() const;
 	void RefreshColourControls();
+	void RefreshThemeList(const std::string& select_id = "");
+	void OnThemeImport(wxCommandEvent &);
+	void OnThemeExport(wxCommandEvent &);
 
 public:
 	Preferences(wxWindow *parent);

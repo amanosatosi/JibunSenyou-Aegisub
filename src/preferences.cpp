@@ -29,6 +29,9 @@
 #include "include/aegisub/audio_player.h"
 #include "include/aegisub/hotkey.h"
 #include "include/aegisub/subtitles_provider.h"
+#include "libaegisub/cajun/writer.h"
+#include "libaegisub/io.h"
+#include "libaegisub/json.h"
 #include "libresrc/libresrc.h"
 #include "options.h"
 #include "preferences_base.h"
@@ -53,12 +56,15 @@
 #include <wx/event.h>
 #include <wx/listctrl.h>
 #include <wx/msgdlg.h>
+#include <wx/filedlg.h>
+#include <wx/textdlg.h>
 #include <wx/srchctrl.h>
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 #include <wx/treebook.h>
+#include <cstring>
 
 namespace {
 /// General preferences page
@@ -335,6 +341,28 @@ void Interface(wxTreebook *book, Preferences *parent) {
 	p->SetSizerAndFit(p->sizer);
 }
 
+static std::string SlugifyId(const std::string& input) {
+	std::string out;
+	out.reserve(input.size());
+	bool last_sep = true;
+	for (unsigned char c : input) {
+		if (std::isalnum(c)) {
+			out.push_back(static_cast<char>(std::tolower(c)));
+			last_sep = false;
+		}
+		else {
+			if (!last_sep) {
+				out.push_back('_');
+				last_sep = true;
+			}
+		}
+	}
+	while (!out.empty() && out.back() == '_') out.pop_back();
+	while (!out.empty() && out.front() == '_') out.erase(out.begin());
+	if (out.empty()) out = "theme";
+	return out;
+}
+
 /// Interface Colours preferences subpage
 void Interface_Colours(wxTreebook *book, Preferences *parent) {
 	auto p = new OptionPage(book, parent, _("Colors"), OptionPage::PAGE_SCROLL|OptionPage::PAGE_SUB);
@@ -351,38 +379,30 @@ void Interface_Colours(wxTreebook *book, Preferences *parent) {
 	};
 
 	{
-		auto themes = theme_preset::ListAvailableThemes();
-		wxArrayString theme_choices;
-		std::vector<std::string> theme_ids;
-		theme_choices.Add(_("-- No preset (keep current) --"));
-		theme_ids.emplace_back("");
-
-		for (auto const& t : themes) {
-			theme_choices.Add(to_wx(t.name));
-			theme_ids.push_back(t.id);
-		}
-
-		if (themes.empty()) {
-			theme_choices.Add(_("No themes found (install/portable data missing)"));
-			theme_ids.emplace_back("");
-		}
-
 		auto theme_row = new wxFlexGridSizer(2, 5, 5);
 		theme_row->AddGrowableCol(1, 1);
 		theme_row->Add(new wxStaticText(p, wxID_ANY, _("Theme")), 1, wxALIGN_CENTRE_VERTICAL);
-		auto theme_choice = new wxChoice(p, wxID_ANY, wxDefaultPosition, wxDefaultSize, theme_choices);
-		theme_choice->SetSelection(0);
-		if (themes.empty())
-			theme_choice->Enable(false);
+		theme_choice = new wxChoice(p, wxID_ANY);
 		theme_row->Add(theme_choice, wxSizerFlags().Expand());
 		p->sizer->Add(theme_row, wxSizerFlags().Expand().Border(wxALL & ~wxBOTTOM, 5));
 
-		theme_choice->Bind(wxEVT_CHOICE, [parent, theme_ids](wxCommandEvent &evt) {
+		wxSizer *theme_buttons = new wxBoxSizer(wxHORIZONTAL);
+		auto import_btn = new wxButton(p, wxID_ANY, _("Import..."));
+		auto export_btn = new wxButton(p, wxID_ANY, _("Export..."));
+		theme_buttons->Add(import_btn, wxSizerFlags().Border(wxRIGHT, 5));
+		theme_buttons->Add(export_btn, wxSizerFlags());
+		p->sizer->Add(theme_buttons, wxSizerFlags().Border(wxLEFT | wxBOTTOM, 5));
+
+		theme_choice->Bind(wxEVT_CHOICE, [parent](wxCommandEvent &evt) {
 			size_t idx = static_cast<size_t>(evt.GetSelection());
-			if (idx < theme_ids.size())
-				parent->SetPendingThemePreset(theme_ids[idx], false);
+			if (idx < parent->theme_ids.size())
+				parent->SetPendingThemePreset(parent->theme_ids[idx], false);
 			evt.Skip();
 		});
+		import_btn->Bind(wxEVT_BUTTON, &Preferences::OnThemeImport, parent);
+		export_btn->Bind(wxEVT_BUTTON, &Preferences::OnThemeExport, parent);
+
+		parent->RefreshThemeList();
 	}
 
 	auto audio = p->PageSizer(_("Audio Display"));
@@ -946,6 +966,220 @@ void Preferences::RefreshColourControls() {
 		default:
 			break;
 		}
+	}
+}
+
+void Preferences::RefreshThemeList(const std::string& select_id) {
+	if (!theme_choice)
+		return;
+
+	auto themes = theme_preset::ListAvailableThemes();
+	theme_ids.clear();
+	wxArrayString choices;
+
+	choices.Add(_("-- No preset (keep current) --"));
+	theme_ids.emplace_back("");
+
+	for (auto const& t : themes) {
+		choices.Add(to_wx(t.name));
+		theme_ids.push_back(t.id);
+	}
+
+	if (themes.empty()) {
+		choices.Add(_("No themes found (install/portable data missing)"));
+		theme_ids.emplace_back("");
+		theme_choice->Enable(false);
+	}
+	else {
+		theme_choice->Enable(true);
+	}
+
+	theme_choice->Clear();
+	theme_choice->Append(choices);
+
+	size_t sel = 0;
+	if (!select_id.empty()) {
+		for (size_t i = 0; i < theme_ids.size(); ++i) {
+			if (theme_ids[i] == select_id) {
+				sel = i;
+				break;
+			}
+		}
+	}
+	theme_choice->SetSelection(sel);
+	if (sel < theme_ids.size())
+		SetPendingThemePreset(theme_ids[sel], false);
+}
+
+static void InsertJsonValue(json::Object &root, const std::string& path, json::UnknownElement value) {
+	auto pos = path.find('/');
+	if (pos == std::string::npos) {
+		root[path] = std::move(value);
+		return;
+	}
+	auto head = path.substr(0, pos);
+	auto tail = path.substr(pos + 1);
+	json::Object *child = nullptr;
+	try {
+		child = &static_cast<json::Object&>(root[head]);
+	}
+	catch (json::Exception const&) {
+		root[head] = json::Object();
+		child = &static_cast<json::Object&>(root[head]);
+	}
+	InsertJsonValue(*child, tail, std::move(value));
+}
+
+void Preferences::OnThemeExport(wxCommandEvent &) {
+	wxString name = wxGetTextFromUser(_("Enter a name for this theme:"), _("Export Theme"));
+	if (name.empty())
+		return;
+
+	std::string name_utf8 = from_wx(name);
+	std::string id = SlugifyId(name_utf8);
+	std::string default_filename = id + ".json";
+
+	wxFileDialog save(this, _("Export Theme"), to_wx(theme_preset::GetThemeDir()), to_wx(default_filename),
+		_("JSON files (*.json)|*.json|All files (*.*)|*.*"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+	if (save.ShowModal() != wxID_OK)
+		return;
+
+	json::Object colour_obj;
+	for (auto const& opt_name : option_names) {
+		if (opt_name.rfind("Colour/", 0) != 0)
+			continue;
+		auto opt = OPT_GET(opt_name.c_str());
+		switch (opt->GetType()) {
+		case agi::OptionType::String:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetString());
+			break;
+		case agi::OptionType::Int:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), (int64_t)opt->GetInt());
+			break;
+		case agi::OptionType::Double:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetDouble());
+			break;
+		case agi::OptionType::Bool:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetBool());
+			break;
+		case agi::OptionType::Color:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetColor().GetRgbFormatted());
+			break;
+		case agi::OptionType::ListString: {
+			json::Array arr;
+			for (auto const& v : opt->GetListString()) {
+				json::Object obj; obj["string"] = v; arr.push_back(obj);
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			break;
+		}
+		case agi::OptionType::ListInt: {
+			json::Array arr;
+			for (auto const& v : opt->GetListInt()) {
+				json::Object obj; obj["int"] = (int64_t)v; arr.push_back(obj);
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			break;
+		}
+		case agi::OptionType::ListDouble: {
+			json::Array arr;
+			for (auto const& v : opt->GetListDouble()) {
+				json::Object obj; obj["double"] = v; arr.push_back(obj);
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			break;
+		}
+		case agi::OptionType::ListColor: {
+			json::Array arr;
+			for (auto const& v : opt->GetListColor()) {
+				json::Object obj; obj["color"] = v.GetRgbFormatted(); arr.push_back(obj);
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			break;
+		}
+		case agi::OptionType::ListBool: {
+			json::Array arr;
+			for (auto const& v : opt->GetListBool()) {
+				json::Object obj; obj["bool"] = v; arr.push_back(obj);
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			break;
+		}
+		}
+	}
+
+	json::Object root_obj;
+	root_obj["Name"] = name_utf8;
+	root_obj["Id"] = id;
+	root_obj["Colour"] = colour_obj;
+
+	try {
+		agi::JsonWriter::Write(root_obj, agi::io::Save(from_wx(save.GetPath())).Get());
+		std::string user_dest = theme_preset::GetThemeDir() + "/" + id + ".json";
+		agi::JsonWriter::Write(root_obj, agi::io::Save(user_dest).Get());
+		RefreshThemeList(id);
+		ApplyPendingThemePreset();
+	}
+	catch (agi::Exception const& e) {
+		wxMessageBox(_("Failed to export theme:\n") + to_wx(e.GetMessage()), _("Export Theme"), wxOK | wxICON_ERROR);
+	}
+	catch (...) {
+		wxMessageBox(_("Failed to export theme."), _("Export Theme"), wxOK | wxICON_ERROR);
+	}
+}
+
+void Preferences::OnThemeImport(wxCommandEvent &) {
+	wxFileDialog open(this, _("Import Theme"), wxEmptyString, wxEmptyString,
+		_("JSON files (*.json)|*.json|All files (*.*)|*.*"), wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+	if (open.ShowModal() != wxID_OK)
+		return;
+
+	std::string path = from_wx(open.GetPath());
+
+	try {
+		auto stream = agi::io::Open(path);
+		json::UnknownElement root = agi::json_util::parse(*stream);
+		auto &obj = static_cast<json::Object&>(root);
+
+		auto it_name = obj.find("Name");
+		if (it_name == obj.end())
+			throw agi::InternalError("Missing Name");
+		std::string name = static_cast<json::String const&>(it_name->second);
+
+		std::string id;
+		auto it_id = obj.find("Id");
+		if (it_id != obj.end())
+			id = static_cast<json::String const&>(it_id->second);
+		id = SlugifyId(id.empty() ? name : id);
+		obj["Id"] = id;
+
+		auto it_col = obj.find("Colour");
+		if (it_col == obj.end())
+			throw agi::InternalError("Missing Colour section");
+		static_cast<json::Object const&>(it_col->second); // validate object
+
+		std::string user_dir = theme_preset::GetThemeDir();
+		agi::fs::path dst = agi::fs::path(user_dir) / (id + ".json");
+		if (agi::fs::FileExists(dst)) {
+			auto res = wxMessageBox(wxString::Format(_("A theme with Id '%s' already exists. Overwrite?"), to_wx(id)), _("Import Theme"), wxYES_NO | wxICON_QUESTION);
+			if (res != wxYES)
+				return;
+		}
+
+		agi::JsonWriter::Write(obj, agi::io::Save(dst).Get());
+		RefreshThemeList(id);
+		ApplyPendingThemePreset();
+	}
+	catch (agi::Exception const& e) {
+		wxMessageBox(_("The selected file is not a valid Aegisub colour theme.\n\nDetails: ") + to_wx(e.GetMessage()),
+			_("Import Theme"), wxOK | wxICON_ERROR);
+	}
+	catch (std::exception const& e) {
+		wxMessageBox(_("The selected file is not a valid Aegisub colour theme.\n\nDetails: ") + wxString::FromUTF8(e.what()),
+			_("Import Theme"), wxOK | wxICON_ERROR);
+	}
+	catch (...) {
+		wxMessageBox(_("The selected file is not a valid Aegisub colour theme."), _("Import Theme"), wxOK | wxICON_ERROR);
 	}
 }
 
