@@ -1112,7 +1112,8 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 	json::Object root_obj;
 	root_obj["Name"] = name_utf8;
 	root_obj["Id"] = id;
-	root_obj["Colour"] = colour_obj;
+	// Move to avoid copying a map of move-only json::UnknownElement values
+	root_obj["Colour"] = std::move(colour_obj);
 
 	try {
 		agi::JsonWriter::Write(root_obj, agi::io::Save(from_wx(save.GetPath())).Get());
