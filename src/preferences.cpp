@@ -351,25 +351,29 @@ void Interface_Colours(wxTreebook *book, Preferences *parent) {
 	};
 
 	{
-		std::vector<std::string> theme_ids = {
-			"",
-			"aegisub_default",
-			"dark_mode_unofficial",
-			"ayu_light",
-			"ayu_dark"
-		};
+		auto themes = theme_preset::ListAvailableThemes();
 		wxArrayString theme_choices;
+		std::vector<std::string> theme_ids;
 		theme_choices.Add(_("-- No preset (keep current) --"));
-		theme_choices.Add(_("Aegisub default"));
-		theme_choices.Add(_("Dark Mode (Unofficial)"));
-		theme_choices.Add(_("Ayu Light"));
-		theme_choices.Add(_("Ayu Dark"));
+		theme_ids.emplace_back("");
+
+		for (auto const& t : themes) {
+			theme_choices.Add(to_wx(t.name));
+			theme_ids.push_back(t.id);
+		}
+
+		if (themes.empty()) {
+			theme_choices.Add(_("No themes found (install/portable data missing)"));
+			theme_ids.emplace_back("");
+		}
 
 		auto theme_row = new wxFlexGridSizer(2, 5, 5);
 		theme_row->AddGrowableCol(1, 1);
 		theme_row->Add(new wxStaticText(p, wxID_ANY, _("Theme")), 1, wxALIGN_CENTRE_VERTICAL);
 		auto theme_choice = new wxChoice(p, wxID_ANY, wxDefaultPosition, wxDefaultSize, theme_choices);
 		theme_choice->SetSelection(0);
+		if (themes.empty())
+			theme_choice->Enable(false);
 		theme_row->Add(theme_choice, wxSizerFlags().Expand());
 		p->sizer->Add(theme_row, wxSizerFlags().Expand().Border(wxALL & ~wxBOTTOM, 5));
 
@@ -961,11 +965,15 @@ void Preferences::ApplyPendingThemePreset() {
 	if (require_default && !AreColourOptionsDefault())
 		return;
 
-	if (theme_preset::ApplyTheme(id)) {
+	std::string error_msg;
+	if (theme_preset::ApplyTheme(id, &error_msg)) {
 		RefreshColourControls();
 	}
 	else {
-		wxMessageBox(_("Failed to apply theme preset."), _("Theme preset"), wxOK | wxICON_WARNING);
+		wxString friendly = _("Failed to apply theme preset.");
+		if (!error_msg.empty())
+			friendly += "\n\n" + to_wx(error_msg);
+		wxMessageBox(friendly, _("Theme preset"), wxOK | wxICON_WARNING);
 	}
 }
 
