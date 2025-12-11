@@ -383,8 +383,8 @@ void Interface_Colours(wxTreebook *book, Preferences *parent) {
 		auto theme_row = new wxFlexGridSizer(2, 5, 5);
 		theme_row->AddGrowableCol(1, 1);
 		theme_row->Add(new wxStaticText(p, wxID_ANY, _("Theme")), 1, wxALIGN_CENTRE_VERTICAL);
-		theme_choice = new wxChoice(p, wxID_ANY);
-		theme_row->Add(theme_choice, wxSizerFlags().Expand());
+		parent->theme_choice = new wxChoice(p, wxID_ANY);
+		theme_row->Add(parent->theme_choice, wxSizerFlags().Expand());
 		p->sizer->Add(theme_row, wxSizerFlags().Expand().Border(wxALL & ~wxBOTTOM, 5));
 
 		wxSizer *theme_buttons = new wxBoxSizer(wxHORIZONTAL);
@@ -394,7 +394,7 @@ void Interface_Colours(wxTreebook *book, Preferences *parent) {
 		theme_buttons->Add(export_btn, wxSizerFlags());
 		p->sizer->Add(theme_buttons, wxSizerFlags().Border(wxLEFT | wxBOTTOM, 5));
 
-		theme_choice->Bind(wxEVT_CHOICE, [parent](wxCommandEvent &evt) {
+		parent->theme_choice->Bind(wxEVT_CHOICE, [parent](wxCommandEvent &evt) {
 			size_t idx = static_cast<size_t>(evt.GetSelection());
 			if (idx < parent->theme_ids.size())
 				parent->SetPendingThemePreset(parent->theme_ids[idx], false);
@@ -1052,26 +1052,26 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 		auto opt = OPT_GET(opt_name.c_str());
 		switch (opt->GetType()) {
 		case agi::OptionType::String:
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetString());
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetString()));
 			break;
 		case agi::OptionType::Int:
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), (int64_t)opt->GetInt());
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement((int64_t)opt->GetInt()));
 			break;
 		case agi::OptionType::Double:
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetDouble());
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetDouble()));
 			break;
 		case agi::OptionType::Bool:
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetBool());
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetBool()));
 			break;
 		case agi::OptionType::Color:
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), opt->GetColor().GetRgbFormatted());
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetColor().GetRgbFormatted()));
 			break;
 		case agi::OptionType::ListString: {
 			json::Array arr;
 			for (auto const& v : opt->GetListString()) {
 				json::Object obj; obj["string"] = v; arr.push_back(obj);
 			}
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
 		}
 		case agi::OptionType::ListInt: {
@@ -1079,7 +1079,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 			for (auto const& v : opt->GetListInt()) {
 				json::Object obj; obj["int"] = (int64_t)v; arr.push_back(obj);
 			}
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
 		}
 		case agi::OptionType::ListDouble: {
@@ -1087,7 +1087,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 			for (auto const& v : opt->GetListDouble()) {
 				json::Object obj; obj["double"] = v; arr.push_back(obj);
 			}
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
 		}
 		case agi::OptionType::ListColor: {
@@ -1095,7 +1095,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 			for (auto const& v : opt->GetListColor()) {
 				json::Object obj; obj["color"] = v.GetRgbFormatted(); arr.push_back(obj);
 			}
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
 		}
 		case agi::OptionType::ListBool: {
@@ -1103,7 +1103,7 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 			for (auto const& v : opt->GetListBool()) {
 				json::Object obj; obj["bool"] = v; arr.push_back(obj);
 			}
-			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), arr);
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
 			break;
 		}
 		}
