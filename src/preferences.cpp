@@ -1112,12 +1112,12 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 	json::Object root_obj;
 	root_obj["Name"] = name_utf8;
 	root_obj["Id"] = id;
-	root_obj["Colour"] = json::UnknownElement(colour_obj);
+	root_obj["Colour"] = colour_obj;
 
 	try {
-		agi::JsonWriter::Write(json::UnknownElement(root_obj), agi::io::Save(from_wx(save.GetPath())).Get());
+		agi::JsonWriter::Write(root_obj, agi::io::Save(from_wx(save.GetPath())).Get());
 		std::string user_dest = theme_preset::GetThemeDir() + "/" + id + ".json";
-		agi::JsonWriter::Write(json::UnknownElement(root_obj), agi::io::Save(user_dest).Get());
+		agi::JsonWriter::Write(root_obj, agi::io::Save(user_dest).Get());
 		RefreshThemeList(id);
 		ApplyPendingThemePreset();
 	}
@@ -1157,7 +1157,7 @@ void Preferences::OnThemeImport(wxCommandEvent &) {
 		auto it_col = obj.find("Colour");
 		if (it_col == obj.end())
 			throw agi::InternalError("Missing Colour section");
-		static_cast<json::Object const&>(it_col->second); // validate object
+		(void)static_cast<json::Object const&>(it_col->second); // validate object
 
 		std::string user_dir = theme_preset::GetThemeDir();
 		agi::fs::path dst = agi::fs::path(user_dir) / (id + ".json");
@@ -1167,7 +1167,7 @@ void Preferences::OnThemeImport(wxCommandEvent &) {
 				return;
 		}
 
-		agi::JsonWriter::Write(json::UnknownElement(obj), agi::io::Save(dst).Get());
+		agi::JsonWriter::Write(obj, agi::io::Save(dst).Get());
 		RefreshThemeList(id);
 		ApplyPendingThemePreset();
 	}
