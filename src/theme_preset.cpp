@@ -75,7 +75,7 @@ std::vector<ThemeInfo> ListAvailableThemes() {
 
 	for (agi::fs::DirectoryIterator it(user_dir, "*.json"); it != agi::fs::DirectoryIterator(); ++it) {
 		auto const& entry = *it;
-		std::string id = entry.path().stem().string();
+		std::string id = entry.stem().string();
 		std::string name = id;
 
 		try {
