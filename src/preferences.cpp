@@ -30,6 +30,7 @@
 #include "include/aegisub/hotkey.h"
 #include "include/aegisub/subtitles_provider.h"
 #include "libaegisub/cajun/writer.h"
+#include "libaegisub/fs.h"
 #include "libaegisub/io.h"
 #include "libaegisub/json.h"
 #include "libresrc/libresrc.h"
@@ -1111,12 +1112,12 @@ void Preferences::OnThemeExport(wxCommandEvent &) {
 	json::Object root_obj;
 	root_obj["Name"] = name_utf8;
 	root_obj["Id"] = id;
-	root_obj["Colour"] = colour_obj;
+	root_obj["Colour"] = json::UnknownElement(colour_obj);
 
 	try {
-		agi::JsonWriter::Write(root_obj, agi::io::Save(from_wx(save.GetPath())).Get());
+		agi::JsonWriter::Write(json::UnknownElement(root_obj), agi::io::Save(from_wx(save.GetPath())).Get());
 		std::string user_dest = theme_preset::GetThemeDir() + "/" + id + ".json";
-		agi::JsonWriter::Write(root_obj, agi::io::Save(user_dest).Get());
+		agi::JsonWriter::Write(json::UnknownElement(root_obj), agi::io::Save(user_dest).Get());
 		RefreshThemeList(id);
 		ApplyPendingThemePreset();
 	}
@@ -1166,7 +1167,7 @@ void Preferences::OnThemeImport(wxCommandEvent &) {
 				return;
 		}
 
-		agi::JsonWriter::Write(obj, agi::io::Save(dst).Get());
+		agi::JsonWriter::Write(json::UnknownElement(obj), agi::io::Save(dst).Get());
 		RefreshThemeList(id);
 		ApplyPendingThemePreset();
 	}
