@@ -5,6 +5,7 @@
 #include "options.h"
 
 #include <libaegisub/exception.h>
+#include <libaegisub/color.h>
 #include <libaegisub/fs.h>
 #include <libaegisub/io.h>
 #include <libaegisub/json.h>
@@ -36,6 +37,163 @@ static agi::fs::path ResolveThemePath(const std::string& id) {
 	return agi::fs::path();
 }
 
+static bool ApplyArrayOption(agi::OptionValue *opt, json::UnknownElement const& val) {
+	using json::Array;
+	using json::Object;
+	using json::String;
+
+	Array const& arr = static_cast<Array const&>(val);
+
+	switch (opt->GetType()) {
+	case agi::OptionType::ListString: {
+		std::vector<std::string> out;
+		out.reserve(arr.size());
+		for (auto const& elem : arr) {
+			try {
+				Object const& obj = static_cast<Object const&>(elem);
+				if (obj.size() != 1 || obj.begin()->first != "string")
+					continue;
+				out.push_back(static_cast<String const&>(obj.begin()->second));
+			}
+			catch (json::Exception const&) { }
+		}
+		opt->SetListString(out);
+		return true;
+	}
+	case agi::OptionType::ListInt: {
+		std::vector<int64_t> out;
+		out.reserve(arr.size());
+		for (auto const& elem : arr) {
+			try {
+				Object const& obj = static_cast<Object const&>(elem);
+				if (obj.size() != 1 || obj.begin()->first != "int")
+					continue;
+				out.push_back(static_cast<json::Integer const&>(obj.begin()->second));
+			}
+			catch (json::Exception const&) { }
+		}
+		opt->SetListInt(out);
+		return true;
+	}
+	case agi::OptionType::ListDouble: {
+		std::vector<double> out;
+		out.reserve(arr.size());
+		for (auto const& elem : arr) {
+			try {
+				Object const& obj = static_cast<Object const&>(elem);
+				if (obj.size() != 1 || obj.begin()->first != "double")
+					continue;
+				out.push_back(static_cast<json::Double const&>(obj.begin()->second));
+			}
+			catch (json::Exception const&) { }
+		}
+		opt->SetListDouble(out);
+		return true;
+	}
+	case agi::OptionType::ListColor: {
+		std::vector<agi::Color> out;
+		out.reserve(arr.size());
+		for (auto const& elem : arr) {
+			try {
+				Object const& obj = static_cast<Object const&>(elem);
+				if (obj.size() != 1 || obj.begin()->first != "color")
+					continue;
+				out.emplace_back(static_cast<String const&>(obj.begin()->second));
+			}
+			catch (json::Exception const&) { }
+		}
+		opt->SetListColor(out);
+		return true;
+	}
+	case agi::OptionType::ListBool: {
+		std::vector<bool> out;
+		out.reserve(arr.size());
+		for (auto const& elem : arr) {
+			try {
+				Object const& obj = static_cast<Object const&>(elem);
+				if (obj.size() != 1 || obj.begin()->first != "bool")
+					continue;
+				out.push_back(static_cast<json::Boolean const&>(obj.begin()->second));
+			}
+			catch (json::Exception const&) { }
+		}
+		opt->SetListBool(out);
+		return true;
+	}
+	default:
+		break;
+	}
+	return false;
+}
+
+static bool ApplyOptionValue(const std::string& path, json::UnknownElement const& val) {
+	agi::OptionValue *opt = nullptr;
+	try {
+		opt = OPT_SET(path);
+	}
+	catch (agi::InternalError const&) {
+		LOG_W("theme_preset") << "Theme key '" << path << "' not found in options; skipping.";
+		return false;
+	}
+
+	switch (opt->GetType()) {
+	case agi::OptionType::String:
+		try { opt->SetString(static_cast<json::String const&>(val)); return true; }
+		catch (json::Exception const&) { return false; }
+	case agi::OptionType::Int:
+		try { opt->SetInt(static_cast<json::Integer const&>(val)); return true; }
+		catch (json::Exception const&) { return false; }
+	case agi::OptionType::Double:
+		try { opt->SetDouble(static_cast<json::Double const&>(val)); return true; }
+		catch (json::Exception const&) { return false; }
+	case agi::OptionType::Bool:
+		try { opt->SetBool(static_cast<json::Boolean const&>(val)); return true; }
+		catch (json::Exception const&) { return false; }
+	case agi::OptionType::Color:
+		try {
+			agi::Color c(static_cast<json::String const&>(val));
+			opt->SetColor(c);
+			return true;
+		}
+		catch (json::Exception const&) { return false; }
+	case agi::OptionType::ListString:
+	case agi::OptionType::ListInt:
+	case agi::OptionType::ListDouble:
+	case agi::OptionType::ListColor:
+	case agi::OptionType::ListBool:
+		try { return ApplyArrayOption(opt, val); }
+		catch (json::Exception const&) { return false; }
+	}
+
+	return false;
+}
+
+static void ApplyThemeObject(const json::Object& obj, const std::string& prefix) {
+	for (auto const& kv : obj) {
+		const std::string path = prefix.empty() ? kv.first : prefix + "/" + kv.first;
+
+		try {
+			auto const& child_obj = static_cast<json::Object const&>(kv.second);
+			ApplyThemeObject(child_obj, path);
+			continue;
+		}
+		catch (json::Exception const&) {
+			// Not an object; fall through to value handling.
+		}
+
+		try {
+			if (ApplyOptionValue(path, kv.second))
+				continue;
+		}
+		catch (agi::Exception const& e) {
+			LOG_W("theme_preset") << "Failed applying theme key '" << path << "': " << e.GetMessage();
+		}
+		catch (std::exception const&) {
+			LOG_W("theme_preset") << "Failed applying theme key '" << path << "'";
+		}
+	}
+}
+
 bool ApplyTheme(const std::string& id) {
 	if (id.empty())
 		return false;
@@ -46,7 +204,15 @@ bool ApplyTheme(const std::string& id) {
 
 	try {
 		auto stream = agi::io::Open(theme_path);
-		config::opt->ConfigNext(*stream);
+		auto root = agi::json_util::parse(*stream);
+		json::Object const& obj = static_cast<json::Object const&>(root);
+		auto it = obj.find("Colour");
+		if (it == obj.end()) {
+			LOG_W("theme_preset") << "Theme '" << id << "' missing Colour section.";
+			return false;
+		}
+
+		ApplyThemeObject(static_cast<json::Object const&>(it->second), "Colour");
 		return true;
 	}
 	catch (agi::Exception const& e) {
