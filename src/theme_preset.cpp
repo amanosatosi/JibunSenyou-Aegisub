@@ -74,12 +74,12 @@ std::vector<ThemeInfo> ListAvailableThemes() {
 	std::unordered_map<std::string, ThemeInfo> found;
 
 	for (agi::fs::DirectoryIterator it(user_dir, "*.json"); it != agi::fs::DirectoryIterator(); ++it) {
-		auto const& entry = *it;
-		std::string id = entry.stem().string();
+		agi::fs::path entry_path(*it);
+		std::string id = entry_path.stem().string();
 		std::string name = id;
 
 		try {
-			auto stream = agi::io::Open(entry);
+			auto stream = agi::io::Open(entry_path);
 			auto root = agi::json_util::parse(*stream);
 			auto const& obj = static_cast<json::Object const&>(root);
 			auto it_name = obj.find("Name");
