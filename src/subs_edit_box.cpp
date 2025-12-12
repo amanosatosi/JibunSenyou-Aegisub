@@ -256,12 +256,20 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 
 	// Middle-bottom controls
 	middle_right_sizer = new wxBoxSizer(wxHORIZONTAL);
-	MakeButton("edit/style/bold");
+	wxBitmapButton *bold_button = MakeButton("edit/style/bold");
 	MakeButton("edit/style/italic");
 	MakeButton("edit/style/underline");
 	MakeButton("edit/style/strikeout");
 	MakeButton("edit/font");
 
+	if (bold_button && actor_fast_button_) {
+		wxSize ref_size = bold_button->GetBestSize();
+		wxSize min_size(wxWindow::FromDIP(24, this), wxWindow::FromDIP(22, this));
+		min_size.SetWidth(std::max(min_size.GetWidth(), ref_size.GetWidth()));
+		min_size.SetHeight(std::max(min_size.GetHeight(), ref_size.GetHeight()));
+		actor_fast_button_->SetMinSize(min_size);
+		actor_fast_button_->SetInitialSize(min_size);
+	}
 	// Japanese bracket insert button sits next to the existing fn control
 	int icon_px = OPT_GET("App/Toolbar Icon Size")->GetInt();
 	icon_px = static_cast<int>(icon_px * retina_helper->GetScaleFactor());
@@ -406,12 +414,13 @@ TimeEdit *SubsEditBox::MakeTimeCtrl(wxString const& tooltip, TimeField field) {
 }
 
 void SubsEditBox::MakeButton(const char *cmd_name) {
-	cmd::Command *command = cmd::get(cmd_name);
+	wxBitmapButton *SubsEditBox::MakeButton(const char *cmd_name) {
 	wxBitmapButton *btn = new wxBitmapButton(this, -1, command->Icon(OPT_GET("App/Toolbar Icon Size")->GetInt(), retina_helper->GetScaleFactor()));
 	ToolTipManager::Bind(btn, command->StrHelp(), "Subtitle Edit Box", cmd_name);
 
 	middle_right_sizer->Add(btn, wxSizerFlags().Expand());
 	btn->Bind(wxEVT_BUTTON, std::bind(&SubsEditBox::CallCommand, this, cmd_name));
+	return btn;
 }
 
 bool SubsEditBox::InsertTextAtCaret(wxString const& text) {

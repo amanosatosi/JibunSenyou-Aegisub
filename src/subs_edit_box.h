@@ -33,6 +33,7 @@
 #include <boost/flyweight/flyweight_fwd.hpp>
 #include <vector>
 
+#include <wx/bmpbuttn.h>
 #include <wx/combobox.h>
 #include <wx/panel.h>
 #include <wx/timer.h>
@@ -169,7 +170,7 @@ class SubsEditBox final : public wxPanel {
 	// Constructor helpers
 	wxTextCtrl *MakeMarginCtrl(wxString const& tooltip, int margin, wxString const& commit_msg);
 	TimeEdit *MakeTimeCtrl(wxString const& tooltip, TimeField field);
-	void MakeButton(const char *cmd_name);
+	wxBitmapButton *MakeButton(const char *cmd_name);
 	wxButton *MakeBottomButton(const char *cmd_name);
 	wxComboBox *MakeComboBox(wxString const& initial_text, int style, void (SubsEditBox::*handler)(wxCommandEvent&), wxString const& tooltip);
 	wxRadioButton *MakeRadio(wxString const& text, bool start, wxString const& tooltip);
