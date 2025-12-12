@@ -264,7 +264,11 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 
 	if (bold_button && actor_fast_button_) {
 		wxSize ref_size = bold_button->GetBestSize();
+#if wxCHECK_VERSION(3,1,0)
 		wxSize min_size(wxWindow::FromDIP(24, this), wxWindow::FromDIP(22, this));
+#else
+		wxSize min_size(24, 22);
+#endif
 		min_size.SetWidth(std::max(min_size.GetWidth(), ref_size.GetWidth()));
 		min_size.SetHeight(std::max(min_size.GetHeight(), ref_size.GetHeight()));
 		actor_fast_button_->SetMinSize(min_size);
@@ -413,8 +417,8 @@ TimeEdit *SubsEditBox::MakeTimeCtrl(wxString const& tooltip, TimeField field) {
 	return ctrl;
 }
 
-void SubsEditBox::MakeButton(const char *cmd_name) {
-	wxBitmapButton *SubsEditBox::MakeButton(const char *cmd_name) {
+wxBitmapButton *SubsEditBox::MakeButton(const char *cmd_name) {
+	cmd::Command *command = cmd::get(cmd_name);
 	wxBitmapButton *btn = new wxBitmapButton(this, -1, command->Icon(OPT_GET("App/Toolbar Icon Size")->GetInt(), retina_helper->GetScaleFactor()));
 	ToolTipManager::Bind(btn, command->StrHelp(), "Subtitle Edit Box", cmd_name);
 
