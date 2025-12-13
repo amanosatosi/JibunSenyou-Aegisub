@@ -170,7 +170,7 @@ wxTextCtrl *OptionPage::OptionAddMultiline(wxSizer *sizer, const char *opt_name)
 	return text;
 }
 
-void OptionPage::OptionChoice(wxFlexGridSizer *flex, const wxString &name, const wxArrayString &choices, const char *opt_name) {
+wxComboBox *OptionPage::OptionChoice(wxFlexGridSizer *flex, const wxString &name, const wxArrayString &choices, const char *opt_name) {
 	parent->AddChangeableOption(opt_name);
 	const auto opt = OPT_GET(opt_name);
 
@@ -197,6 +197,7 @@ void OptionPage::OptionChoice(wxFlexGridSizer *flex, const wxString &name, const
 		default:
 			throw agi::InternalError("Unsupported type");
 	}
+	return cb;
 }
 
 wxFlexGridSizer* OptionPage::PageSizer(wxString name) {

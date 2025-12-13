@@ -423,6 +423,7 @@ subdir('automation')
 subdir('libaegisub')
 subdir('packages')
 subdir('po')
+subdir('src/themes')
 subdir('src')
 
 if not meson.is_cross_build()

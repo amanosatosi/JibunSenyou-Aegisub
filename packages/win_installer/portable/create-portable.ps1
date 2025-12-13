@@ -91,6 +91,9 @@ Copy-New-Item $InstallerDepsDir\ffi-experiments\build\download-manager\DownloadM
 Write-Output 'Copying - portable-config'
 Copy-New-Item $SourceRoot\packages\win_installer\portable\config.json  $PortableOutputDir
 
+Write-Output 'Copying - themes'
+Copy-New-Items "$InstallerDir\share\aegisub\themes\*"  "$PortableOutputDir\themes\"  -Recurse
+
 
 Write-Output 'Creating portable zip'
 Remove-Item aegisub-portable-64.zip

@@ -23,14 +23,20 @@
 #include "audio_renderer_waveform.h"
 #include "command/command.h"
 #include "compat.h"
+#include "colour_button.h"
 #include "help_button.h"
 #include "hotkey_data_view_model.h"
 #include "include/aegisub/audio_player.h"
 #include "include/aegisub/hotkey.h"
 #include "include/aegisub/subtitles_provider.h"
+#include "libaegisub/cajun/writer.h"
+#include "libaegisub/fs.h"
+#include "libaegisub/io.h"
+#include "libaegisub/json.h"
 #include "libresrc/libresrc.h"
 #include "options.h"
 #include "preferences_base.h"
+#include "theme_preset.h"
 #include "video_provider_manager.h"
 
 #ifdef WITH_PORTAUDIO
@@ -46,15 +52,20 @@
 #include <unordered_set>
 
 #include <wx/checkbox.h>
+#include <wx/choice.h>
 #include <wx/combobox.h>
 #include <wx/event.h>
 #include <wx/listctrl.h>
 #include <wx/msgdlg.h>
+#include <wx/filedlg.h>
+#include <wx/textdlg.h>
 #include <wx/srchctrl.h>
 #include <wx/sizer.h>
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
+#include <wx/textctrl.h>
 #include <wx/treebook.h>
+#include <cstring>
 
 namespace {
 /// General preferences page
@@ -319,10 +330,38 @@ void Interface(wxTreebook *book, Preferences *parent) {
 
 #if defined(__WXMSW__) && wxVERSION_NUMBER >= 3300
 	auto dark_mode = p->PageSizer(_("Dark Mode"));
-	p->OptionAdd(dark_mode, _("Enable experimental dark mode (restart required)"), "App/Dark Mode");
+	auto dark_mode_ctrl = p->OptionAdd(dark_mode, _("Enable experimental dark mode (restart required)"), "App/Dark Mode");
+	if (auto cb = dynamic_cast<wxCheckBox*>(dark_mode_ctrl)) {
+		cb->Bind(wxEVT_CHECKBOX, [parent](wxCommandEvent &evt) {
+			parent->SetPendingThemePreset(evt.IsChecked() ? "dark_mode_unofficial" : std::string(), true);
+			evt.Skip();
+		});
+	}
 #endif
 
 	p->SetSizerAndFit(p->sizer);
+}
+
+static std::string SlugifyId(const std::string& input) {
+	std::string out;
+	out.reserve(input.size());
+	bool last_sep = true;
+	for (unsigned char c : input) {
+		if (std::isalnum(c)) {
+			out.push_back(static_cast<char>(std::tolower(c)));
+			last_sep = false;
+		}
+		else {
+			if (!last_sep) {
+				out.push_back('_');
+				last_sep = true;
+			}
+		}
+	}
+	while (!out.empty() && out.back() == '_') out.pop_back();
+	while (!out.empty() && out.front() == '_') out.erase(out.begin());
+	if (out.empty()) out = "theme";
+	return out;
 }
 
 /// Interface Colours preferences subpage
@@ -335,32 +374,64 @@ void Interface_Colours(wxTreebook *book, Preferences *parent) {
 	p->sizer = new wxBoxSizer(wxVERTICAL);
 	main_sizer->Add(p->sizer, wxEXPAND);
 
+	auto register_opt = [parent](wxControl *ctrl, const char *opt_name, const wxArrayString& choices = wxArrayString()) {
+		if (!ctrl) return;
+		parent->RegisterColourControl(ctrl, opt_name, OPT_GET(opt_name)->GetType(), choices);
+	};
+
+	{
+		auto theme_row = new wxFlexGridSizer(2, 5, 5);
+		theme_row->AddGrowableCol(1, 1);
+		theme_row->Add(new wxStaticText(p, wxID_ANY, _("Theme")), 1, wxALIGN_CENTRE_VERTICAL);
+		parent->theme_choice = new wxChoice(p, wxID_ANY);
+		theme_row->Add(parent->theme_choice, wxSizerFlags().Expand());
+		p->sizer->Add(theme_row, wxSizerFlags().Expand().Border(wxALL & ~wxBOTTOM, 5));
+
+		wxSizer *theme_buttons = new wxBoxSizer(wxHORIZONTAL);
+		auto import_btn = new wxButton(p, wxID_ANY, _("Import..."));
+		auto export_btn = new wxButton(p, wxID_ANY, _("Export..."));
+		theme_buttons->Add(import_btn, wxSizerFlags().Border(wxRIGHT, 5));
+		theme_buttons->Add(export_btn, wxSizerFlags());
+		p->sizer->Add(theme_buttons, wxSizerFlags().Border(wxLEFT | wxBOTTOM, 5));
+
+		parent->theme_choice->Bind(wxEVT_CHOICE, [parent](wxCommandEvent &evt) {
+			size_t idx = static_cast<size_t>(evt.GetSelection());
+			if (idx < parent->theme_ids.size())
+				parent->SetPendingThemePreset(parent->theme_ids[idx], false);
+			evt.Skip();
+		});
+		import_btn->Bind(wxEVT_BUTTON, &Preferences::OnThemeImport, parent);
+		export_btn->Bind(wxEVT_BUTTON, &Preferences::OnThemeExport, parent);
+
+		parent->RefreshThemeList();
+	}
+
 	auto audio = p->PageSizer(_("Audio Display"));
-	p->OptionAdd(audio, _("Play cursor"), "Colour/Audio Display/Play Cursor");
-	p->OptionAdd(audio, _("Line boundary start"), "Colour/Audio Display/Line boundary Start");
-	p->OptionAdd(audio, _("Line boundary end"), "Colour/Audio Display/Line boundary End");
-	p->OptionAdd(audio, _("Line boundary inactive line"), "Colour/Audio Display/Line Boundary Inactive Line");
-	p->OptionAdd(audio, _("Syllable boundaries"), "Colour/Audio Display/Syllable Boundaries");
-	p->OptionAdd(audio, _("Seconds boundaries"), "Colour/Audio Display/Seconds Line");
+	register_opt(p->OptionAdd(audio, _("Play cursor"), "Colour/Audio Display/Play Cursor"), "Colour/Audio Display/Play Cursor");
+	register_opt(p->OptionAdd(audio, _("Line boundary start"), "Colour/Audio Display/Line boundary Start"), "Colour/Audio Display/Line boundary Start");
+	register_opt(p->OptionAdd(audio, _("Line boundary end"), "Colour/Audio Display/Line boundary End"), "Colour/Audio Display/Line boundary End");
+	register_opt(p->OptionAdd(audio, _("Line boundary inactive line"), "Colour/Audio Display/Line Boundary Inactive Line"), "Colour/Audio Display/Line Boundary Inactive Line");
+	register_opt(p->OptionAdd(audio, _("Syllable boundaries"), "Colour/Audio Display/Syllable Boundaries"), "Colour/Audio Display/Syllable Boundaries");
+	register_opt(p->OptionAdd(audio, _("Seconds boundaries"), "Colour/Audio Display/Seconds Line"), "Colour/Audio Display/Seconds Line");
 
 	auto syntax = p->PageSizer(_("Syntax Highlighting"));
-	p->OptionAdd(syntax, _("Background"), "Colour/Subtitle/Background");
-	p->OptionAdd(syntax, _("Normal"), "Colour/Subtitle/Syntax/Normal");
-	p->OptionAdd(syntax, _("Comments"), "Colour/Subtitle/Syntax/Comment");
-	p->OptionAdd(syntax, _("Drawing Commands"), "Colour/Subtitle/Syntax/Drawing Command");
-	p->OptionAdd(syntax, _("Drawing X Coords"), "Colour/Subtitle/Syntax/Drawing X");
-	p->OptionAdd(syntax, _("Drawing Y Coords"), "Colour/Subtitle/Syntax/Drawing Y");
-	p->OptionAdd(syntax, _("Underline Spline Endpoints"), "Colour/Subtitle/Syntax/Underline/Drawing Endpoint");
+	register_opt(p->OptionAdd(syntax, _("Background"), "Colour/Subtitle/Background"), "Colour/Subtitle/Background");
+	register_opt(p->OptionAdd(syntax, _("Normal"), "Colour/Subtitle/Syntax/Normal"), "Colour/Subtitle/Syntax/Normal");
+	register_opt(p->OptionAdd(syntax, _("Comments"), "Colour/Subtitle/Syntax/Comment"), "Colour/Subtitle/Syntax/Comment");
+	register_opt(p->OptionAdd(syntax, _("Drawing Commands"), "Colour/Subtitle/Syntax/Drawing Command"), "Colour/Subtitle/Syntax/Drawing Command");
+	register_opt(p->OptionAdd(syntax, _("Drawing X Coords"), "Colour/Subtitle/Syntax/Drawing X"), "Colour/Subtitle/Syntax/Drawing X");
+	register_opt(p->OptionAdd(syntax, _("Drawing Y Coords"), "Colour/Subtitle/Syntax/Drawing Y"), "Colour/Subtitle/Syntax/Drawing Y");
+	register_opt(p->OptionAdd(syntax, _("Underline Spline Endpoints"), "Colour/Subtitle/Syntax/Underline/Drawing Endpoint"), "Colour/Subtitle/Syntax/Underline/Drawing Endpoint");
 	p->CellSkip(syntax);
-	p->OptionAdd(syntax, _("Brackets"), "Colour/Subtitle/Syntax/Brackets");
-	p->OptionAdd(syntax, _("Slashes and Parentheses"), "Colour/Subtitle/Syntax/Slashes");
-	p->OptionAdd(syntax, _("Tags"), "Colour/Subtitle/Syntax/Tags");
-	p->OptionAdd(syntax, _("Parameters"), "Colour/Subtitle/Syntax/Parameters");
-	p->OptionAdd(syntax, _("Error"), "Colour/Subtitle/Syntax/Error");
-	p->OptionAdd(syntax, _("Error Background"), "Colour/Subtitle/Syntax/Background/Error");
-	p->OptionAdd(syntax, _("Line Break"), "Colour/Subtitle/Syntax/Line Break");
-	p->OptionAdd(syntax, _("Karaoke templates"), "Colour/Subtitle/Syntax/Karaoke Template");
-	p->OptionAdd(syntax, _("Karaoke variables"), "Colour/Subtitle/Syntax/Karaoke Variable");
+	register_opt(p->OptionAdd(syntax, _("Brackets"), "Colour/Subtitle/Syntax/Brackets"), "Colour/Subtitle/Syntax/Brackets");
+	register_opt(p->OptionAdd(syntax, _("Slashes and Parentheses"), "Colour/Subtitle/Syntax/Slashes"), "Colour/Subtitle/Syntax/Slashes");
+	register_opt(p->OptionAdd(syntax, _("Tags"), "Colour/Subtitle/Syntax/Tags"), "Colour/Subtitle/Syntax/Tags");
+	register_opt(p->OptionAdd(syntax, _("Parameters"), "Colour/Subtitle/Syntax/Parameters"), "Colour/Subtitle/Syntax/Parameters");
+	register_opt(p->OptionAdd(syntax, _("Error"), "Colour/Subtitle/Syntax/Error"), "Colour/Subtitle/Syntax/Error");
+	register_opt(p->OptionAdd(syntax, _("Error Background"), "Colour/Subtitle/Syntax/Background/Error"), "Colour/Subtitle/Syntax/Background/Error");
+	register_opt(p->OptionAdd(syntax, _("Line Break"), "Colour/Subtitle/Syntax/Line Break"), "Colour/Subtitle/Syntax/Line Break");
+	register_opt(p->OptionAdd(syntax, _("Karaoke templates"), "Colour/Subtitle/Syntax/Karaoke Template"), "Colour/Subtitle/Syntax/Karaoke Template");
+	register_opt(p->OptionAdd(syntax, _("Karaoke variables"), "Colour/Subtitle/Syntax/Karaoke Variable"), "Colour/Subtitle/Syntax/Karaoke Variable");
 
 	p->sizer = new wxBoxSizer(wxVERTICAL);
 	main_sizer->AddSpacer(5);
@@ -368,35 +439,35 @@ void Interface_Colours(wxTreebook *book, Preferences *parent) {
 
 	auto color_schemes = p->PageSizer(_("Audio Color Schemes"));
 	wxArrayString schemes = to_wx(OPT_GET("Audio/Colour Schemes")->GetListString());
-	p->OptionChoice(color_schemes, _("Spectrum"), schemes, "Colour/Audio Display/Spectrum");
-	p->OptionChoice(color_schemes, _("Waveform"), schemes, "Colour/Audio Display/Waveform");
+	register_opt(p->OptionChoice(color_schemes, _("Spectrum"), schemes, "Colour/Audio Display/Spectrum"), "Colour/Audio Display/Spectrum", schemes);
+	register_opt(p->OptionChoice(color_schemes, _("Waveform"), schemes, "Colour/Audio Display/Waveform"), "Colour/Audio Display/Waveform", schemes);
 
 	auto grid = p->PageSizer(_("Subtitle Grid"));
-	p->OptionAdd(grid, _("Standard foreground"), "Colour/Subtitle Grid/Standard");
-	p->OptionAdd(grid, _("Standard background"), "Colour/Subtitle Grid/Background/Background");
-	p->OptionAdd(grid, _("Selection foreground"), "Colour/Subtitle Grid/Selection");
-	p->OptionAdd(grid, _("Selection background"), "Colour/Subtitle Grid/Background/Selection");
-	p->OptionAdd(grid, _("Collision foreground"), "Colour/Subtitle Grid/Collision");
-	p->OptionAdd(grid, _("In frame background"), "Colour/Subtitle Grid/Background/Inframe");
-	p->OptionAdd(grid, _("Comment background"), "Colour/Subtitle Grid/Background/Comment");
-	p->OptionAdd(grid, _("Selected comment background"), "Colour/Subtitle Grid/Background/Selected Comment");
-	p->OptionAdd(grid, _("Open fold background"), "Colour/Subtitle Grid/Background/Open Fold");
-	p->OptionAdd(grid, _("Closed fold background"), "Colour/Subtitle Grid/Background/Closed Fold");
-	p->OptionAdd(grid, _("Header background"), "Colour/Subtitle Grid/Header");
-	p->OptionAdd(grid, _("Left Column"), "Colour/Subtitle Grid/Left Column");
-	p->OptionAdd(grid, _("Active Line Border"), "Colour/Subtitle Grid/Active Border");
-	p->OptionAdd(grid, _("Lines"), "Colour/Subtitle Grid/Lines");
-	p->OptionAdd(grid, _("CPS Error"), "Colour/Subtitle Grid/CPS Error");
+	register_opt(p->OptionAdd(grid, _("Standard foreground"), "Colour/Subtitle Grid/Standard"), "Colour/Subtitle Grid/Standard");
+	register_opt(p->OptionAdd(grid, _("Standard background"), "Colour/Subtitle Grid/Background/Background"), "Colour/Subtitle Grid/Background/Background");
+	register_opt(p->OptionAdd(grid, _("Selection foreground"), "Colour/Subtitle Grid/Selection"), "Colour/Subtitle Grid/Selection");
+	register_opt(p->OptionAdd(grid, _("Selection background"), "Colour/Subtitle Grid/Background/Selection"), "Colour/Subtitle Grid/Background/Selection");
+	register_opt(p->OptionAdd(grid, _("Collision foreground"), "Colour/Subtitle Grid/Collision"), "Colour/Subtitle Grid/Collision");
+	register_opt(p->OptionAdd(grid, _("In frame background"), "Colour/Subtitle Grid/Background/Inframe"), "Colour/Subtitle Grid/Background/Inframe");
+	register_opt(p->OptionAdd(grid, _("Comment background"), "Colour/Subtitle Grid/Background/Comment"), "Colour/Subtitle Grid/Background/Comment");
+	register_opt(p->OptionAdd(grid, _("Selected comment background"), "Colour/Subtitle Grid/Background/Selected Comment"), "Colour/Subtitle Grid/Background/Selected Comment");
+	register_opt(p->OptionAdd(grid, _("Open fold background"), "Colour/Subtitle Grid/Background/Open Fold"), "Colour/Subtitle Grid/Background/Open Fold");
+	register_opt(p->OptionAdd(grid, _("Closed fold background"), "Colour/Subtitle Grid/Background/Closed Fold"), "Colour/Subtitle Grid/Background/Closed Fold");
+	register_opt(p->OptionAdd(grid, _("Header background"), "Colour/Subtitle Grid/Header"), "Colour/Subtitle Grid/Header");
+	register_opt(p->OptionAdd(grid, _("Left Column"), "Colour/Subtitle Grid/Left Column"), "Colour/Subtitle Grid/Left Column");
+	register_opt(p->OptionAdd(grid, _("Active Line Border"), "Colour/Subtitle Grid/Active Border"), "Colour/Subtitle Grid/Active Border");
+	register_opt(p->OptionAdd(grid, _("Lines"), "Colour/Subtitle Grid/Lines"), "Colour/Subtitle Grid/Lines");
+	register_opt(p->OptionAdd(grid, _("CPS Error"), "Colour/Subtitle Grid/CPS Error"), "Colour/Subtitle Grid/CPS Error");
 
 	auto visual_tools = p->PageSizer(_("Visual Typesetting Tools"));
-	p->OptionAdd(visual_tools, _("Primary Lines"), "Colour/Visual Tools/Lines Primary");
-	p->OptionAdd(visual_tools, _("Secondary Lines"), "Colour/Visual Tools/Lines Secondary");
-	p->OptionAdd(visual_tools, _("Primary Highlight"), "Colour/Visual Tools/Highlight Primary");
-	p->OptionAdd(visual_tools, _("Secondary Highlight"), "Colour/Visual Tools/Highlight Secondary");
+	register_opt(p->OptionAdd(visual_tools, _("Primary Lines"), "Colour/Visual Tools/Lines Primary"), "Colour/Visual Tools/Lines Primary");
+	register_opt(p->OptionAdd(visual_tools, _("Secondary Lines"), "Colour/Visual Tools/Lines Secondary"), "Colour/Visual Tools/Lines Secondary");
+	register_opt(p->OptionAdd(visual_tools, _("Primary Highlight"), "Colour/Visual Tools/Highlight Primary"), "Colour/Visual Tools/Highlight Primary");
+	register_opt(p->OptionAdd(visual_tools, _("Secondary Highlight"), "Colour/Visual Tools/Highlight Secondary"), "Colour/Visual Tools/Highlight Secondary");
 
 	// Separate sizer to prevent the colors in the visual tools section from getting resized
 	auto visual_tools_alpha = p->PageSizer(_("Visual Typesetting Tools Alpha"));
-	p->OptionAdd(visual_tools_alpha, _("Shaded Area"), "Colour/Visual Tools/Shaded Area Alpha", 0, 1, 0.1);
+	register_opt(p->OptionAdd(visual_tools_alpha, _("Shaded Area"), "Colour/Visual Tools/Shaded Area Alpha", 0, 1, 0.1), "Colour/Visual Tools/Shaded Area Alpha");
 
 	p->sizer = main_sizer;
 
@@ -826,6 +897,320 @@ void Preferences::AddPendingChange(Thunk const& callback) {
 
 void Preferences::AddChangeableOption(std::string const& name) {
 	option_names.push_back(name);
+}
+
+void Preferences::RegisterColourControl(wxControl *ctrl, const std::string& opt_name, agi::OptionType type, const wxArrayString& choices) {
+	if (!ctrl) return;
+	colour_controls.push_back({ctrl, opt_name, type, choices});
+}
+
+void Preferences::SetPendingThemePreset(std::string id, bool only_if_default) {
+	if (id.empty()) {
+		theme_preset_pending_id.clear();
+		theme_preset_only_if_default = false;
+		return;
+	}
+
+	theme_preset_pending_id = std::move(id);
+	theme_preset_only_if_default = only_if_default;
+	if (!theme_preset_callback_added) {
+		AddPendingChange([this]() { ApplyPendingThemePreset(); });
+		theme_preset_callback_added = true;
+	}
+	if (applyButton)
+		applyButton->Enable(true);
+}
+
+bool Preferences::AreColourOptionsDefault() const {
+	for (auto const& opt_name : option_names) {
+		if (opt_name.rfind("Colour/", 0) == 0) {
+			auto opt = OPT_GET(opt_name.c_str());
+			if (!opt->IsDefault())
+				return false;
+		}
+	}
+	return true;
+}
+
+void Preferences::RefreshColourControls() {
+	for (auto const& binding : colour_controls) {
+		auto opt = OPT_GET(binding.option_name.c_str());
+		switch (binding.type) {
+		case agi::OptionType::Color:
+			if (auto cb = dynamic_cast<ColourButton*>(binding.control))
+				cb->SetColor(opt->GetColor());
+			break;
+		case agi::OptionType::Double:
+			if (auto scd = dynamic_cast<wxSpinCtrlDouble*>(binding.control))
+				scd->SetValue(opt->GetDouble());
+			break;
+		case agi::OptionType::Int:
+			if (auto sc = dynamic_cast<wxSpinCtrl*>(binding.control)) {
+				sc->SetValue(opt->GetInt());
+			}
+			else if (auto combo = dynamic_cast<wxComboBox*>(binding.control)) {
+				int val = opt->GetInt();
+				if (!binding.choices.empty())
+					combo->SetSelection(val < (int)binding.choices.size() ? val : 0);
+			}
+			break;
+		case agi::OptionType::String:
+			if (auto combo = dynamic_cast<wxComboBox*>(binding.control)) {
+				wxString val(to_wx(opt->GetString()));
+				int idx = binding.choices.Index(val, false);
+				combo->SetSelection(idx == wxNOT_FOUND ? 0 : idx);
+			}
+			else if (auto text = dynamic_cast<wxTextCtrl*>(binding.control)) {
+				text->SetValue(to_wx(opt->GetString()));
+			}
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+void Preferences::RefreshThemeList(const std::string& select_id) {
+	if (!theme_choice)
+		return;
+
+	auto themes = theme_preset::ListAvailableThemes();
+	theme_ids.clear();
+	wxArrayString choices;
+
+	choices.Add(_("-- No preset (keep current) --"));
+	theme_ids.emplace_back("");
+
+	for (auto const& t : themes) {
+		choices.Add(to_wx(t.name));
+		theme_ids.push_back(t.id);
+	}
+
+	if (themes.empty()) {
+		choices.Add(_("No themes found (install/portable data missing)"));
+		theme_ids.emplace_back("");
+		theme_choice->Enable(false);
+	}
+	else {
+		theme_choice->Enable(true);
+	}
+
+	theme_choice->Clear();
+	theme_choice->Append(choices);
+
+	size_t sel = 0;
+	if (!select_id.empty()) {
+		for (size_t i = 0; i < theme_ids.size(); ++i) {
+			if (theme_ids[i] == select_id) {
+				sel = i;
+				break;
+			}
+		}
+	}
+	theme_choice->SetSelection(sel);
+	if (sel < theme_ids.size())
+		SetPendingThemePreset(theme_ids[sel], false);
+}
+
+static void InsertJsonValue(json::Object &root, const std::string& path, json::UnknownElement value) {
+	auto pos = path.find('/');
+	if (pos == std::string::npos) {
+		root[path] = std::move(value);
+		return;
+	}
+	auto head = path.substr(0, pos);
+	auto tail = path.substr(pos + 1);
+	json::Object *child = nullptr;
+	try {
+		child = &static_cast<json::Object&>(root[head]);
+	}
+	catch (json::Exception const&) {
+		root[head] = json::Object();
+		child = &static_cast<json::Object&>(root[head]);
+	}
+	InsertJsonValue(*child, tail, std::move(value));
+}
+
+void Preferences::OnThemeExport(wxCommandEvent &) {
+	wxString name = wxGetTextFromUser(_("Enter a name for this theme:"), _("Export Theme"));
+	if (name.empty())
+		return;
+
+	std::string name_utf8 = from_wx(name);
+	std::string id = SlugifyId(name_utf8);
+	std::string default_filename = id + ".json";
+
+	wxFileDialog save(this, _("Export Theme"), to_wx(theme_preset::GetThemeDir()), to_wx(default_filename),
+		_("JSON files (*.json)|*.json|All files (*.*)|*.*"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+	if (save.ShowModal() != wxID_OK)
+		return;
+
+	json::Object colour_obj;
+	for (auto const& opt_name : option_names) {
+		if (opt_name.rfind("Colour/", 0) != 0)
+			continue;
+		auto opt = OPT_GET(opt_name.c_str());
+		switch (opt->GetType()) {
+		case agi::OptionType::String:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetString()));
+			break;
+		case agi::OptionType::Int:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement((int64_t)opt->GetInt()));
+			break;
+		case agi::OptionType::Double:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetDouble()));
+			break;
+		case agi::OptionType::Bool:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetBool()));
+			break;
+		case agi::OptionType::Color:
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(opt->GetColor().GetRgbFormatted()));
+			break;
+		case agi::OptionType::ListString: {
+			json::Array arr;
+			for (auto const& v : opt->GetListString()) {
+				json::Object obj; obj["string"] = v; arr.emplace_back(std::move(obj));
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
+			break;
+		}
+		case agi::OptionType::ListInt: {
+			json::Array arr;
+			for (auto const& v : opt->GetListInt()) {
+				json::Object obj; obj["int"] = (int64_t)v; arr.emplace_back(std::move(obj));
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
+			break;
+		}
+		case agi::OptionType::ListDouble: {
+			json::Array arr;
+			for (auto const& v : opt->GetListDouble()) {
+				json::Object obj; obj["double"] = v; arr.emplace_back(std::move(obj));
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
+			break;
+		}
+		case agi::OptionType::ListColor: {
+			json::Array arr;
+			for (auto const& v : opt->GetListColor()) {
+				json::Object obj; obj["color"] = v.GetRgbFormatted(); arr.emplace_back(std::move(obj));
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
+			break;
+		}
+		case agi::OptionType::ListBool: {
+			json::Array arr;
+			for (auto const& v : opt->GetListBool()) {
+				json::Object obj; obj["bool"] = v; arr.emplace_back(std::move(obj));
+			}
+			InsertJsonValue(colour_obj, opt_name.substr(strlen("Colour/")), json::UnknownElement(std::move(arr)));
+			break;
+		}
+		}
+	}
+
+	json::Object root_obj;
+	root_obj["Name"] = name_utf8;
+	root_obj["Id"] = id;
+	// Move to avoid copying a map of move-only json::UnknownElement values
+	root_obj["Colour"] = std::move(colour_obj);
+
+	try {
+		agi::JsonWriter::Write(root_obj, agi::io::Save(from_wx(save.GetPath())).Get());
+		std::string user_dest = theme_preset::GetThemeDir() + "/" + id + ".json";
+		agi::JsonWriter::Write(root_obj, agi::io::Save(user_dest).Get());
+		RefreshThemeList(id);
+		ApplyPendingThemePreset();
+	}
+	catch (agi::Exception const& e) {
+		wxMessageBox(_("Failed to export theme:\n") + to_wx(e.GetMessage()), _("Export Theme"), wxOK | wxICON_ERROR);
+	}
+	catch (...) {
+		wxMessageBox(_("Failed to export theme."), _("Export Theme"), wxOK | wxICON_ERROR);
+	}
+}
+
+void Preferences::OnThemeImport(wxCommandEvent &) {
+	wxFileDialog open(this, _("Import Theme"), wxEmptyString, wxEmptyString,
+		_("JSON files (*.json)|*.json|All files (*.*)|*.*"), wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+	if (open.ShowModal() != wxID_OK)
+		return;
+
+	std::string path = from_wx(open.GetPath());
+
+	try {
+		auto stream = agi::io::Open(path);
+		json::UnknownElement root = agi::json_util::parse(*stream);
+		auto &obj = static_cast<json::Object&>(root);
+
+		auto it_name = obj.find("Name");
+		if (it_name == obj.end())
+			throw agi::InternalError("Missing Name");
+		std::string name = static_cast<json::String const&>(it_name->second);
+
+		std::string id;
+		auto it_id = obj.find("Id");
+		if (it_id != obj.end())
+			id = static_cast<json::String const&>(it_id->second);
+		id = SlugifyId(id.empty() ? name : id);
+		obj["Id"] = id;
+
+		auto it_col = obj.find("Colour");
+		if (it_col == obj.end())
+			throw agi::InternalError("Missing Colour section");
+		(void)static_cast<json::Object const&>(it_col->second); // validate object
+
+		std::string user_dir = theme_preset::GetThemeDir();
+		agi::fs::path dst = agi::fs::path(user_dir) / (id + ".json");
+		if (agi::fs::FileExists(dst)) {
+			auto res = wxMessageBox(wxString::Format(_("A theme with Id '%s' already exists. Overwrite?"), to_wx(id)), _("Import Theme"), wxYES_NO | wxICON_QUESTION);
+			if (res != wxYES)
+				return;
+		}
+
+		agi::JsonWriter::Write(obj, agi::io::Save(dst).Get());
+		RefreshThemeList(id);
+		ApplyPendingThemePreset();
+	}
+	catch (agi::Exception const& e) {
+		wxMessageBox(_("The selected file is not a valid Aegisub colour theme.\n\nDetails: ") + to_wx(e.GetMessage()),
+			_("Import Theme"), wxOK | wxICON_ERROR);
+	}
+	catch (std::exception const& e) {
+		wxMessageBox(_("The selected file is not a valid Aegisub colour theme.\n\nDetails: ") + wxString::FromUTF8(e.what()),
+			_("Import Theme"), wxOK | wxICON_ERROR);
+	}
+	catch (...) {
+		wxMessageBox(_("The selected file is not a valid Aegisub colour theme."), _("Import Theme"), wxOK | wxICON_ERROR);
+	}
+}
+
+void Preferences::ApplyPendingThemePreset() {
+	if (theme_preset_pending_id.empty()) {
+		theme_preset_callback_added = false;
+		return;
+	}
+
+	std::string id = theme_preset_pending_id;
+	bool require_default = theme_preset_only_if_default;
+
+	theme_preset_pending_id.clear();
+	theme_preset_only_if_default = false;
+	theme_preset_callback_added = false;
+
+	if (require_default && !AreColourOptionsDefault())
+		return;
+
+	std::string error_msg;
+	if (theme_preset::ApplyTheme(id, &error_msg)) {
+		RefreshColourControls();
+	}
+	else {
+		wxString friendly = _("Failed to apply theme preset.");
+		if (!error_msg.empty())
+			friendly += "\n\n" + to_wx(error_msg);
+		wxMessageBox(friendly, _("Theme preset"), wxOK | wxICON_WARNING);
+	}
 }
 
 void Preferences::OnOK(wxCommandEvent &event) {
