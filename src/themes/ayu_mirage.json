@@ -58,7 +58,7 @@
 			}
 		},
 		"Subtitle" : {
-			"Background" : "rgb(24, 24, 28)",
+			"Background" : "#171B24",
 			"Syntax" : {
 				"Background" : {
 					"Brackets" : "",
@@ -66,7 +66,7 @@
 					"Drawing Command" : "",
 					"Drawing X" : "",
 					"Drawing Y" : "",
-					"Error" : "rgb(80, 24, 24)",
+					"Error" : "rgb(255, 200, 200)",
 					"Karaoke Template" : "",
 					"Karaoke Variable" : "",
 					"Line Break" : "",
@@ -90,51 +90,44 @@
 					"Slashes" : false,
 					"Tags" : true
 				},
-				"Brackets" : "rgb(140, 180, 255)",
-				"Comment" : "rgb(180, 180, 185)",
-				"Drawing Command" : "rgb(230, 210, 140)",
-				"Drawing X" : "rgb(230, 150, 150)",
-				"Drawing Y" : "rgb(150, 230, 150)",
-				"Error" : "rgb(255, 130, 130)",
-				"Karaoke Template" : "rgb(190, 120, 255)",
-				"Karaoke Variable" : "rgb(190, 120, 255)",
-				"Line Break" : "rgb(150, 150, 150)",
-				"Normal" : "rgb(230, 230, 230)",
-				"Parameters" : "rgb(150, 215, 150)",
-				"Slashes" : "rgb(255, 140, 220)",
-				"Tags" : "rgb(170, 170, 170)",
+				"Brackets" : "#D4BFFF",
+				"Comment" : "#707A8C",
+				"Drawing Command" : "#5CCFE6",
+				"Drawing X" : "#F28779",
+				"Drawing Y" : "#D5FF80",
+				"Error" : "rgb(200, 0, 0)",
+				"Karaoke Template" : "rgb(128, 0, 192)",
+				"Karaoke Variable" : "rgb(128, 0, 192)",
+				"Line Break" : "#D9D7CE",
+				"Normal" : "#CCCAC2",
+				"Parameters" : "#FFAD66",
+				"Slashes" : "#95E6CB",
+				"Tags" : "rgb(90, 90, 90)",
 				"Underline" : {
 					"Drawing Endpoint" : true
 				}
 			}
 		},
 		"Subtitle Grid" : {
-			"Active Border" : "rgb(90, 90, 100)",
+			"Active Border" : "rgb(45, 45, 45)",
 			"Background" : {
-				"Background" : "rgb(32, 32, 38)",
-				"Closed Fold" : "rgb(30, 30, 36)",
-				"Comment" : "rgb(40, 54, 78)",
-				"Inframe" : "rgb(54, 50, 34)",
-				"Open Fold" : "rgb(44, 44, 52)",
-				"Selected Comment" : "rgb(42, 78, 78)",
-				"Selection" : "rgb(46, 86, 68)"
+				"Background" : "#171B24",
+				"Closed Fold" : "#252c3e",
+				"Comment" : "#707A8C",
+				"Inframe" : "#242936",
+				"Open Fold" : "#252c3e",
+				"Selected Comment" : "#67532A",
+				"Selection" : "#67532A"
 			},
-			"CPS Error" : "rgb(255, 120, 120)",
-			"Collision" : "rgb(255, 120, 120)",
-			"Header" : "rgb(65, 100, 130)",
-			"Left Column" : "rgb(60, 90, 80)",
-			"Lines" : "rgb(80, 80, 90)",
-			"Selection" : "rgb(255, 255, 255)",
-			"Standard" : "rgb(230, 230, 230)"
-		},
-		"Visual Tools" : {
-			"Highlight Primary" : "rgb(255, 169, 40)",
-			"Highlight Secondary" : "rgb(255, 253, 185)",
-			"Lines Primary" : "rgb(187, 0, 0)",
-			"Lines Secondary" : "rgb(106, 32, 19)",
-			"Shaded Area Alpha" : 0.5
+			"CPS Error" : "#F28779",
+			"Collision" : "#CCCAC2",
+			"Header" : "#225660",
+			"Left Column" : "#1F2430",
+			"Lines" : "#8A9199",
+			"Selection" : "#CCCAC2",
+			"Standard" : "#CCCAC2"
 		}
 	},
-	"Id" : "ayu_dark",
-	"Name" : "Aru Dark"
+	"Id" : "ayu_mirage",
+	"Name" : "Ayu Mirage"
 }

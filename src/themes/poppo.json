@@ -58,7 +58,7 @@
 			}
 		},
 		"Subtitle" : {
-			"Background" : "rgb(24, 24, 28)",
+			"Background" : "rgb(33, 33, 33)",
 			"Syntax" : {
 				"Background" : {
 					"Brackets" : "",
@@ -66,7 +66,7 @@
 					"Drawing Command" : "",
 					"Drawing X" : "",
 					"Drawing Y" : "",
-					"Error" : "rgb(80, 24, 24)",
+					"Error" : "rgb(255, 200, 200)",
 					"Karaoke Template" : "",
 					"Karaoke Variable" : "",
 					"Line Break" : "",
@@ -90,51 +90,44 @@
 					"Slashes" : false,
 					"Tags" : true
 				},
-				"Brackets" : "rgb(140, 180, 255)",
-				"Comment" : "rgb(180, 180, 185)",
-				"Drawing Command" : "rgb(230, 210, 140)",
-				"Drawing X" : "rgb(230, 150, 150)",
-				"Drawing Y" : "rgb(150, 230, 150)",
-				"Error" : "rgb(255, 130, 130)",
-				"Karaoke Template" : "rgb(190, 120, 255)",
-				"Karaoke Variable" : "rgb(190, 120, 255)",
-				"Line Break" : "rgb(150, 150, 150)",
-				"Normal" : "rgb(230, 230, 230)",
-				"Parameters" : "rgb(150, 215, 150)",
-				"Slashes" : "rgb(255, 140, 220)",
-				"Tags" : "rgb(170, 170, 170)",
+				"Brackets" : "rgb(118, 143, 255)",
+				"Comment" : "rgb(141, 141, 141)",
+				"Drawing Command" : "rgb(0, 0, 0)",
+				"Drawing X" : "rgb(90, 40, 40)",
+				"Drawing Y" : "rgb(40, 90, 40)",
+				"Error" : "rgb(200, 0, 0)",
+				"Karaoke Template" : "rgb(128, 0, 192)",
+				"Karaoke Variable" : "rgb(128, 0, 192)",
+				"Line Break" : "rgb(110, 118, 129)",
+				"Normal" : "rgb(190, 190, 190)",
+				"Parameters" : "rgb(146, 222, 145)",
+				"Slashes" : "rgb(255, 174, 238)",
+				"Tags" : "rgb(90, 90, 90)",
 				"Underline" : {
 					"Drawing Endpoint" : true
 				}
 			}
 		},
 		"Subtitle Grid" : {
-			"Active Border" : "rgb(90, 90, 100)",
+			"Active Border" : "rgb(45, 45, 45)",
 			"Background" : {
-				"Background" : "rgb(32, 32, 38)",
-				"Closed Fold" : "rgb(30, 30, 36)",
-				"Comment" : "rgb(40, 54, 78)",
-				"Inframe" : "rgb(54, 50, 34)",
-				"Open Fold" : "rgb(44, 44, 52)",
-				"Selected Comment" : "rgb(42, 78, 78)",
-				"Selection" : "rgb(46, 86, 68)"
+				"Background" : "rgb(45, 45, 45)",
+				"Closed Fold" : "rgb(72, 79, 88)",
+				"Comment" : "rgb(32, 28, 39)",
+				"Inframe" : "rgb(79, 79, 79)",
+				"Open Fold" : "rgb(72, 79, 88)",
+				"Selected Comment" : "rgb(85, 48, 152)",
+				"Selection" : "rgb(133, 110, 167)"
 			},
-			"CPS Error" : "rgb(255, 120, 120)",
-			"Collision" : "rgb(255, 120, 120)",
-			"Header" : "rgb(65, 100, 130)",
-			"Left Column" : "rgb(60, 90, 80)",
-			"Lines" : "rgb(80, 80, 90)",
-			"Selection" : "rgb(255, 255, 255)",
-			"Standard" : "rgb(230, 230, 230)"
-		},
-		"Visual Tools" : {
-			"Highlight Primary" : "rgb(255, 169, 40)",
-			"Highlight Secondary" : "rgb(255, 253, 185)",
-			"Lines Primary" : "rgb(187, 0, 0)",
-			"Lines Secondary" : "rgb(106, 32, 19)",
-			"Shaded Area Alpha" : 0.5
+			"CPS Error" : "rgb(255,0,0)",
+			"Collision" : "rgb(190, 190, 190)",
+			"Header" : "rgb(49, 102, 132)",
+			"Left Column" : "rgb(85, 109, 88)",
+			"Lines" : "rgb(0, 0, 0)",
+			"Selection" : "rgb(190, 190, 190)",
+			"Standard" : "rgb(190, 190, 190)"
 		}
 	},
-	"Id" : "ayu_dark",
-	"Name" : "Aru Dark"
+	"Id" : "poppo",
+	"Name" : "Poppo"
 }

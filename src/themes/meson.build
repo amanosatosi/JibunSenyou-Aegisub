@@ -4,7 +4,17 @@ themes = files(
   'aegisub_default.json',
   'ayu_dark.json',
   'ayu_light.json',
+  'ayu_mirage.json',
+  'catppuccin_latte.json',
+  'catppuccin_mocha.json',
   'dark_mode_unofficial.json',
+  'dracula.json',
+  'mountain.json',
+  'poppo.json',
+  'sakura.json',
+  'seti.json',
+  'solarized_light.json',
+  'zenburn.json',
 )
 
 install_data(
