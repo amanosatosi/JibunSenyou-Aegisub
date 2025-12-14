@@ -158,6 +158,93 @@ bool IsValidUtf8(const std::string& text) {
 	return true;
 }
 
+struct OverrideBlockInfo {
+	bool in_block = false;
+	int start = -1;
+	int end = -1;
+};
+
+static OverrideBlockInfo FindOverrideBlock(const std::string& text, int pos) {
+	OverrideBlockInfo info;
+	pos = std::clamp(pos, 0, (int)text.size());
+	int open = -1;
+	for (int i = pos - 1; i >= 0; --i) {
+		if (text[i] == '}')
+			break;
+		if (text[i] == '{') {
+			open = i;
+			break;
+		}
+	}
+	if (open == -1) return info;
+	int close = -1;
+	for (int i = open + 1; i < (int)text.size(); ++i) {
+		if (text[i] == '}') {
+			close = i;
+			break;
+		}
+	}
+	if (close == -1 || close < pos) return info;
+	info.in_block = true;
+	info.start = open;
+	info.end = close;
+	return info;
+}
+
+static std::pair<int, int> SegmentForPos(const std::string& text, const OverrideBlockInfo& block, int pos) {
+	if (!block.in_block) return {pos, pos};
+	int seg_start = block.start + 1;
+	int seg_end = block.end;
+	for (int i = block.start; i < pos - 1 && i >= 0; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N') {
+			seg_start = i + 2;
+			break;
+		}
+	}
+	for (int i = pos; i + 1 < block.end; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N') {
+			seg_end = i;
+			break;
+		}
+	}
+	return {seg_start, seg_end};
+}
+
+static bool IsInsideTParens(const std::string& text, const OverrideBlockInfo& block, int pos) {
+	if (!block.in_block) return false;
+	int t_pos = -1;
+	for (int i = pos; i >= block.start; --i) {
+		if (text[i] == ')')
+			return false;
+		if (text[i] == '(') {
+			if (i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\')
+				t_pos = i - 2;
+			break;
+		}
+	}
+	if (t_pos == -1) return false;
+	int depth = 0;
+	for (int i = t_pos + 2; i < block.end; ++i) {
+		if (text[i] == '(') ++depth;
+		else if (text[i] == ')') {
+			if (depth == 0) return pos > t_pos + 2 && pos < i;
+			--depth;
+		}
+	}
+	return false;
+}
+
+static int SmartInsertionPos(const std::string& text, int pos, bool inside_t) {
+	OverrideBlockInfo block = FindOverrideBlock(text, pos);
+	if (!block.in_block || inside_t)
+		return pos;
+	for (int i = pos; i + 1 < block.end; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N')
+			return i + 2;
+	}
+	return pos;
+}
+
 struct validate_sel_nonempty : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
 	bool Validate(const agi::Context *c) override {
@@ -490,6 +577,13 @@ void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const c
 	std::string raw_before = active_line->Text.get();
 	if (better_view && c->subsEditBox)
 		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, raw_before, sel_start, sel_end);
+
+	if (sel_start == sel_end) {
+		OverrideBlockInfo block = FindOverrideBlock(raw_before, sel_start);
+		int smart = SmartInsertionPos(raw_before, sel_start, false);
+		if (block.in_block)
+			sel_start = sel_end = smart;
+	}
 
 	update_lines_mapped(c, undo_msg, sel_start, sel_end, better_view, [&](AssDialogue *line, int sel_start_raw, int sel_end_raw, int norm_sel_start, int norm_sel_end) {
 		AssStyle const* const style = c->ass->GetStyle(line->Style);
@@ -1223,8 +1317,15 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	if (better_view && active_line && c->subsEditBox)
 		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, active_raw_text, sel_start, sel_end);
 
+	bool has_selection = sel_end > sel_start;
+	if (!has_selection && active_line) {
+		OverrideBlockInfo block = FindOverrideBlock(active_raw_text, sel_start);
+		bool inside_t = IsInsideTParens(active_raw_text, block, sel_start);
+		sel_start = sel_end = SmartInsertionPos(active_raw_text, sel_start, inside_t);
+	}
+
 	const int norm_sel_start = normalize_pos(active_line->Text, sel_start);
-	const bool has_selection = sel_end > sel_start;
+	has_selection = sel_end > sel_start;
 	const bool shin_requested = picker == GetColorFromUserShin;
 	const bool force_legacy_dialog = shin_requested && has_selection;
 	ColorPickerInvoker effective_picker = force_legacy_dialog ? GetColorFromUser : picker;
