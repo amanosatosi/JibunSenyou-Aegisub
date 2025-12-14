@@ -158,6 +158,13 @@ bool IsValidUtf8(const std::string& text) {
 	return true;
 }
 
+struct ScopeInfo {
+	bool in_t = false;
+	int scope_start = 0;
+	int scope_end = 0;
+	int insert_pos = 0;
+};
+
 struct OverrideBlockInfo {
 	bool in_block = false;
 	int start = -1;
@@ -243,6 +250,142 @@ static int SmartInsertionPos(const std::string& text, int pos, bool inside_t) {
 			return i + 2;
 	}
 	return pos;
+}
+
+static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockInfo& block) {
+	if (!block.in_block) return pos;
+	// hex
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		if (text[i] == '&' && i + 1 < (int)text.size() && (text[i + 1] == 'H' || text[i + 1] == 'h')) {
+			for (int j = i + 2; j < block.end; ++j) {
+				if (text[j] == '&') {
+					if (pos > i && pos < j + 1)
+						return j + 1;
+					break;
+				}
+			}
+			break;
+		}
+		if (text[i] == '\\' || text[i] == '{' || text[i] == '}')
+			break;
+	}
+	// numeric
+	if (pos > block.start && std::isdigit(static_cast<unsigned char>(text[pos - 1]))) {
+		int end = pos;
+		while (end < block.end && std::isdigit(static_cast<unsigned char>(text[end])))
+			++end;
+		return end;
+	}
+	// paren tag
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		if (text[i] == '(' && i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\') {
+			int depth = 0;
+			for (int j = i; j < block.end; ++j) {
+				if (text[j] == '(') ++depth;
+				else if (text[j] == ')') {
+					--depth;
+					if (depth == 0) {
+						if (pos > i && pos < j)
+							return j + 1;
+						break;
+					}
+				}
+			}
+			break;
+		}
+		if (text[i] == '\\' || text[i] == '{' || text[i] == '}')
+			break;
+	}
+	return pos;
+}
+
+static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
+	ScopeInfo info;
+	OverrideBlockInfo block = FindOverrideBlock(text, caret_raw);
+	if (!block.in_block) {
+		info.scope_start = info.scope_end = info.insert_pos = caret_raw;
+		return info;
+	}
+
+	int anchor = SnapOutOfToken(text, caret_raw, block);
+
+	// inside \t(...)
+	int t_open_backslash = -1;
+	int open_paren = -1;
+	for (int i = anchor; i >= block.start; --i) {
+		if (text[i] == '(') {
+			if (i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\') {
+				t_open_backslash = i - 2;
+				open_paren = i;
+			}
+			break;
+		}
+	}
+	if (open_paren != -1) {
+		int depth = 0;
+		int close = -1;
+		for (int i = open_paren; i < block.end; ++i) {
+			if (text[i] == '(') ++depth;
+			else if (text[i] == ')') {
+				--depth;
+				if (depth == 0) {
+					close = i;
+					break;
+				}
+			}
+		}
+		if (close != -1 && anchor > open_paren && anchor < close) {
+			info.in_t = true;
+			info.scope_start = open_paren + 1;
+			info.scope_end = close;
+			int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
+			for (int i = anchor; i + 1 < close; ++i) {
+				if (text[i] == '\\' && text[i + 1] == 'N') {
+					insert_pos = i;
+					break;
+				}
+			}
+			info.insert_pos = insert_pos;
+			return info;
+		}
+	}
+
+	auto seg = SegmentForPos(text, block, anchor);
+	info.scope_start = seg.first;
+	info.scope_end = seg.second;
+	int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
+	for (int i = anchor; i + 1 < info.scope_end; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N') {
+			insert_pos = i + 2;
+			break;
+		}
+	}
+	info.insert_pos = insert_pos;
+	return info;
+}
+
+static int ReplaceOrInsertInRange(std::string& text, int scope_start, int scope_end, int insert_pos, const std::string& tag_name, const std::string& value) {
+	scope_start = std::clamp(scope_start, 0, (int)text.size());
+	scope_end = std::clamp(scope_end, scope_start, (int)text.size());
+	insert_pos = std::clamp(insert_pos, scope_start, scope_end);
+
+	int found = text.find(tag_name, scope_start);
+	if (found != (int)std::string::npos && found < scope_end) {
+		int end = found + (int)tag_name.size();
+		while (end < scope_end && end < (int)text.size()) {
+			char ch = text[end];
+			if (ch == '\\' || ch == '{' || ch == '}')
+				break;
+			++end;
+		}
+		int new_len = (int)tag_name.size() + (int)value.size();
+		int old_len = end - found;
+		text.replace(found, old_len, tag_name + value);
+		return new_len - old_len;
+	}
+
+	text.insert(insert_pos, tag_name + value);
+	return (int)(tag_name.size() + value.size());
 }
 
 struct validate_sel_nonempty : public Command {
@@ -1554,11 +1697,32 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	if (!use_selection_wrap) {
 		bool ok = effective_picker(c->parent, initial_color, true, [&](agi::Color new_color) {
 			for (auto& line : lines) {
-				int shift = line.parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);
-				if (new_color.a != line.color.a) {
-					shift += line.parsed.set_tag(alpha, agi::format("&H%02X&", (int)new_color.a), norm_sel_start, sel_start + shift);
+				std::string raw_text = line.parsed.line->Text.get();
+				ScopeInfo scope = ComputeScope(raw_text, sel_start);
+				int shift = 0;
+
+				if (scope.in_t) {
+					shift += ReplaceOrInsertInRange(raw_text, scope.scope_start, scope.scope_end, scope.insert_pos, tag, new_color.GetAssOverrideFormatted());
+					if (new_color.a != line.color.a)
+						shift += ReplaceOrInsertInRange(raw_text, scope.scope_start, scope.scope_end, scope.insert_pos, alpha, agi::format("&H%02X&", (int)new_color.a));
 					line.color.a = new_color.a;
 				}
+				else {
+					parsed_line parsed(line.parsed.line);
+					shift += parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);
+					if (new_color.a != line.color.a) {
+						shift += parsed.set_tag(alpha, agi::format("&H%02X&", (int)new_color.a), norm_sel_start, sel_start + shift);
+						line.color.a = new_color.a;
+					}
+					raw_text = parsed.line->Text.get();
+				}
+
+				if (!IsValidUtf8(raw_text)) {
+					restore_original_texts();
+					return;
+				}
+
+				line.parsed.line->Text = raw_text;
 
 				if (line.parsed.line == active_line)
 					active_shift = shift;
