@@ -600,13 +600,15 @@ void SubsEditBox::UpdateFields(int type, bool repopulate_lists) {
 
 	if (type & AssFile::COMMIT_DIAG_TEXT) {
 		// Satoshi: \N visual newline support
+		std::string raw_utf8 = line->Text.get();
 		if (better_view_enabled_) {
-			wxString raw_text = to_wx(line->Text.get());
-			wxString display_text = MakeDisplayText(raw_text);
-			edit_ctrl->SetTextTo(from_wx(display_text));
+			std::string display_text = BuildDisplayTextWithMapping(raw_utf8);
+			edit_ctrl->SetTextTo(display_text);
 		}
 		else {
-			edit_ctrl->SetTextTo(line->Text);
+			display_to_raw_.clear();
+			display_to_raw_raw_text_.clear();
+			edit_ctrl->SetTextTo(raw_utf8);
 		}
 		// Satoshi: \N visual newline support (end)
 		UpdateCharacterCount(line->Text);
@@ -1191,9 +1193,12 @@ void SubsEditBox::OnChange(wxStyledTextEvent &event) {
 		wxString display_text = to_wx(control_text);
 		wxString ass_text = MakeAssText(display_text);
 		normalized_text = from_wx(ass_text);
+		RebuildDisplayMapping(normalized_text);
 	}
 	else {
 		normalized_text = control_text;
+		display_to_raw_.clear();
+		display_to_raw_raw_text_.clear();
 	}
 	// Satoshi: \N visual newline support (end)
 
@@ -1356,22 +1361,108 @@ void SubsEditBox::OnSplit(wxCommandEvent&) {
 	OPT_SET("Subtitle/Show Original")->SetBool(show_original);
 }
 
-static wxString ConvertAssVisualBreaks(wxString const& src) {
-	wxString out;
-	out.reserve(src.length());
+struct BetterViewConversion {
+	std::string display_utf8;
+	std::vector<int> disp_to_raw;
+};
 
-	for (size_t i = 0; i < src.length(); ++i) {
-		wxUniChar ch = src[i];
-		if (ch == '\\' && i + 1 < src.length() && src[i + 1] == 'N') {
-			out += '\n';
-			++i;
+static BetterViewConversion BuildBetterViewConversion(std::string const& raw_utf8) {
+	BetterViewConversion result;
+	result.display_utf8.reserve(raw_utf8.size());
+	result.disp_to_raw.reserve(raw_utf8.size() + 1);
+
+	size_t raw_pos = 0;
+	while (raw_pos < raw_utf8.size()) {
+		if (raw_pos + 1 < raw_utf8.size() && raw_utf8[raw_pos] == '\\' && raw_utf8[raw_pos + 1] == 'N') {
+			result.display_utf8.push_back('\n');
+			result.disp_to_raw.push_back(static_cast<int>(raw_pos));
+			raw_pos += 2;
+			continue;
 		}
-		else {
-			out += ch;
-		}
+
+		result.display_utf8.push_back(raw_utf8[raw_pos]);
+		result.disp_to_raw.push_back(static_cast<int>(raw_pos));
+		++raw_pos;
 	}
 
-	return out;
+	result.disp_to_raw.push_back(static_cast<int>(raw_utf8.size()));
+	return result;
+}
+
+static wxString ConvertAssVisualBreaks(wxString const& src) {
+	auto conversion = BuildBetterViewConversion(from_wx(src));
+	return wxString::FromUTF8(conversion.display_utf8.c_str());
+}
+
+std::string SubsEditBox::BuildDisplayTextWithMapping(std::string const& raw_utf8) {
+	if (!better_view_enabled_) {
+		display_to_raw_.clear();
+		display_to_raw_raw_text_.clear();
+		return raw_utf8;
+	}
+
+	auto conversion = BuildBetterViewConversion(raw_utf8);
+	display_to_raw_ = std::move(conversion.disp_to_raw);
+	display_to_raw_raw_text_ = raw_utf8;
+	return std::move(conversion.display_utf8);
+}
+
+void SubsEditBox::RebuildDisplayMapping(std::string const& raw_utf8) {
+	if (!better_view_enabled_) {
+		display_to_raw_.clear();
+		display_to_raw_raw_text_.clear();
+		return;
+	}
+
+	if (display_to_raw_raw_text_ == raw_utf8 && !display_to_raw_.empty())
+		return;
+
+	auto conversion = BuildBetterViewConversion(raw_utf8);
+	display_to_raw_ = std::move(conversion.disp_to_raw);
+	display_to_raw_raw_text_ = raw_utf8;
+}
+
+bool SubsEditBox::MapDisplayRangeToRaw(int disp_start, int disp_end, std::string const& raw_utf8, int& raw_start, int& raw_end) {
+	if (!better_view_enabled_) {
+		raw_start = disp_start;
+		raw_end = disp_end;
+		return true;
+	}
+
+	RebuildDisplayMapping(raw_utf8);
+	if (display_to_raw_.empty()) {
+		raw_start = disp_start;
+		raw_end = disp_end;
+		return false;
+	}
+
+	const int max_disp = static_cast<int>(display_to_raw_.size()) - 1;
+	disp_start = std::clamp(disp_start, 0, max_disp);
+	disp_end = std::clamp(disp_end, 0, max_disp);
+	raw_start = display_to_raw_[disp_start];
+	raw_end = display_to_raw_[disp_end];
+	return true;
+}
+
+int SubsEditBox::MapRawToDisplay(int raw_offset, std::string const& raw_utf8) {
+	if (!better_view_enabled_)
+		return std::clamp(raw_offset, 0, static_cast<int>(raw_utf8.size()));
+
+	RebuildDisplayMapping(raw_utf8);
+	if (display_to_raw_.empty())
+		return std::clamp(raw_offset, 0, static_cast<int>(raw_utf8.size()));
+
+	raw_offset = std::clamp(raw_offset, 0, static_cast<int>(raw_utf8.size()));
+	const int disp_len = static_cast<int>(display_to_raw_.size()) - 1;
+	for (int disp = 0; disp < disp_len; ++disp) {
+		const int current_raw = display_to_raw_[disp];
+		const int next_raw = display_to_raw_[disp + 1];
+		if (raw_offset < next_raw)
+			return disp;
+		if (disp + 1 == disp_len)
+			return disp_len;
+	}
+	return disp_len;
 }
 
 void SubsEditBox::OnBetterView(wxCommandEvent&) {
@@ -1381,12 +1472,19 @@ void SubsEditBox::OnBetterView(wxCommandEvent&) {
 	auto buffer = edit_ctrl->GetTextRaw();
 	std::string current_text(buffer.data(), buffer.length());
 	wxString wx_text = to_wx(current_text);
-
-	wxString converted = new_state ? ConvertAssVisualBreaks(wx_text) : EditorDisplayToAss(wx_text);
+	std::string raw_utf8 = from_wx(EditorDisplayToAss(wx_text));
 
 	better_view_enabled_ = new_state;
 	OPT_SET("Subtitle/Better View")->SetBool(new_state);
-	edit_ctrl->SetTextTo(from_wx(converted));
+	if (better_view_enabled_) {
+		std::string display_text = BuildDisplayTextWithMapping(raw_utf8);
+		edit_ctrl->SetTextTo(display_text);
+	}
+	else {
+		display_to_raw_.clear();
+		display_to_raw_raw_text_.clear();
+		edit_ctrl->SetTextTo(raw_utf8);
+	}
 
 	UpdateSecondaryEditor();
 }

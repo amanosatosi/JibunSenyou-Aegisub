@@ -47,6 +47,7 @@
 #include "../project.h"
 #include "../selection_controller.h"
 #include "../subs_controller.h"
+#include "../subs_edit_box.h"
 #include "../text_selection_controller.h"
 #include "../utils.h"
 #include "../video_controller.h"
@@ -118,6 +119,43 @@ std::string FormatGradientAlphas(std::array<uint8_t, 4> const& alphas) {
 	}
 	value += ")";
 	return value;
+}
+
+bool IsValidUtf8(const std::string& text) {
+	const unsigned char *data = reinterpret_cast<const unsigned char*>(text.data());
+	size_t len = text.size();
+	size_t i = 0;
+	while (i < len) {
+		unsigned char byte = data[i];
+		size_t extra = 0;
+		if ((byte & 0x80) == 0) {
+			++i;
+			continue;
+		}
+		else if ((byte & 0xE0) == 0xC0) {
+			extra = 1;
+			if ((byte & 0xFE) == 0xC0)
+				return false;
+		}
+		else if ((byte & 0xF0) == 0xE0) {
+			extra = 2;
+		}
+		else if ((byte & 0xF8) == 0xF0) {
+			extra = 3;
+		}
+		else {
+			return false;
+		}
+
+		if (i + extra >= len)
+			return false;
+		for (size_t j = 1; j <= extra; ++j) {
+			if ((data[i + j] & 0xC0) != 0x80)
+				return false;
+		}
+		i += extra + 1;
+	}
+	return true;
 }
 
 struct validate_sel_nonempty : public Command {
@@ -953,6 +991,14 @@ static SelectionApplyResult InsertBoundaryTags(
 	int selection_start = sel_start;
 	int selection_end = sel_end;
 
+	if (!end_content.empty()) {
+		bool inside_next_block = selection_end < static_cast<int>(text.size()) && text[selection_end] == '{';
+		if (inside_next_block)
+			text.insert(selection_end + 1, end_content);
+		else
+			text.insert(selection_end, "{" + end_content + "}");
+	}
+
 	if (!start_content.empty()) {
 		bool inside_prev_block = selection_start > 0 && text[selection_start - 1] == '}';
 		if (inside_prev_block) {
@@ -966,14 +1012,6 @@ static SelectionApplyResult InsertBoundaryTags(
 			selection_start += static_cast<int>(insertion.size());
 			selection_end += static_cast<int>(insertion.size());
 		}
-	}
-
-	if (!end_content.empty()) {
-		bool inside_next_block = selection_end < static_cast<int>(text.size()) && text[selection_end] == '{';
-		if (inside_next_block)
-			text.insert(selection_end + 1, end_content);
-		else
-			text.insert(selection_end, "{" + end_content + "}");
 	}
 
 	result.text = std::move(text);
@@ -1132,8 +1170,16 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), const char *tag, const char *alt, const char *alpha, ColorPickerInvoker picker = GetColorFromUser) {
 	agi::Color initial_color;
 	const auto active_line = c->selectionController->GetActiveLine();
-	const int sel_start = c->textSelectionController->GetSelectionStart();
-	const int sel_end = c->textSelectionController->GetSelectionEnd();
+	const int disp_sel_start = c->textSelectionController->GetSelectionStart();
+	const int disp_sel_end = c->textSelectionController->GetSelectionEnd();
+	int sel_start = disp_sel_start;
+	int sel_end = disp_sel_end;
+
+	const bool better_view = c->subsEditBox && c->subsEditBox->BetterViewEnabled();
+	std::string active_raw_text = active_line ? active_line->Text.get() : std::string();
+	if (better_view && active_line && c->subsEditBox)
+		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, active_raw_text, sel_start, sel_end);
+
 	const int norm_sel_start = normalize_pos(active_line->Text, sel_start);
 	const bool has_selection = sel_end > sel_start;
 	const bool shin_requested = picker == GetColorFromUserShin;
@@ -1143,6 +1189,22 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	const bool allow_gradient = using_shin && !has_selection;
 	const bool use_selection_wrap = has_selection && !allow_gradient;
 	const int channel = GetChannelFromTags(tag, alt);
+	auto set_selection_display = [&](int raw_start, int raw_end, const std::string& raw_text) {
+		if (better_view && c->subsEditBox) {
+			int disp_start = c->subsEditBox->MapRawToDisplay(raw_start, raw_text);
+			int disp_end = c->subsEditBox->MapRawToDisplay(raw_end, raw_text);
+			c->textSelectionController->SetSelection(disp_start, disp_end);
+		}
+		else {
+			c->textSelectionController->SetSelection(raw_start, raw_end);
+		}
+	};
+	auto reset_selection = [&]() {
+		if (better_view && c->subsEditBox)
+			c->textSelectionController->SetSelection(disp_sel_start, disp_sel_end);
+		else
+			c->textSelectionController->SetSelection(sel_start, sel_end);
+	};
 
 	auto const& sel = c->selectionController->GetSelectedSet();
 	struct line_info {
@@ -1180,8 +1242,23 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		if (use_selection_wrap)
 			restore_info = FindColorRestoreInfo(line->Text, sel_start, channel);
 
-		lines.emplace_back(color, std::move(parsed), restore_info, line->Text);
+		lines.emplace_back(color, std::move(parsed), restore_info, line->Text.get());
 	}
+
+	auto restore_original_texts = [&]() {
+		for (auto& entry : lines) {
+			entry.parsed.line->Text = entry.original_text;
+			entry.parsed = parsed_line(entry.parsed.line);
+		}
+	};
+
+	auto lines_are_valid_utf8 = [&]() {
+		for (auto& entry : lines) {
+			if (!IsValidUtf8(entry.parsed.line->Text.get()))
+				return false;
+		}
+		return true;
+	};
 
 	int active_shift = 0;
 	int commit_id = -1;
@@ -1285,9 +1362,17 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					entry.parsed = parsed_line(entry.parsed.line);
 				}
 
+				if (!lines_are_valid_utf8()) {
+					if (gradient_commit_id != -1)
+						c->subsController->Undo();
+					restore_original_texts();
+					gradient_commit_id = -1;
+					return;
+				}
+
 				gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 				if (local_active_shift)
-					c->textSelectionController->SetSelection(sel_start + local_active_shift, sel_start + local_active_shift);
+					set_selection_display(sel_start + local_active_shift, sel_start + local_active_shift, active_line->Text.get());
 			};
 
 			auto revert_preview = [&]() {
@@ -1296,7 +1381,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					gradient_commit_id = -1;
 					for (auto& entry : lines)
 						entry.parsed = parsed_line(entry.parsed.line);
-					c->textSelectionController->SetSelection(sel_start, sel_end);
+					reset_selection();
 				}
 			};
 
@@ -1335,14 +1420,19 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					active_shift = shift;
 			}
 
+			if (!lines_are_valid_utf8()) {
+				restore_original_texts();
+				return;
+			}
+
 			commit_id = c->ass->Commit(_("set color"), AssFile::COMMIT_DIAG_TEXT, commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 			if (active_shift)
-				c->textSelectionController->SetSelection(sel_start + active_shift, sel_start + active_shift);
+				set_selection_display(sel_start + active_shift, sel_start + active_shift, active_line->Text.get());
 		});
 
 		if (!ok && commit_id != -1) {
 			c->subsController->Undo();
-			c->textSelectionController->SetSelection(sel_start, sel_end);
+			reset_selection();
 		}
 		return;
 	}
@@ -1370,9 +1460,14 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			}
 		}
 
+		if (!lines_are_valid_utf8()) {
+			restore_original_texts();
+			return;
+		}
+
 		commit_id = c->ass->Commit(_("set color"), AssFile::COMMIT_DIAG_TEXT, commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 		if (start_shift || end_shift)
-			c->textSelectionController->SetSelection(sel_start + start_shift, sel_end + end_shift);
+			set_selection_display(sel_start + start_shift, sel_end + end_shift, active_line->Text.get());
 	};
 
 	bool ok = effective_picker(c->parent, initial_color, true, [&](agi::Color new_color) {
@@ -1381,7 +1476,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 	if (!ok && commit_id != -1) {
 		c->subsController->Undo();
-		c->textSelectionController->SetSelection(sel_start, sel_end);
+		reset_selection();
 		return;
 	}
 
