@@ -447,8 +447,51 @@ void update_lines(const agi::Context *c, wxString const& undo_msg, Func&& f) {
 		c->textSelectionController->SetSelection(sel_start + active_sel_shift, sel_end + active_sel_shift);
 }
 
+// Manual test (Better View): enable Better View, use a long line with \N and Burmese text, apply BIUS or font changes at a caret and across a selection spanning a displayed newline; tags must align with the visual caret/selection.
+template<typename Func>
+void update_lines_mapped(const agi::Context *c, wxString const& undo_msg, int sel_start, int sel_end, bool better_view, Func&& f) {
+	const auto active_line = c->selectionController->GetActiveLine();
+	if (!active_line) return;
+
+	const int norm_sel_start = normalize_pos(active_line->Text, sel_start);
+	const int norm_sel_end = normalize_pos(active_line->Text, sel_end);
+	int active_sel_shift = 0;
+
+	for (const auto line : c->selectionController->GetSelectedSet()) {
+		int shift = f(line, sel_start, sel_end, norm_sel_start, norm_sel_end);
+		if (line == active_line)
+			active_sel_shift = shift;
+	}
+
+	auto const& sel = c->selectionController->GetSelectedSet();
+	c->ass->Commit(undo_msg, AssFile::COMMIT_DIAG_TEXT, -1, sel.size() == 1 ? *sel.begin() : nullptr);
+
+	int new_start = sel_start + active_sel_shift;
+	int new_end = sel_end + active_sel_shift;
+	if (better_view && c->subsEditBox) {
+		int disp_start = c->subsEditBox->MapRawToDisplay(new_start, active_line->Text.get());
+		int disp_end = c->subsEditBox->MapRawToDisplay(new_end, active_line->Text.get());
+		c->textSelectionController->SetSelection(disp_start, disp_end);
+	}
+	else if (active_sel_shift != 0) {
+		c->textSelectionController->SetSelection(new_start, new_end);
+	}
+}
+
 void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const char *tag, wxString const& undo_msg) {
-	update_lines(c, undo_msg, [&](AssDialogue *line, int sel_start, int sel_end, int norm_sel_start, int norm_sel_end) {
+	const auto active_line = c->selectionController->GetActiveLine();
+	if (!active_line) return;
+
+	int disp_sel_start = c->textSelectionController->GetSelectionStart();
+	int disp_sel_end = c->textSelectionController->GetSelectionEnd();
+	int sel_start = disp_sel_start;
+	int sel_end = disp_sel_end;
+	bool better_view = c->subsEditBox && c->subsEditBox->BetterViewEnabled();
+	std::string raw_before = active_line->Text.get();
+	if (better_view && c->subsEditBox)
+		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, raw_before, sel_start, sel_end);
+
+	update_lines_mapped(c, undo_msg, sel_start, sel_end, better_view, [&](AssDialogue *line, int sel_start_raw, int sel_end_raw, int norm_sel_start, int norm_sel_end) {
 		AssStyle const* const style = c->ass->GetStyle(line->Style);
 		bool state = style ? style->*field : AssStyle().*field;
 
@@ -457,9 +500,9 @@ void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const c
 
 		state = parsed.get_value(blockn, state, tag);
 
-		int shift = parsed.set_tag(tag, state ? "0" : "1", norm_sel_start, sel_start);
-		if (sel_start != sel_end)
-			parsed.set_tag(tag, state ? "1" : "0", norm_sel_end, sel_end + shift);
+		int shift = parsed.set_tag(tag, state ? "0" : "1", norm_sel_start, sel_start_raw);
+		if (sel_start_raw != sel_end_raw)
+			parsed.set_tag(tag, state ? "1" : "0", norm_sel_end, sel_end_raw + shift);
 		return shift;
 	});
 }
@@ -1589,7 +1632,25 @@ struct edit_font final : public Command {
 
 	void operator()(agi::Context *c) override {
 		const parsed_line active(c->selectionController->GetActiveLine());
-		const int insertion_point = normalize_pos(active.line->Text, c->textSelectionController->GetInsertionPoint());
+		if (!active.line) return;
+
+		const int disp_sel_start = c->textSelectionController->GetSelectionStart();
+		const int disp_sel_end = c->textSelectionController->GetSelectionEnd();
+		int sel_start = disp_sel_start;
+		int sel_end = disp_sel_end;
+		const bool better_view = c->subsEditBox && c->subsEditBox->BetterViewEnabled();
+		std::string raw_before = active.line->Text.get();
+		if (better_view && c->subsEditBox)
+			c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, raw_before, sel_start, sel_end);
+
+		auto reset_selection = [&]() {
+			if (better_view && c->subsEditBox)
+				c->textSelectionController->SetSelection(disp_sel_start, disp_sel_end);
+			else
+				c->textSelectionController->SetSelection(sel_start, sel_end);
+		};
+
+		const int insertion_point = normalize_pos(active.line->Text, sel_end);
 
 		auto font_for_line = [&](parsed_line const& line) -> wxFont {
 			const int blockn = line.block_at_pos(insertion_point);
@@ -1610,14 +1671,17 @@ struct edit_font final : public Command {
 
 		const wxFont initial = font_for_line(active);
 		const wxFont font = wxGetFontFromUser(c->parent, initial);
-		if (!font.Ok() || font == initial) return;
+		if (!font.Ok() || font == initial) {
+			reset_selection();
+			return;
+		}
 
-		update_lines(c, _("set font"), [&](AssDialogue *line, int sel_start, int sel_end, int norm_sel_start, int norm_sel_end) {
+		update_lines_mapped(c, _("set font"), sel_start, sel_end, better_view, [&](AssDialogue *line, int sel_start_raw, int sel_end_raw, int norm_sel_start, int norm_sel_end) {
 			parsed_line parsed(line);
 			const wxFont startfont = font_for_line(parsed);
 			int shift = 0;
 			auto do_set_tag = [&](const char *tag_name, std::string const& value) {
-				shift += parsed.set_tag(tag_name, value, norm_sel_start, sel_start + shift);
+				shift += parsed.set_tag(tag_name, value, norm_sel_start, sel_start_raw + shift);
 			};
 
 			if (font.GetFaceName() != startfont.GetFaceName())
