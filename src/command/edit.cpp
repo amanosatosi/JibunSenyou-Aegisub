@@ -160,6 +160,7 @@ bool IsValidUtf8(const std::string& text) {
 
 struct ScopeInfo {
 	bool in_t = false;
+	bool in_block = false;
 	int scope_start = 0;
 	int scope_end = 0;
 	int insert_pos = 0;
@@ -333,6 +334,49 @@ static int FindFirstTopLevelDividerN(const std::string& text, int start, int end
 	return -1;
 }
 
+static int FindPrevTopLevelDividerN(const std::string& text, int start, int end, int pos) {
+	start = std::max(0, start);
+	end = std::clamp(end, start, (int)text.size());
+	pos = std::clamp(pos, start, end);
+	int depth = 0;
+	for (int i = pos - 1; i >= start; --i) {
+		char ch = text[i];
+		if (ch == ')') ++depth;
+		else if (ch == '(') --depth;
+		if (depth == 0 && ch == '\\' && i + 1 < end && text[i + 1] == 'N')
+			return i;
+	}
+	return -1;
+}
+
+static int FindNextTopLevelDividerN(const std::string& text, int start, int end, int pos) {
+	start = std::max(0, start);
+	end = std::clamp(end, start, (int)text.size());
+	pos = std::clamp(pos, start, end);
+	int depth = 0;
+	for (int i = pos; i + 1 < end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		if (depth == 0 && ch == '\\' && text[i + 1] == 'N')
+			return i;
+	}
+	return -1;
+}
+
+static std::vector<int> FindTopLevelCommas(const std::string& text, int start, int end) {
+	std::vector<int> commas;
+	int depth = 0;
+	for (int i = start; i < end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		else if (depth == 0 && ch == ',')
+			commas.push_back(i);
+	}
+	return commas;
+}
+
 static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	ScopeInfo info;
 	OverrideBlockInfo block = FindOverrideBlock(text, caret_raw);
@@ -340,6 +384,7 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 		info.scope_start = info.scope_end = info.insert_pos = caret_raw;
 		return info;
 	}
+	info.in_block = true;
 
 	int anchor = SnapOutOfToken(text, caret_raw, block);
 
@@ -370,29 +415,30 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 		}
 		if (close != -1 && anchor > open_paren && anchor < close) {
 			info.in_t = true;
-			int last_comma = -1;
-			depth = 0;
-			for (int i = open_paren + 1; i < close; ++i) {
-				if (text[i] == '(') ++depth;
-				else if (text[i] == ')') --depth;
-				else if (depth == 0 && text[i] == ',')
-					last_comma = i;
-			}
-			int taglist_start = (last_comma != -1 ? last_comma + 1 : open_paren + 1);
+			auto commas = FindTopLevelCommas(text, open_paren + 1, close);
+			int taglist_start = open_paren + 1;
+			if (commas.size() >= 3)
+				taglist_start = commas[2] + 1;
+			else if (commas.size() >= 2)
+				taglist_start = commas[1] + 1;
 			while (taglist_start < close && std::isspace(static_cast<unsigned char>(text[taglist_start])))
 				++taglist_start;
+			if (anchor < taglist_start)
+				anchor = taglist_start;
 			info.scope_start = taglist_start;
-			info.scope_end = close;
-			int anchor_clamped = std::clamp(anchor, info.scope_start, info.scope_end);
-			int insert_pos = anchor_clamped;
-			int divider_pos = FindFirstTopLevelDividerN(text, info.scope_start, info.scope_end);
-			if (divider_pos != -1) {
-				info.scope_end = divider_pos;
-				insert_pos = std::min(insert_pos, divider_pos);
-			}
-			else {
-				insert_pos = info.scope_end;
-			}
+			int anchor_clamped = std::clamp(anchor, taglist_start, close);
+			int prev_div = FindPrevTopLevelDividerN(text, taglist_start, close, anchor_clamped);
+			int next_div = FindNextTopLevelDividerN(text, taglist_start, close, anchor_clamped);
+			int seg_start = prev_div != -1 ? prev_div + 2 : taglist_start;
+			int seg_end = next_div != -1 ? next_div : close;
+			info.scope_start = seg_start;
+			info.scope_end = seg_end;
+			int insert_pos = std::clamp(anchor_clamped, seg_start, seg_end);
+			if (next_div != -1)
+				insert_pos = std::min(insert_pos, seg_end);
+			else
+				insert_pos = seg_end;
+			insert_pos = std::max(insert_pos, info.scope_start);
 			info.insert_pos = insert_pos;
 			return info;
 		}
