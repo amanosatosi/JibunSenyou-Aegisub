@@ -199,6 +199,53 @@ static OverrideBlockInfo FindOverrideBlock(const std::string& text, int pos) {
 	return info;
 }
 
+struct TransformBounds {
+	int tag_start = -1;
+	int paren_open = -1;
+	int paren_close = -1;
+};
+
+static int FindMatchingParen(const std::string& text, int open_pos, int limit) {
+	int depth = 0;
+	limit = std::clamp(limit, 0, (int)text.size());
+	for (int i = open_pos; i < limit; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') {
+			--depth;
+			if (depth == 0)
+				return i;
+		}
+	}
+	return -1;
+}
+
+static std::optional<TransformBounds> FindEnclosingTransform(const std::string& text, const OverrideBlockInfo& block, int pos) {
+	if (!block.in_block)
+		return std::nullopt;
+	pos = std::clamp(pos, block.start + 1, block.end);
+	int depth = 0;
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		char ch = text[i];
+		if (ch == ')')
+			++depth;
+		else if (ch == '(') {
+			if (depth > 0) {
+				--depth;
+				continue;
+			}
+			if (i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\') {
+				int close = FindMatchingParen(text, i, block.end);
+				if (close != -1 && pos > i && pos <= close)
+					return TransformBounds{i - 2, i, close};
+			}
+		}
+		else if (ch == '{')
+			break;
+	}
+	return std::nullopt;
+}
+
 static std::pair<int, int> SegmentForPos(const std::string& text, const OverrideBlockInfo& block, int pos) {
 	if (!block.in_block) return {pos, pos};
 	int seg_start = block.start + 1;
@@ -219,27 +266,7 @@ static std::pair<int, int> SegmentForPos(const std::string& text, const Override
 }
 
 static bool IsInsideTParens(const std::string& text, const OverrideBlockInfo& block, int pos) {
-	if (!block.in_block) return false;
-	int t_pos = -1;
-	for (int i = pos; i >= block.start; --i) {
-		if (text[i] == ')')
-			return false;
-		if (text[i] == '(') {
-			if (i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\')
-				t_pos = i - 2;
-			break;
-		}
-	}
-	if (t_pos == -1) return false;
-	int depth = 0;
-	for (int i = t_pos + 2; i < block.end; ++i) {
-		if (text[i] == '(') ++depth;
-		else if (text[i] == ')') {
-			if (depth == 0) return pos > t_pos + 2 && pos < i;
-			--depth;
-		}
-	}
-	return false;
+	return FindEnclosingTransform(text, block, pos).has_value();
 }
 
 static int SmartInsertionPos(const std::string& text, int pos, bool inside_t) {
@@ -388,60 +415,29 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 
 	int anchor = SnapOutOfToken(text, caret_raw, block);
 
-	// inside \t(...)
-	int t_open_backslash = -1;
-	int open_paren = -1;
-	for (int i = anchor; i >= block.start; --i) {
-		if (text[i] == '(') {
-			if (i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\') {
-				t_open_backslash = i - 2;
-				open_paren = i;
-			}
-			break;
-		}
-	}
-	if (open_paren != -1) {
-		int depth = 0;
-		int close = -1;
-		for (int i = open_paren; i < block.end; ++i) {
-			if (text[i] == '(') ++depth;
-			else if (text[i] == ')') {
-				--depth;
-				if (depth == 0) {
-					close = i;
-					break;
-				}
-			}
-		}
-		if (close != -1 && anchor > open_paren && anchor < close) {
-			info.in_t = true;
-			auto commas = FindTopLevelCommas(text, open_paren + 1, close);
-			int taglist_start = open_paren + 1;
-			if (commas.size() >= 3)
-				taglist_start = commas[2] + 1;
-			else if (commas.size() >= 2)
-				taglist_start = commas[1] + 1;
-			while (taglist_start < close && std::isspace(static_cast<unsigned char>(text[taglist_start])))
-				++taglist_start;
-			if (anchor < taglist_start)
-				anchor = taglist_start;
-			info.scope_start = taglist_start;
-			int anchor_clamped = std::clamp(anchor, taglist_start, close);
-			int prev_div = FindPrevTopLevelDividerN(text, taglist_start, close, anchor_clamped);
-			int next_div = FindNextTopLevelDividerN(text, taglist_start, close, anchor_clamped);
-			int seg_start = prev_div != -1 ? prev_div + 2 : taglist_start;
-			int seg_end = next_div != -1 ? next_div : close;
-			info.scope_start = seg_start;
-			info.scope_end = seg_end;
-			int insert_pos = std::clamp(anchor_clamped, seg_start, seg_end);
-			if (next_div != -1)
-				insert_pos = std::min(insert_pos, seg_end);
-			else
-				insert_pos = seg_end;
-			insert_pos = std::max(insert_pos, info.scope_start);
-			info.insert_pos = insert_pos;
-			return info;
-		}
+	if (auto transform_bounds = FindEnclosingTransform(text, block, anchor)) {
+		int t_open = transform_bounds->paren_open;
+		int t_close = transform_bounds->paren_close;
+		info.in_t = true;
+		auto commas = FindTopLevelCommas(text, t_open + 1, t_close);
+		int taglist_start = t_open + 1;
+		if (commas.size() >= 2)
+			taglist_start = commas[1] + 1;
+		if (commas.size() >= 3)
+			taglist_start = commas[2] + 1;
+		while (taglist_start < t_close && std::isspace(static_cast<unsigned char>(text[taglist_start])))
+			++taglist_start;
+		int anchor_clamped = std::clamp(anchor, taglist_start, t_close);
+		int prev_div = FindPrevTopLevelDividerN(text, taglist_start, t_close, anchor_clamped);
+		int next_div = FindNextTopLevelDividerN(text, taglist_start, t_close, anchor_clamped);
+		int seg_start = prev_div != -1 ? prev_div + 2 : taglist_start;
+		int seg_end = next_div != -1 ? next_div : t_close;
+		seg_start = std::clamp(seg_start, taglist_start, t_close);
+		seg_end = std::clamp(seg_end, seg_start, t_close);
+		info.scope_start = seg_start;
+		info.scope_end = seg_end;
+		info.insert_pos = seg_end;
+		return info;
 	}
 
 	auto seg = SegmentForPos(text, block, anchor);
