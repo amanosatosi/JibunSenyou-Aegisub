@@ -223,7 +223,10 @@ static int FindMatchingParen(const std::string& text, int open_pos, int limit) {
 static std::optional<TransformBounds> FindEnclosingTransform(const std::string& text, const OverrideBlockInfo& block, int pos) {
 	if (!block.in_block)
 		return std::nullopt;
-	pos = std::clamp(pos, block.start + 1, block.end);
+	int clamp_high = block.end - 1;
+	if (clamp_high < block.start + 1)
+		clamp_high = block.start + 1;
+	pos = std::clamp(pos, block.start + 1, clamp_high);
 	int depth = 0;
 	for (int i = pos - 1; i >= block.start + 1; --i) {
 		char ch = text[i];
@@ -299,6 +302,8 @@ static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockI
 		std::string name = text.substr(last_backslash, name_end - last_backslash);
 		int token_end = name_end;
 		if (name == "\\N" || name == "\\n" || name == "\\h") {
+			// Divider tokens have no arguments; keep token_end local so the caret never
+			// snaps past the enclosing transform.
 			token_end = name_end;
 		}
 		else if (token_end < block.end && text[token_end] == '(') {
@@ -413,9 +418,15 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	}
 	info.in_block = true;
 
+	int clamp_high = block.end - 1;
+	if (clamp_high < block.start + 1)
+		clamp_high = block.start + 1;
+	int caret_for_transform = std::clamp(caret_raw, block.start + 1, clamp_high);
+	auto transform_bounds = FindEnclosingTransform(text, block, caret_for_transform);
+
 	int anchor = SnapOutOfToken(text, caret_raw, block);
 
-	if (auto transform_bounds = FindEnclosingTransform(text, block, anchor)) {
+	if (transform_bounds) {
 		int t_open = transform_bounds->paren_open;
 		int t_close = transform_bounds->paren_close;
 		info.in_t = true;
