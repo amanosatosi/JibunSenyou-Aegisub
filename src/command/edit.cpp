@@ -268,8 +268,12 @@ static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockI
 		int name_end = last_backslash + 1;
 		while (name_end < block.end && (std::isalnum(static_cast<unsigned char>(text[name_end])) || text[name_end] == '-'))
 			++name_end;
+		std::string name = text.substr(last_backslash, name_end - last_backslash);
 		int token_end = name_end;
-		if (token_end < block.end && text[token_end] == '(') {
+		if (name == "\\N" || name == "\\n" || name == "\\h") {
+			token_end = name_end;
+		}
+		else if (token_end < block.end && text[token_end] == '(') {
 			int depth = 0;
 			for (int j = token_end; j < block.end; ++j) {
 				if (text[j] == '(') ++depth;
@@ -368,14 +372,17 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 			int anchor_clamped = std::clamp(anchor, info.scope_start, info.scope_end);
 			int insert_pos = anchor_clamped;
 			depth = 0;
-			for (int i = anchor_clamped; i + 1 < info.scope_end; ++i) {
+			int divider_pos = -1;
+			for (int i = info.scope_start; i + 1 < info.scope_end; ++i) {
 				if (text[i] == '(') ++depth;
 				else if (text[i] == ')') --depth;
 				if (depth == 0 && text[i] == '\\' && text[i + 1] == 'N') {
-					insert_pos = i;
+					divider_pos = i;
 					break;
 				}
 			}
+			if (divider_pos != -1)
+				insert_pos = std::min(insert_pos, divider_pos);
 			info.insert_pos = insert_pos;
 			return info;
 		}
@@ -385,9 +392,12 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	info.scope_start = seg.first;
 	info.scope_end = seg.second;
 	int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
-	for (int i = anchor; i + 1 < info.scope_end; ++i) {
-		if (text[i] == '\\' && text[i + 1] == 'N') {
-			insert_pos = i;
+	int depth = 0;
+	for (int i = info.scope_start; i + 1 < info.scope_end; ++i) {
+		if (text[i] == '(') ++depth;
+		else if (text[i] == ')') --depth;
+		if (depth == 0 && text[i] == '\\' && text[i + 1] == 'N') {
+			insert_pos = std::min(insert_pos, i);
 			break;
 		}
 	}
