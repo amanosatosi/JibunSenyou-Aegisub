@@ -319,6 +319,20 @@ static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockI
 	return pos;
 }
 
+static int FindFirstTopLevelDividerN(const std::string& text, int start, int end) {
+	start = std::max(0, start);
+	end = std::clamp(end, start, (int)text.size());
+	int depth = 0;
+	for (int i = start; i + 1 < end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		if (depth == 0 && ch == '\\' && text[i + 1] == 'N')
+			return i;
+	}
+	return -1;
+}
+
 static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	ScopeInfo info;
 	OverrideBlockInfo block = FindOverrideBlock(text, caret_raw);
@@ -371,18 +385,14 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 			info.scope_end = close;
 			int anchor_clamped = std::clamp(anchor, info.scope_start, info.scope_end);
 			int insert_pos = anchor_clamped;
-			depth = 0;
-			int divider_pos = -1;
-			for (int i = info.scope_start; i + 1 < info.scope_end; ++i) {
-				if (text[i] == '(') ++depth;
-				else if (text[i] == ')') --depth;
-				if (depth == 0 && text[i] == '\\' && text[i + 1] == 'N') {
-					divider_pos = i;
-					break;
-				}
-			}
-			if (divider_pos != -1)
+			int divider_pos = FindFirstTopLevelDividerN(text, info.scope_start, info.scope_end);
+			if (divider_pos != -1) {
+				info.scope_end = divider_pos;
 				insert_pos = std::min(insert_pos, divider_pos);
+			}
+			else {
+				insert_pos = info.scope_end;
+			}
 			info.insert_pos = insert_pos;
 			return info;
 		}
@@ -392,14 +402,10 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	info.scope_start = seg.first;
 	info.scope_end = seg.second;
 	int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
-	int depth = 0;
-	for (int i = info.scope_start; i + 1 < info.scope_end; ++i) {
-		if (text[i] == '(') ++depth;
-		else if (text[i] == ')') --depth;
-		if (depth == 0 && text[i] == '\\' && text[i + 1] == 'N') {
-			insert_pos = std::min(insert_pos, i);
-			break;
-		}
+	int divider_pos = FindFirstTopLevelDividerN(text, info.scope_start, info.scope_end);
+	if (divider_pos != -1) {
+		insert_pos = std::min(insert_pos, divider_pos);
+		info.scope_end = divider_pos;
 	}
 	info.insert_pos = insert_pos;
 	return info;
@@ -1795,22 +1801,15 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					line.color.a = new_color.a;
 				}
 				else {
-					std::vector<std::string> tag_names;
-					if (tag == "\\c")
-						tag_names = {"\\c", "\\1c"};
-					else
-						tag_names = {tag};
-					shift += ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, tag_names, new_color.GetAssOverrideFormatted());
-					scope_end += shift;
-					insert_pos += shift;
+					parsed_line parsed(line.parsed.line);
+					int use_pos = insert_pos;
+					int norm_use = normalize_pos(raw_text, use_pos);
+					shift += parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_use, use_pos);
 					if (new_color.a != line.color.a) {
-						std::vector<std::string> alpha_names = {alpha};
-						int alpha_shift = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, alpha_names, agi::format("&H%02X&", (int)new_color.a));
-						shift += alpha_shift;
-						scope_end += alpha_shift;
-						insert_pos += alpha_shift;
+						shift += parsed.set_tag(alpha, agi::format("&H%02X&", (int)new_color.a), norm_use, use_pos + shift);
 						line.color.a = new_color.a;
 					}
+					raw_text = parsed.line->Text.get();
 				}
 
 				if (!IsValidUtf8(raw_text)) {
