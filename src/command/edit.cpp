@@ -254,6 +254,42 @@ static int SmartInsertionPos(const std::string& text, int pos, bool inside_t) {
 
 static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockInfo& block) {
 	if (!block.in_block) return pos;
+	// Generic tag token: find last '\' before pos, compute token end, snap if inside.
+	int last_backslash = -1;
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		if (text[i] == '\\') {
+			last_backslash = i;
+			break;
+		}
+		if (text[i] == '{' || text[i] == '}')
+			break;
+	}
+	if (last_backslash != -1) {
+		int name_end = last_backslash + 1;
+		while (name_end < block.end && (std::isalnum(static_cast<unsigned char>(text[name_end])) || text[name_end] == '-'))
+			++name_end;
+		int token_end = name_end;
+		if (token_end < block.end && text[token_end] == '(') {
+			int depth = 0;
+			for (int j = token_end; j < block.end; ++j) {
+				if (text[j] == '(') ++depth;
+				else if (text[j] == ')') {
+					--depth;
+					if (depth == 0) {
+						token_end = j + 1;
+						break;
+					}
+				}
+			}
+		}
+		else {
+			while (token_end < block.end && text[token_end] != '\\' && text[token_end] != '}')
+				++token_end;
+		}
+		if (pos > last_backslash && pos < token_end)
+			return token_end;
+	}
+
 	// hex
 	for (int i = pos - 1; i >= block.start + 1; --i) {
 		if (text[i] == '&' && i + 1 < (int)text.size() && (text[i + 1] == 'H' || text[i + 1] == 'h')) {
@@ -269,32 +305,12 @@ static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockI
 		if (text[i] == '\\' || text[i] == '{' || text[i] == '}')
 			break;
 	}
-	// numeric
-	if (pos > block.start && std::isdigit(static_cast<unsigned char>(text[pos - 1]))) {
+	// numeric/decimal
+	if (pos > block.start && (std::isdigit(static_cast<unsigned char>(text[pos - 1])) || text[pos - 1] == '.')) {
 		int end = pos;
-		while (end < block.end && std::isdigit(static_cast<unsigned char>(text[end])))
+		while (end < block.end && (std::isdigit(static_cast<unsigned char>(text[end])) || text[end] == '.'))
 			++end;
 		return end;
-	}
-	// paren tag
-	for (int i = pos - 1; i >= block.start + 1; --i) {
-		if (text[i] == '(' && i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\') {
-			int depth = 0;
-			for (int j = i; j < block.end; ++j) {
-				if (text[j] == '(') ++depth;
-				else if (text[j] == ')') {
-					--depth;
-					if (depth == 0) {
-						if (pos > i && pos < j)
-							return j + 1;
-						break;
-					}
-				}
-			}
-			break;
-		}
-		if (text[i] == '\\' || text[i] == '{' || text[i] == '}')
-			break;
 	}
 	return pos;
 }
@@ -336,11 +352,26 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 		}
 		if (close != -1 && anchor > open_paren && anchor < close) {
 			info.in_t = true;
-			info.scope_start = open_paren + 1;
+			int last_comma = -1;
+			depth = 0;
+			for (int i = open_paren + 1; i < close; ++i) {
+				if (text[i] == '(') ++depth;
+				else if (text[i] == ')') --depth;
+				else if (depth == 0 && text[i] == ',')
+					last_comma = i;
+			}
+			int taglist_start = (last_comma != -1 ? last_comma + 1 : open_paren + 1);
+			while (taglist_start < close && std::isspace(static_cast<unsigned char>(text[taglist_start])))
+				++taglist_start;
+			info.scope_start = taglist_start;
 			info.scope_end = close;
-			int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
-			for (int i = anchor; i + 1 < close; ++i) {
-				if (text[i] == '\\' && text[i + 1] == 'N') {
+			int anchor_clamped = std::clamp(anchor, info.scope_start, info.scope_end);
+			int insert_pos = anchor_clamped;
+			depth = 0;
+			for (int i = anchor_clamped; i + 1 < info.scope_end; ++i) {
+				if (text[i] == '(') ++depth;
+				else if (text[i] == ')') --depth;
+				if (depth == 0 && text[i] == '\\' && text[i + 1] == 'N') {
 					insert_pos = i;
 					break;
 				}
@@ -356,7 +387,7 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
 	for (int i = anchor; i + 1 < info.scope_end; ++i) {
 		if (text[i] == '\\' && text[i + 1] == 'N') {
-			insert_pos = i + 2;
+			insert_pos = i;
 			break;
 		}
 	}
@@ -364,28 +395,58 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	return info;
 }
 
-static int ReplaceOrInsertInRange(std::string& text, int scope_start, int scope_end, int insert_pos, const std::string& tag_name, const std::string& value) {
+static int ReplaceOrInsertInRange(std::string& text, int scope_start, int scope_end, int insert_pos, const std::vector<std::string>& tag_names, const std::string& value) {
 	scope_start = std::clamp(scope_start, 0, (int)text.size());
 	scope_end = std::clamp(scope_end, scope_start, (int)text.size());
 	insert_pos = std::clamp(insert_pos, scope_start, scope_end);
 
-	int found = text.find(tag_name, scope_start);
-	if (found != (int)std::string::npos && found < scope_end) {
-		int end = found + (int)tag_name.size();
-		while (end < scope_end && end < (int)text.size()) {
-			char ch = text[end];
-			if (ch == '\\' || ch == '{' || ch == '}')
-				break;
-			++end;
+	struct Match { int start; int name_len; int token_end; };
+	std::vector<Match> matches;
+	int depth = 0;
+	for (int i = scope_start; i < scope_end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		if (depth == 0 && ch == '\\') {
+			int name_end = i + 1;
+			while (name_end < scope_end && (std::isalnum(static_cast<unsigned char>(text[name_end])) || text[name_end] == '-'))
+				++name_end;
+			std::string name = text.substr(i, name_end - i);
+			bool matched = false;
+			for (auto const& n : tag_names) {
+				if (name == n) { matched = true; break; }
+			}
+			int token_end = name_end;
+			if (token_end < scope_end && text[token_end] == '(') {
+				int pd = 0;
+				for (int j = token_end; j < scope_end; ++j) {
+					if (text[j] == '(') ++pd;
+					else if (text[j] == ')') {
+						--pd;
+						if (pd == 0) { token_end = j + 1; break; }
+					}
+				}
+			}
+			else {
+				while (token_end < scope_end && text[token_end] != '\\' && text[token_end] != '}')
+					++token_end;
+			}
+			if (matched)
+				matches.push_back({i, name_end - i, token_end});
+			i = token_end - 1;
 		}
-		int new_len = (int)tag_name.size() + (int)value.size();
-		int old_len = end - found;
-		text.replace(found, old_len, tag_name + value);
-		return new_len - old_len;
 	}
 
-	text.insert(insert_pos, tag_name + value);
-	return (int)(tag_name.size() + value.size());
+	if (!matches.empty()) {
+		auto m = matches.back();
+		int value_start = m.start + m.name_len;
+		int old_len = m.token_end - value_start;
+		text.replace(value_start, old_len, value);
+		return (int)value.size() - old_len;
+	}
+
+	text.insert(insert_pos, tag_names.front() + value);
+	return (int)(tag_names.front().size() + value.size());
 }
 
 struct validate_sel_nonempty : public Command {
@@ -1700,21 +1761,46 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 				std::string raw_text = line.parsed.line->Text.get();
 				ScopeInfo scope = ComputeScope(raw_text, sel_start);
 				int shift = 0;
+				int scope_start = scope.scope_start;
+				int scope_end = scope.scope_end;
+				int insert_pos = scope.insert_pos;
 
 				if (scope.in_t) {
-					shift += ReplaceOrInsertInRange(raw_text, scope.scope_start, scope.scope_end, scope.insert_pos, tag, new_color.GetAssOverrideFormatted());
-					if (new_color.a != line.color.a)
-						shift += ReplaceOrInsertInRange(raw_text, scope.scope_start, scope.scope_end, scope.insert_pos, alpha, agi::format("&H%02X&", (int)new_color.a));
+					std::vector<std::string> tag_names;
+					if (tag == "\\c")
+						tag_names = {"\\c", "\\1c"};
+					else
+						tag_names = {tag};
+					shift += ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, tag_names, new_color.GetAssOverrideFormatted());
+					scope_start = std::max(scope_start, 0);
+					scope_end += shift;
+					insert_pos += shift;
+					if (new_color.a != line.color.a) {
+						std::vector<std::string> alpha_names = {alpha};
+						int alpha_shift = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, alpha_names, agi::format("&H%02X&", (int)new_color.a));
+						shift += alpha_shift;
+						scope_end += alpha_shift;
+						insert_pos += alpha_shift;
+					}
 					line.color.a = new_color.a;
 				}
 				else {
-					parsed_line parsed(line.parsed.line);
-					shift += parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);
+					std::vector<std::string> tag_names;
+					if (tag == "\\c")
+						tag_names = {"\\c", "\\1c"};
+					else
+						tag_names = {tag};
+					shift += ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, tag_names, new_color.GetAssOverrideFormatted());
+					scope_end += shift;
+					insert_pos += shift;
 					if (new_color.a != line.color.a) {
-						shift += parsed.set_tag(alpha, agi::format("&H%02X&", (int)new_color.a), norm_sel_start, sel_start + shift);
+						std::vector<std::string> alpha_names = {alpha};
+						int alpha_shift = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, alpha_names, agi::format("&H%02X&", (int)new_color.a));
+						shift += alpha_shift;
+						scope_end += alpha_shift;
+						insert_pos += alpha_shift;
 						line.color.a = new_color.a;
 					}
-					raw_text = parsed.line->Text.get();
 				}
 
 				if (!IsValidUtf8(raw_text)) {
