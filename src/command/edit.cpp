@@ -424,7 +424,7 @@ static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
 	int caret_for_transform = std::clamp(caret_raw, block.start + 1, clamp_high);
 	auto transform_bounds = FindEnclosingTransform(text, block, caret_for_transform);
 
-	int anchor = SnapOutOfToken(text, caret_raw, block);
+	int anchor = SnapOutOfToken(text, caret_for_transform, block);
 
 	if (transform_bounds) {
 		int t_open = transform_bounds->paren_open;
