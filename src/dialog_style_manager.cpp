@@ -734,10 +734,10 @@ void DialogStyleManager::OnCurrentImport() {
 	if (conflicts > 0) {
 		wxMessageDialog conflict_dialog(
 			this,
-			fmt_tl("%d selected styles already exist in the current script. How do you want to handle them?", conflicts),
+			fmt_tl("%d selected styles already exist in the current script. Do you want to check replacements manually?", conflicts),
 			_("Style name conflicts"),
 			wxYES_NO | wxCANCEL | wxCENTER);
-		conflict_dialog.SetYesNoCancelLabels(_("Yes"), _("Replace All"), _("Cancel"));
+			conflict_dialog.SetYesNoCancelLabels(_("Check manually"), _("Replace All"), _("Cancel"));
 		int conflict_res = conflict_dialog.ShowModal();
 		if (conflict_res == wxID_CANCEL)
 			return;

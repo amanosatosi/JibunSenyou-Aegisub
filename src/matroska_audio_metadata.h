@@ -37,6 +37,7 @@
 struct MatroskaAudioMeta {
 	std::string language;
 	std::string name;
+	int channels = 0; // [Satoshi audio-meta channels]
 };
 
 bool DecorateAudioTrackListFromMatroska(const agi::fs::path& filename, std::map<int, std::string>& track_list);

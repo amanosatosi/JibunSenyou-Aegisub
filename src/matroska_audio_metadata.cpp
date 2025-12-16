@@ -126,6 +126,24 @@ std::string NormalizeLanguage(std::string lang) {
 	return lang;
 }
 
+// [Satoshi audio-meta channels] Detect if description already mentions channels
+bool DescriptionAlreadyMentionsChannels(const std::string& desc) {
+	for (size_t i = 0; i + 1 < desc.size(); ++i) {
+		if (!std::isdigit(static_cast<unsigned char>(desc[i])))
+			continue;
+
+		size_t j = i + 1;
+		while (j < desc.size() && desc[j] == ' ')
+			++j;
+
+		if (j + 1 < desc.size() &&
+			(desc[j] == 'c' || desc[j] == 'C') &&
+			(desc[j + 1] == 'h' || desc[j + 1] == 'H'))
+			return true;
+	}
+	return false;
+}
+
 // Prefer LanguageIETF when available on TrackInfo; fall back to Language.
 // Overload resolution does the member detection without requiring the field to exist.
 template <typename T>
@@ -196,6 +214,7 @@ bool DecorateAudioTrackListFromMatroska(const agi::fs::path& filename, std::map<
 			meta.language = ExtractLanguage(info);
 			if (info->Name && info->Name[0])
 				meta.name = info->Name;
+			meta.channels = info->AV.Audio.Channels;
 
 			mkv_audio_tracks.push_back(std::move(meta));
 		}
@@ -218,13 +237,24 @@ bool DecorateAudioTrackListFromMatroska(const agi::fs::path& filename, std::map<
 				suffix += " ";
 			suffix += meta.name;
 		}
+		else {
+			if (!suffix.empty())
+				suffix += " ";
+			suffix += "(no name)";
+		}
+
+		auto it = track_list.find(track_keys[i]);
+		if (it == track_list.end())
+			continue;
+
+		if (meta.channels > 0 && !DescriptionAlreadyMentionsChannels(it->second)) {
+			it->second += " " + std::to_string(meta.channels) + "ch";
+			decorated = true;
+		}
 
 		if (!suffix.empty()) {
-			auto it = track_list.find(track_keys[i]);
-			if (it != track_list.end()) {
-				it->second += "  -  " + suffix;
-				decorated = true;
-			}
+			it->second += "  -  " + suffix;
+			decorated = true;
 		}
 	}
 
