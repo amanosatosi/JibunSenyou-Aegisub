@@ -49,7 +49,7 @@ extern "C" {
 
 namespace {
 
-class MatroskaInputStream final : InputStream {
+class MatroskaInputStream final : public InputStream {
 	agi::read_file_mapping file;
 	std::string error;
 
@@ -126,27 +126,37 @@ std::string NormalizeLanguage(std::string lang) {
 	return lang;
 }
 
-template <typename T, typename = void>
-struct has_language_ietf : std::false_type {};
+// Prefer LanguageIETF when available on TrackInfo; fall back to Language.
+// Overload resolution does the member detection without requiring the field to exist.
+template <typename T>
+auto ExtractLanguageIETF(const T *info, int) -> decltype((void)info->LanguageIETF, std::string()) {
+	if (!info)
+		return {};
+
+	if constexpr (std::is_array_v<decltype(info->LanguageIETF)>) {
+		if (info->LanguageIETF[0])
+			return NormalizeLanguage(std::string(info->LanguageIETF));
+	}
+	else {
+		if (info->LanguageIETF && info->LanguageIETF[0])
+			return NormalizeLanguage(std::string(info->LanguageIETF));
+	}
+
+	return {};
+}
 
 template <typename T>
-struct has_language_ietf<T, std::void_t<decltype(std::declval<T>().LanguageIETF)>> : std::true_type {};
+std::string ExtractLanguageIETF(const T *, ...) {
+	return {};
+}
 
 std::string ExtractLanguage(const TrackInfo *info) {
 	if (!info)
 		return {};
 
-	if constexpr (has_language_ietf<TrackInfo>::value) {
-		auto raw = info->LanguageIETF;
-		if constexpr (std::is_array_v<decltype(raw)>) {
-			if (raw[0])
-				return NormalizeLanguage(std::string(raw));
-		}
-		else {
-			if (raw && raw[0])
-				return NormalizeLanguage(std::string(raw));
-		}
-	}
+	auto ietf = ExtractLanguageIETF(info, 0);
+	if (!ietf.empty())
+		return ietf;
 
 	if (info->Language[0])
 		return NormalizeLanguage(std::string(info->Language));
