@@ -54,7 +54,8 @@
 		"Inactive Lines Display Mode" : 3,
 		"Karaoke" : {
 			"Font Face" : "",
-			"Font Size" : 9
+			"Font Size" : 9,
+			"Preserve Timings on Cut" : true
 		},
 		"Lead" : {
 			"IN" : 100,

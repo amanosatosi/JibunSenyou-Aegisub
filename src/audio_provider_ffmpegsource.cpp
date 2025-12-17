@@ -36,6 +36,7 @@
 #include <libaegisub/audio/provider.h>
 
 #include "ffmpegsource_common.h"
+#include "matroska_audio_metadata.h"
 #include "options.h"
 
 #include <libaegisub/fs.h>
@@ -91,6 +92,9 @@ void FFmpegSourceAudioProvider::LoadAudio(agi::fs::path const& filename) {
 	}
 
 	std::map<int, std::string> TrackList = GetTracksOfType(Indexer, FFMS_TYPE_AUDIO);
+
+	if (TrackList.size() > 1)
+		DecorateAudioTrackListFromMatroska(filename, TrackList);
 
 	// initialize the track number to an invalid value so we can detect later on
 	// whether the user actually had to choose a track or not

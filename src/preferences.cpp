@@ -234,6 +234,7 @@ void Audio(wxTreebook *book, Preferences *parent) {
 	p->OptionChoice(display, _("Waveform Style"), AudioWaveformRenderer::GetWaveformStyles(), "Audio/Display/Waveform Style");
 
 	auto label = p->PageSizer(_("Audio labels"));
+	p->OptionAdd(label, _("Preserve existing timings when cutting/splitting"), "Audio/Karaoke/Preserve Timings on Cut");
 	p->OptionFont(label, "Audio/Karaoke/");
 
 	p->SetSizerAndFit(p->sizer);

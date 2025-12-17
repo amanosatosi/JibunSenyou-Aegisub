@@ -105,6 +105,7 @@ aegisub_src = files(
     'main.cpp',
     'menu.cpp',
     'mkv_wrap.cpp',
+    'matroska_audio_metadata.cpp',
     'pen.cpp',
     'persist_location.cpp',
     'preferences.cpp',

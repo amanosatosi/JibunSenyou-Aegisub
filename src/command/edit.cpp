@@ -47,6 +47,7 @@
 #include "../project.h"
 #include "../selection_controller.h"
 #include "../subs_controller.h"
+#include "../subs_edit_box.h"
 #include "../text_selection_controller.h"
 #include "../utils.h"
 #include "../video_controller.h"
@@ -118,6 +119,403 @@ std::string FormatGradientAlphas(std::array<uint8_t, 4> const& alphas) {
 	}
 	value += ")";
 	return value;
+}
+
+bool IsValidUtf8(const std::string& text) {
+	const unsigned char *data = reinterpret_cast<const unsigned char*>(text.data());
+	size_t len = text.size();
+	size_t i = 0;
+	while (i < len) {
+		unsigned char byte = data[i];
+		size_t extra = 0;
+		if ((byte & 0x80) == 0) {
+			++i;
+			continue;
+		}
+		else if ((byte & 0xE0) == 0xC0) {
+			extra = 1;
+			if ((byte & 0xFE) == 0xC0)
+				return false;
+		}
+		else if ((byte & 0xF0) == 0xE0) {
+			extra = 2;
+		}
+		else if ((byte & 0xF8) == 0xF0) {
+			extra = 3;
+		}
+		else {
+			return false;
+		}
+
+		if (i + extra >= len)
+			return false;
+		for (size_t j = 1; j <= extra; ++j) {
+			if ((data[i + j] & 0xC0) != 0x80)
+				return false;
+		}
+		i += extra + 1;
+	}
+	return true;
+}
+
+struct ScopeInfo {
+	bool in_t = false;
+	bool in_block = false;
+	int scope_start = 0;
+	int scope_end = 0;
+	int insert_pos = 0;
+};
+
+struct OverrideBlockInfo {
+	bool in_block = false;
+	int start = -1;
+	int end = -1;
+};
+
+static OverrideBlockInfo FindOverrideBlock(const std::string& text, int pos) {
+	OverrideBlockInfo info;
+	pos = std::clamp(pos, 0, (int)text.size());
+	int open = -1;
+	for (int i = pos - 1; i >= 0; --i) {
+		if (text[i] == '}')
+			break;
+		if (text[i] == '{') {
+			open = i;
+			break;
+		}
+	}
+	if (open == -1) return info;
+	int close = -1;
+	for (int i = open + 1; i < (int)text.size(); ++i) {
+		if (text[i] == '}') {
+			close = i;
+			break;
+		}
+	}
+	if (close == -1 || close < pos) return info;
+	info.in_block = true;
+	info.start = open;
+	info.end = close;
+	return info;
+}
+
+struct TransformBounds {
+	int tag_start = -1;
+	int paren_open = -1;
+	int paren_close = -1;
+};
+
+static int FindMatchingParen(const std::string& text, int open_pos, int limit) {
+	int depth = 0;
+	limit = std::clamp(limit, 0, (int)text.size());
+	for (int i = open_pos; i < limit; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') {
+			--depth;
+			if (depth == 0)
+				return i;
+		}
+	}
+	return -1;
+}
+
+static std::optional<TransformBounds> FindEnclosingTransform(const std::string& text, const OverrideBlockInfo& block, int pos) {
+	if (!block.in_block)
+		return std::nullopt;
+	int clamp_high = block.end - 1;
+	if (clamp_high < block.start + 1)
+		clamp_high = block.start + 1;
+	pos = std::clamp(pos, block.start + 1, clamp_high);
+	int depth = 0;
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		char ch = text[i];
+		if (ch == ')')
+			++depth;
+		else if (ch == '(') {
+			if (depth > 0) {
+				--depth;
+				continue;
+			}
+			if (i >= 2 && text[i - 1] == 't' && text[i - 2] == '\\') {
+				int close = FindMatchingParen(text, i, block.end);
+				if (close != -1 && pos > i && pos <= close)
+					return TransformBounds{i - 2, i, close};
+			}
+		}
+		else if (ch == '{')
+			break;
+	}
+	return std::nullopt;
+}
+
+static std::pair<int, int> SegmentForPos(const std::string& text, const OverrideBlockInfo& block, int pos) {
+	if (!block.in_block) return {pos, pos};
+	int seg_start = block.start + 1;
+	int seg_end = block.end;
+	for (int i = block.start; i < pos - 1 && i >= 0; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N') {
+			seg_start = i + 2;
+			break;
+		}
+	}
+	for (int i = pos; i + 1 < block.end; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N') {
+			seg_end = i;
+			break;
+		}
+	}
+	return {seg_start, seg_end};
+}
+
+static bool IsInsideTParens(const std::string& text, const OverrideBlockInfo& block, int pos) {
+	return FindEnclosingTransform(text, block, pos).has_value();
+}
+
+static int SmartInsertionPos(const std::string& text, int pos, bool inside_t) {
+	OverrideBlockInfo block = FindOverrideBlock(text, pos);
+	if (!block.in_block || inside_t)
+		return pos;
+	for (int i = pos; i + 1 < block.end; ++i) {
+		if (text[i] == '\\' && text[i + 1] == 'N')
+			return i + 2;
+	}
+	return pos;
+}
+
+static int SnapOutOfToken(const std::string& text, int pos, const OverrideBlockInfo& block) {
+	if (!block.in_block) return pos;
+	// Generic tag token: find last '\' before pos, compute token end, snap if inside.
+	int last_backslash = -1;
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		if (text[i] == '\\') {
+			last_backslash = i;
+			break;
+		}
+		if (text[i] == '{' || text[i] == '}')
+			break;
+	}
+	if (last_backslash != -1) {
+		int name_end = last_backslash + 1;
+		while (name_end < block.end && (std::isalnum(static_cast<unsigned char>(text[name_end])) || text[name_end] == '-'))
+			++name_end;
+		std::string name = text.substr(last_backslash, name_end - last_backslash);
+		int token_end = name_end;
+		if (name == "\\N" || name == "\\n" || name == "\\h") {
+			// Divider tokens have no arguments; keep token_end local so the caret never
+			// snaps past the enclosing transform.
+			token_end = name_end;
+		}
+		else if (token_end < block.end && text[token_end] == '(') {
+			int depth = 0;
+			for (int j = token_end; j < block.end; ++j) {
+				if (text[j] == '(') ++depth;
+				else if (text[j] == ')') {
+					--depth;
+					if (depth == 0) {
+						token_end = j + 1;
+						break;
+					}
+				}
+			}
+		}
+		else {
+			while (token_end < block.end && text[token_end] != '\\' && text[token_end] != '}')
+				++token_end;
+		}
+		if (pos > last_backslash && pos < token_end)
+			return token_end;
+	}
+
+	// hex
+	for (int i = pos - 1; i >= block.start + 1; --i) {
+		if (text[i] == '&' && i + 1 < (int)text.size() && (text[i + 1] == 'H' || text[i + 1] == 'h')) {
+			for (int j = i + 2; j < block.end; ++j) {
+				if (text[j] == '&') {
+					if (pos > i && pos < j + 1)
+						return j + 1;
+					break;
+				}
+			}
+			break;
+		}
+		if (text[i] == '\\' || text[i] == '{' || text[i] == '}')
+			break;
+	}
+	// numeric/decimal
+	if (pos > block.start && (std::isdigit(static_cast<unsigned char>(text[pos - 1])) || text[pos - 1] == '.')) {
+		int end = pos;
+		while (end < block.end && (std::isdigit(static_cast<unsigned char>(text[end])) || text[end] == '.'))
+			++end;
+		return end;
+	}
+	return pos;
+}
+
+static int FindFirstTopLevelDividerN(const std::string& text, int start, int end) {
+	start = std::max(0, start);
+	end = std::clamp(end, start, (int)text.size());
+	int depth = 0;
+	for (int i = start; i + 1 < end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		if (depth == 0 && ch == '\\' && text[i + 1] == 'N')
+			return i;
+	}
+	return -1;
+}
+
+static int FindPrevTopLevelDividerN(const std::string& text, int start, int end, int pos) {
+	start = std::max(0, start);
+	end = std::clamp(end, start, (int)text.size());
+	pos = std::clamp(pos, start, end);
+	int depth = 0;
+	for (int i = pos - 1; i >= start; --i) {
+		char ch = text[i];
+		if (ch == ')') ++depth;
+		else if (ch == '(') --depth;
+		if (depth == 0 && ch == '\\' && i + 1 < end && text[i + 1] == 'N')
+			return i;
+	}
+	return -1;
+}
+
+static int FindNextTopLevelDividerN(const std::string& text, int start, int end, int pos) {
+	start = std::max(0, start);
+	end = std::clamp(end, start, (int)text.size());
+	pos = std::clamp(pos, start, end);
+	int depth = 0;
+	for (int i = pos; i + 1 < end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		if (depth == 0 && ch == '\\' && text[i + 1] == 'N')
+			return i;
+	}
+	return -1;
+}
+
+static std::vector<int> FindTopLevelCommas(const std::string& text, int start, int end) {
+	std::vector<int> commas;
+	int depth = 0;
+	for (int i = start; i < end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		else if (depth == 0 && ch == ',')
+			commas.push_back(i);
+	}
+	return commas;
+}
+
+static ScopeInfo ComputeScope(const std::string& text, int caret_raw) {
+	ScopeInfo info;
+	OverrideBlockInfo block = FindOverrideBlock(text, caret_raw);
+	if (!block.in_block) {
+		info.scope_start = info.scope_end = info.insert_pos = caret_raw;
+		return info;
+	}
+	info.in_block = true;
+
+	int clamp_high = block.end - 1;
+	if (clamp_high < block.start + 1)
+		clamp_high = block.start + 1;
+	int caret_for_transform = std::clamp(caret_raw, block.start + 1, clamp_high);
+	auto transform_bounds = FindEnclosingTransform(text, block, caret_for_transform);
+
+	int anchor = SnapOutOfToken(text, caret_for_transform, block);
+
+	if (transform_bounds) {
+		int t_open = transform_bounds->paren_open;
+		int t_close = transform_bounds->paren_close;
+		info.in_t = true;
+		auto commas = FindTopLevelCommas(text, t_open + 1, t_close);
+		int taglist_start = t_open + 1;
+		if (commas.size() >= 2)
+			taglist_start = commas[1] + 1;
+		if (commas.size() >= 3)
+			taglist_start = commas[2] + 1;
+		while (taglist_start < t_close && std::isspace(static_cast<unsigned char>(text[taglist_start])))
+			++taglist_start;
+		int anchor_clamped = std::clamp(anchor, taglist_start, t_close);
+		int prev_div = FindPrevTopLevelDividerN(text, taglist_start, t_close, anchor_clamped);
+		int next_div = FindNextTopLevelDividerN(text, taglist_start, t_close, anchor_clamped);
+		int seg_start = prev_div != -1 ? prev_div + 2 : taglist_start;
+		int seg_end = next_div != -1 ? next_div : t_close;
+		seg_start = std::clamp(seg_start, taglist_start, t_close);
+		seg_end = std::clamp(seg_end, seg_start, t_close);
+		info.scope_start = seg_start;
+		info.scope_end = seg_end;
+		info.insert_pos = seg_end;
+		return info;
+	}
+
+	auto seg = SegmentForPos(text, block, anchor);
+	info.scope_start = seg.first;
+	info.scope_end = seg.second;
+	int insert_pos = std::clamp(anchor, info.scope_start, info.scope_end);
+	int divider_pos = FindFirstTopLevelDividerN(text, info.scope_start, info.scope_end);
+	if (divider_pos != -1) {
+		insert_pos = std::min(insert_pos, divider_pos);
+		info.scope_end = divider_pos;
+	}
+	info.insert_pos = insert_pos;
+	return info;
+}
+
+static int ReplaceOrInsertInRange(std::string& text, int scope_start, int scope_end, int insert_pos, const std::vector<std::string>& tag_names, const std::string& value) {
+	scope_start = std::clamp(scope_start, 0, (int)text.size());
+	scope_end = std::clamp(scope_end, scope_start, (int)text.size());
+	insert_pos = std::clamp(insert_pos, scope_start, scope_end);
+
+	struct Match { int start; int name_len; int token_end; };
+	std::vector<Match> matches;
+	int depth = 0;
+	for (int i = scope_start; i < scope_end; ++i) {
+		char ch = text[i];
+		if (ch == '(') ++depth;
+		else if (ch == ')') --depth;
+		if (depth == 0 && ch == '\\') {
+			int name_end = i + 1;
+			while (name_end < scope_end && (std::isalnum(static_cast<unsigned char>(text[name_end])) || text[name_end] == '-'))
+				++name_end;
+			std::string name = text.substr(i, name_end - i);
+			bool matched = false;
+			for (auto const& n : tag_names) {
+				if (name == n) { matched = true; break; }
+			}
+			int token_end = name_end;
+			if (token_end < scope_end && text[token_end] == '(') {
+				int pd = 0;
+				for (int j = token_end; j < scope_end; ++j) {
+					if (text[j] == '(') ++pd;
+					else if (text[j] == ')') {
+						--pd;
+						if (pd == 0) { token_end = j + 1; break; }
+					}
+				}
+			}
+			else {
+				while (token_end < scope_end && text[token_end] != '\\' && text[token_end] != '}')
+					++token_end;
+			}
+			if (matched)
+				matches.push_back({i, name_end - i, token_end});
+			i = token_end - 1;
+		}
+	}
+
+	if (!matches.empty()) {
+		auto m = matches.back();
+		int value_start = m.start + m.name_len;
+		int old_len = m.token_end - value_start;
+		text.replace(value_start, old_len, value);
+		return (int)value.size() - old_len;
+	}
+
+	text.insert(insert_pos, tag_names.front() + value);
+	return (int)(tag_names.front().size() + value.size());
 }
 
 struct validate_sel_nonempty : public Command {
@@ -409,8 +807,58 @@ void update_lines(const agi::Context *c, wxString const& undo_msg, Func&& f) {
 		c->textSelectionController->SetSelection(sel_start + active_sel_shift, sel_end + active_sel_shift);
 }
 
+// Manual test (Better View): enable Better View, use a long line with \N and Burmese text, apply BIUS or font changes at a caret and across a selection spanning a displayed newline; tags must align with the visual caret/selection.
+template<typename Func>
+void update_lines_mapped(const agi::Context *c, wxString const& undo_msg, int sel_start, int sel_end, bool better_view, Func&& f) {
+	const auto active_line = c->selectionController->GetActiveLine();
+	if (!active_line) return;
+
+	const int norm_sel_start = normalize_pos(active_line->Text, sel_start);
+	const int norm_sel_end = normalize_pos(active_line->Text, sel_end);
+	int active_sel_shift = 0;
+
+	for (const auto line : c->selectionController->GetSelectedSet()) {
+		int shift = f(line, sel_start, sel_end, norm_sel_start, norm_sel_end);
+		if (line == active_line)
+			active_sel_shift = shift;
+	}
+
+	auto const& sel = c->selectionController->GetSelectedSet();
+	c->ass->Commit(undo_msg, AssFile::COMMIT_DIAG_TEXT, -1, sel.size() == 1 ? *sel.begin() : nullptr);
+
+	int new_start = sel_start + active_sel_shift;
+	int new_end = sel_end + active_sel_shift;
+	if (better_view && c->subsEditBox) {
+		int disp_start = c->subsEditBox->MapRawToDisplay(new_start, active_line->Text.get());
+		int disp_end = c->subsEditBox->MapRawToDisplay(new_end, active_line->Text.get());
+		c->textSelectionController->SetSelection(disp_start, disp_end);
+	}
+	else if (active_sel_shift != 0) {
+		c->textSelectionController->SetSelection(new_start, new_end);
+	}
+}
+
 void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const char *tag, wxString const& undo_msg) {
-	update_lines(c, undo_msg, [&](AssDialogue *line, int sel_start, int sel_end, int norm_sel_start, int norm_sel_end) {
+	const auto active_line = c->selectionController->GetActiveLine();
+	if (!active_line) return;
+
+	int disp_sel_start = c->textSelectionController->GetSelectionStart();
+	int disp_sel_end = c->textSelectionController->GetSelectionEnd();
+	int sel_start = disp_sel_start;
+	int sel_end = disp_sel_end;
+	bool better_view = c->subsEditBox && c->subsEditBox->BetterViewEnabled();
+	std::string raw_before = active_line->Text.get();
+	if (better_view && c->subsEditBox)
+		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, raw_before, sel_start, sel_end);
+
+	if (sel_start == sel_end) {
+		OverrideBlockInfo block = FindOverrideBlock(raw_before, sel_start);
+		int smart = SmartInsertionPos(raw_before, sel_start, false);
+		if (block.in_block)
+			sel_start = sel_end = smart;
+	}
+
+	update_lines_mapped(c, undo_msg, sel_start, sel_end, better_view, [&](AssDialogue *line, int sel_start_raw, int sel_end_raw, int norm_sel_start, int norm_sel_end) {
 		AssStyle const* const style = c->ass->GetStyle(line->Style);
 		bool state = style ? style->*field : AssStyle().*field;
 
@@ -419,9 +867,9 @@ void toggle_override_tag(const agi::Context *c, bool (AssStyle::*field), const c
 
 		state = parsed.get_value(blockn, state, tag);
 
-		int shift = parsed.set_tag(tag, state ? "0" : "1", norm_sel_start, sel_start);
-		if (sel_start != sel_end)
-			parsed.set_tag(tag, state ? "1" : "0", norm_sel_end, sel_end + shift);
+		int shift = parsed.set_tag(tag, state ? "0" : "1", norm_sel_start, sel_start_raw);
+		if (sel_start_raw != sel_end_raw)
+			parsed.set_tag(tag, state ? "1" : "0", norm_sel_end, sel_end_raw + shift);
 		return shift;
 	});
 }
@@ -953,6 +1401,14 @@ static SelectionApplyResult InsertBoundaryTags(
 	int selection_start = sel_start;
 	int selection_end = sel_end;
 
+	if (!end_content.empty()) {
+		bool inside_next_block = selection_end < static_cast<int>(text.size()) && text[selection_end] == '{';
+		if (inside_next_block)
+			text.insert(selection_end + 1, end_content);
+		else
+			text.insert(selection_end, "{" + end_content + "}");
+	}
+
 	if (!start_content.empty()) {
 		bool inside_prev_block = selection_start > 0 && text[selection_start - 1] == '}';
 		if (inside_prev_block) {
@@ -966,14 +1422,6 @@ static SelectionApplyResult InsertBoundaryTags(
 			selection_start += static_cast<int>(insertion.size());
 			selection_end += static_cast<int>(insertion.size());
 		}
-	}
-
-	if (!end_content.empty()) {
-		bool inside_next_block = selection_end < static_cast<int>(text.size()) && text[selection_end] == '{';
-		if (inside_next_block)
-			text.insert(selection_end + 1, end_content);
-		else
-			text.insert(selection_end, "{" + end_content + "}");
 	}
 
 	result.text = std::move(text);
@@ -1132,10 +1580,25 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), const char *tag, const char *alt, const char *alpha, ColorPickerInvoker picker = GetColorFromUser) {
 	agi::Color initial_color;
 	const auto active_line = c->selectionController->GetActiveLine();
-	const int sel_start = c->textSelectionController->GetSelectionStart();
-	const int sel_end = c->textSelectionController->GetSelectionEnd();
+	const int disp_sel_start = c->textSelectionController->GetSelectionStart();
+	const int disp_sel_end = c->textSelectionController->GetSelectionEnd();
+	int sel_start = disp_sel_start;
+	int sel_end = disp_sel_end;
+
+	const bool better_view = c->subsEditBox && c->subsEditBox->BetterViewEnabled();
+	std::string active_raw_text = active_line ? active_line->Text.get() : std::string();
+	if (better_view && active_line && c->subsEditBox)
+		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, active_raw_text, sel_start, sel_end);
+
+	bool has_selection = sel_end > sel_start;
+	if (!has_selection && active_line) {
+		OverrideBlockInfo block = FindOverrideBlock(active_raw_text, sel_start);
+		bool inside_t = IsInsideTParens(active_raw_text, block, sel_start);
+		sel_start = sel_end = SmartInsertionPos(active_raw_text, sel_start, inside_t);
+	}
+
 	const int norm_sel_start = normalize_pos(active_line->Text, sel_start);
-	const bool has_selection = sel_end > sel_start;
+	has_selection = sel_end > sel_start;
 	const bool shin_requested = picker == GetColorFromUserShin;
 	const bool force_legacy_dialog = shin_requested && has_selection;
 	ColorPickerInvoker effective_picker = force_legacy_dialog ? GetColorFromUser : picker;
@@ -1143,6 +1606,22 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	const bool allow_gradient = using_shin && !has_selection;
 	const bool use_selection_wrap = has_selection && !allow_gradient;
 	const int channel = GetChannelFromTags(tag, alt);
+	auto set_selection_display = [&](int raw_start, int raw_end, const std::string& raw_text) {
+		if (better_view && c->subsEditBox) {
+			int disp_start = c->subsEditBox->MapRawToDisplay(raw_start, raw_text);
+			int disp_end = c->subsEditBox->MapRawToDisplay(raw_end, raw_text);
+			c->textSelectionController->SetSelection(disp_start, disp_end);
+		}
+		else {
+			c->textSelectionController->SetSelection(raw_start, raw_end);
+		}
+	};
+	auto reset_selection = [&]() {
+		if (better_view && c->subsEditBox)
+			c->textSelectionController->SetSelection(disp_sel_start, disp_sel_end);
+		else
+			c->textSelectionController->SetSelection(sel_start, sel_end);
+	};
 
 	auto const& sel = c->selectionController->GetSelectedSet();
 	struct line_info {
@@ -1180,8 +1659,23 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		if (use_selection_wrap)
 			restore_info = FindColorRestoreInfo(line->Text, sel_start, channel);
 
-		lines.emplace_back(color, std::move(parsed), restore_info, line->Text);
+		lines.emplace_back(color, std::move(parsed), restore_info, line->Text.get());
 	}
+
+	auto restore_original_texts = [&]() {
+		for (auto& entry : lines) {
+			entry.parsed.line->Text = entry.original_text;
+			entry.parsed = parsed_line(entry.parsed.line);
+		}
+	};
+
+	auto lines_are_valid_utf8 = [&]() {
+		for (auto& entry : lines) {
+			if (!IsValidUtf8(entry.parsed.line->Text.get()))
+				return false;
+		}
+		return true;
+	};
 
 	int active_shift = 0;
 	int commit_id = -1;
@@ -1285,9 +1779,17 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					entry.parsed = parsed_line(entry.parsed.line);
 				}
 
+				if (!lines_are_valid_utf8()) {
+					if (gradient_commit_id != -1)
+						c->subsController->Undo();
+					restore_original_texts();
+					gradient_commit_id = -1;
+					return;
+				}
+
 				gradient_commit_id = c->ass->Commit(_("set gradient color"), AssFile::COMMIT_DIAG_TEXT, gradient_commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 				if (local_active_shift)
-					c->textSelectionController->SetSelection(sel_start + local_active_shift, sel_start + local_active_shift);
+					set_selection_display(sel_start + local_active_shift, sel_start + local_active_shift, active_line->Text.get());
 			};
 
 			auto revert_preview = [&]() {
@@ -1296,7 +1798,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 					gradient_commit_id = -1;
 					for (auto& entry : lines)
 						entry.parsed = parsed_line(entry.parsed.line);
-					c->textSelectionController->SetSelection(sel_start, sel_end);
+					reset_selection();
 				}
 			};
 
@@ -1325,24 +1827,68 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 	if (!use_selection_wrap) {
 		bool ok = effective_picker(c->parent, initial_color, true, [&](agi::Color new_color) {
 			for (auto& line : lines) {
-				int shift = line.parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_sel_start, sel_start);
-				if (new_color.a != line.color.a) {
-					shift += line.parsed.set_tag(alpha, agi::format("&H%02X&", (int)new_color.a), norm_sel_start, sel_start + shift);
+				std::string raw_text = line.parsed.line->Text.get();
+				ScopeInfo scope = ComputeScope(raw_text, sel_start);
+				int shift = 0;
+				int scope_start = scope.scope_start;
+				int scope_end = scope.scope_end;
+				int insert_pos = scope.insert_pos;
+
+				if (scope.in_t) {
+					std::vector<std::string> tag_names;
+					if (tag == "\\c")
+						tag_names = {"\\c", "\\1c"};
+					else
+						tag_names = {tag};
+					shift += ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, tag_names, new_color.GetAssOverrideFormatted());
+					scope_start = std::max(scope_start, 0);
+					scope_end += shift;
+					insert_pos += shift;
+					if (new_color.a != line.color.a) {
+						std::vector<std::string> alpha_names = {alpha};
+						int alpha_shift = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, alpha_names, agi::format("&H%02X&", (int)new_color.a));
+						shift += alpha_shift;
+						scope_end += alpha_shift;
+						insert_pos += alpha_shift;
+					}
 					line.color.a = new_color.a;
 				}
+				else {
+					parsed_line parsed(line.parsed.line);
+					int use_pos = insert_pos;
+					int norm_use = normalize_pos(raw_text, use_pos);
+					shift += parsed.set_tag(tag, new_color.GetAssOverrideFormatted(), norm_use, use_pos);
+					if (new_color.a != line.color.a) {
+						shift += parsed.set_tag(alpha, agi::format("&H%02X&", (int)new_color.a), norm_use, use_pos + shift);
+						line.color.a = new_color.a;
+					}
+					raw_text = parsed.line->Text.get();
+				}
+
+				if (!IsValidUtf8(raw_text)) {
+					restore_original_texts();
+					return;
+				}
+
+				line.parsed.line->Text = raw_text;
 
 				if (line.parsed.line == active_line)
 					active_shift = shift;
 			}
 
+			if (!lines_are_valid_utf8()) {
+				restore_original_texts();
+				return;
+			}
+
 			commit_id = c->ass->Commit(_("set color"), AssFile::COMMIT_DIAG_TEXT, commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 			if (active_shift)
-				c->textSelectionController->SetSelection(sel_start + active_shift, sel_start + active_shift);
+				set_selection_display(sel_start + active_shift, sel_start + active_shift, active_line->Text.get());
 		});
 
 		if (!ok && commit_id != -1) {
 			c->subsController->Undo();
-			c->textSelectionController->SetSelection(sel_start, sel_end);
+			reset_selection();
 		}
 		return;
 	}
@@ -1370,9 +1916,14 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 			}
 		}
 
+		if (!lines_are_valid_utf8()) {
+			restore_original_texts();
+			return;
+		}
+
 		commit_id = c->ass->Commit(_("set color"), AssFile::COMMIT_DIAG_TEXT, commit_id, sel.size() == 1 ? *sel.begin() : nullptr);
 		if (start_shift || end_shift)
-			c->textSelectionController->SetSelection(sel_start + start_shift, sel_end + end_shift);
+			set_selection_display(sel_start + start_shift, sel_end + end_shift, active_line->Text.get());
 	};
 
 	bool ok = effective_picker(c->parent, initial_color, true, [&](agi::Color new_color) {
@@ -1381,7 +1932,7 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 
 	if (!ok && commit_id != -1) {
 		c->subsController->Undo();
-		c->textSelectionController->SetSelection(sel_start, sel_end);
+		reset_selection();
 		return;
 	}
 
@@ -1494,7 +2045,25 @@ struct edit_font final : public Command {
 
 	void operator()(agi::Context *c) override {
 		const parsed_line active(c->selectionController->GetActiveLine());
-		const int insertion_point = normalize_pos(active.line->Text, c->textSelectionController->GetInsertionPoint());
+		if (!active.line) return;
+
+		const int disp_sel_start = c->textSelectionController->GetSelectionStart();
+		const int disp_sel_end = c->textSelectionController->GetSelectionEnd();
+		int sel_start = disp_sel_start;
+		int sel_end = disp_sel_end;
+		const bool better_view = c->subsEditBox && c->subsEditBox->BetterViewEnabled();
+		std::string raw_before = active.line->Text.get();
+		if (better_view && c->subsEditBox)
+			c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, raw_before, sel_start, sel_end);
+
+		auto reset_selection = [&]() {
+			if (better_view && c->subsEditBox)
+				c->textSelectionController->SetSelection(disp_sel_start, disp_sel_end);
+			else
+				c->textSelectionController->SetSelection(sel_start, sel_end);
+		};
+
+		const int insertion_point = normalize_pos(active.line->Text, sel_end);
 
 		auto font_for_line = [&](parsed_line const& line) -> wxFont {
 			const int blockn = line.block_at_pos(insertion_point);
@@ -1515,14 +2084,17 @@ struct edit_font final : public Command {
 
 		const wxFont initial = font_for_line(active);
 		const wxFont font = wxGetFontFromUser(c->parent, initial);
-		if (!font.Ok() || font == initial) return;
+		if (!font.Ok() || font == initial) {
+			reset_selection();
+			return;
+		}
 
-		update_lines(c, _("set font"), [&](AssDialogue *line, int sel_start, int sel_end, int norm_sel_start, int norm_sel_end) {
+		update_lines_mapped(c, _("set font"), sel_start, sel_end, better_view, [&](AssDialogue *line, int sel_start_raw, int sel_end_raw, int norm_sel_start, int norm_sel_end) {
 			parsed_line parsed(line);
 			const wxFont startfont = font_for_line(parsed);
 			int shift = 0;
 			auto do_set_tag = [&](const char *tag_name, std::string const& value) {
-				shift += parsed.set_tag(tag_name, value, norm_sel_start, sel_start + shift);
+				shift += parsed.set_tag(tag_name, value, norm_sel_start, sel_start_raw + shift);
 			};
 
 			if (font.GetFaceName() != startfont.GetFaceName())

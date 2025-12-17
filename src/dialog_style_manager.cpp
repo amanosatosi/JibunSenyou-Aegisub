@@ -693,6 +693,23 @@ void DialogStyleManager::OnCurrentImport() {
 		return;
 	}
 
+	// [Satoshi replace-all import] Warn when resolutions differ before showing selection UI
+	int src_res_x = temp.GetScriptInfoAsInt("PlayResX");
+	int src_res_y = temp.GetScriptInfoAsInt("PlayResY");
+	int dst_res_x = c->ass->GetScriptInfoAsInt("PlayResX");
+	int dst_res_y = c->ass->GetScriptInfoAsInt("PlayResY");
+	if (src_res_x && src_res_y && dst_res_x && dst_res_y &&
+		(src_res_x != dst_res_x || src_res_y != dst_res_y)) {
+		wxMessageDialog res_dialog(
+			this,
+			_("Selected subtitle has different resolution than the current subtitle. Do you want to continue?"),
+			_("Resolution mismatch"),
+			wxYES_NO | wxICON_EXCLAMATION | wxCENTER);
+		res_dialog.SetYesNoLabels(_("Continue"), _("Cancel"));
+		if (res_dialog.ShowModal() != wxID_YES)
+			return;
+	}
+
 	// Get styles
 	auto styles = temp.GetStyles();
 	if (styles.empty()) {
@@ -706,17 +723,49 @@ void DialogStyleManager::OnCurrentImport() {
 	if (res == -1 || selections.empty()) return;
 	bool modified = false;
 
+	// [Satoshi replace-all import] One-time conflict prompt with Replace All option
+	int conflicts = 0;
+	for (auto const& sel : selections) {
+		if (c->ass->GetStyle(styles[sel]))
+			++conflicts;
+	}
+	bool replace_all = false;
+	bool prompt_conflicts = true;
+	if (conflicts > 0) {
+		wxMessageDialog conflict_dialog(
+			this,
+			fmt_tl("%d selected styles already exist in the current script. Do you want to check replacements manually?", conflicts),
+			_("Style name conflicts"),
+			wxYES_NO | wxCANCEL | wxCENTER);
+			conflict_dialog.SetYesNoCancelLabels(_("Check manually"), _("Replace All"), _("Cancel"));
+		int conflict_res = conflict_dialog.ShowModal();
+		if (conflict_res == wxID_CANCEL)
+			return;
+		if (conflict_res == wxID_NO) {
+			replace_all = true;
+			prompt_conflicts = false;
+		}
+	}
+
 	// Loop through selection
 	for (auto const& sel : selections) {
 		// Check if there is already a style with that name
 		if (AssStyle *existing = c->ass->GetStyle(styles[sel])) {
-			int answer = wxMessageBox(
-				fmt_tl("There is already a style with the name \"%s\" in the current script. Overwrite?", styles[sel]),
-				_("Style name collision"),
-				wxYES_NO);
-			if (answer == wxYES) {
+			if (replace_all) {
 				modified = true;
 				*existing = *temp.GetStyle(styles[sel]);
+				continue;
+			}
+
+			if (prompt_conflicts) {
+				int answer = wxMessageBox(
+					fmt_tl("There is already a style with the name \"%s\" in the current script. Overwrite?", styles[sel]),
+					_("Style name collision"),
+					wxYES_NO);
+				if (answer == wxYES) {
+					modified = true;
+					*existing = *temp.GetStyle(styles[sel]);
+				}
 			}
 			continue;
 		}

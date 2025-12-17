@@ -29,6 +29,7 @@
 
 #include <array>
 #include <memory>
+#include <string>
 #include <boost/container/map.hpp>
 #include <boost/flyweight/flyweight_fwd.hpp>
 #include <vector>
@@ -139,6 +140,11 @@ class SubsEditBox final : public wxPanel {
 
 	size_t last_bracket_pair_index_ = 1;
 	bool better_view_enabled_ = true;
+	std::vector<int> display_to_raw_;
+	std::string display_to_raw_raw_text_;
+
+	void RebuildDisplayMapping(std::string const& raw_utf8);
+	std::string BuildDisplayTextWithMapping(std::string const& raw_utf8);
 
 
 	void SetControlsState(bool state);
@@ -275,4 +281,7 @@ public:
 	/// @return True if text was inserted.
 	bool InsertTextAtCaret(wxString const& text);
 	void FocusTextCtrl();
+	bool MapDisplayRangeToRaw(int disp_start, int disp_end, std::string const& raw_utf8, int& raw_start, int& raw_end);
+	int MapRawToDisplay(int raw_offset, std::string const& raw_utf8);
+	bool BetterViewEnabled() const { return better_view_enabled_; }
 };
