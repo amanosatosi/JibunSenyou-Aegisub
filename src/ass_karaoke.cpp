@@ -18,7 +18,9 @@
 
 #include "ass_dialogue.h"
 
+#include <libaegisub/character_count.h>
 #include <libaegisub/format.h>
+#include <libaegisub/karaoke_split.h>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
@@ -191,6 +193,56 @@ void AssKaraoke::AddSplit(size_t syl_idx, size_t pos) {
 	}
 
 	assert(syl.duration >= 0);
+
+	new_syl.start_time = syl.start_time + syl.duration;
+	new_syl.tag_type = syl.tag_type;
+
+	// Move all override tags after the split to the new syllable and fix the indices
+	size_t text_len = syl.text.size();
+	for (auto it = syl.ovr_tags.begin(); it != syl.ovr_tags.end(); ) {
+		if (it->first < text_len)
+			++it;
+		else {
+			new_syl.ovr_tags[it->first - text_len] = it->second;
+			syl.ovr_tags.erase(it++);
+		}
+	}
+
+	if (!no_announce) AnnounceSyllablesChanged();
+}
+
+void AssKaraoke::AddSplitPreserveTimes(size_t syl_idx, size_t pos) {
+	// [Satoshi preserve timings on cut]
+	// Split a syllable into left/right at `pos` while preserving the original
+	// syllable timing in centiseconds:
+	//   D1 = round(D * len(left) / len(total))
+	//   D2 = D - D1
+	// This keeps the total duration identical and only affects the split syllable.
+	if (syl_idx >= syls.size()) return;
+
+	// Don't create empty syllables when cutting on a boundary; treat it as a no-op.
+	const auto& orig = syls[syl_idx].text;
+	if (pos == 0 || pos >= orig.size()) return;
+
+	size_t total_chars = agi::CharacterCount(orig, agi::IGNORE_NONE);
+	if (total_chars == 0) return;
+
+	size_t left_chars = agi::CharacterCount(orig.begin(), orig.begin() + pos, agi::IGNORE_NONE);
+	if (left_chars == 0 || left_chars >= total_chars) return;
+
+	syls.insert(syls.begin() + syl_idx + 1, Syllable());
+	Syllable &syl = syls[syl_idx];
+	Syllable &new_syl = syls[syl_idx + 1];
+
+	// Split text
+	new_syl.text = syl.text.substr(pos);
+	syl.text = syl.text.substr(0, pos);
+
+	// Split duration proportionally by character count (not bytes)
+	int total_cs = (syl.duration + 5) / 10;
+	auto split = agi::SplitKaraokeDurationCs(total_cs, left_chars, total_chars);
+	syl.duration = split.first * 10;
+	new_syl.duration = split.second * 10;
 
 	new_syl.start_time = syl.start_time + syl.duration;
 	new_syl.tag_type = syl.tag_type;

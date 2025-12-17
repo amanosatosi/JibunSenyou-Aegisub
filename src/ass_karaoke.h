@@ -27,6 +27,13 @@ class AssDialogue;
 /// @brief Karaoke parser and parsed karaoke data model
 class AssKaraoke {
 public:
+	// [Satoshi preserve timings on cut] Structured per-syllable karaoke tag type
+	enum class TagType {
+		k,
+		kf,
+		ko
+	};
+
 	/// Parsed syllable data
 	struct Syllable {
 		int start_time; ///< Start time relative to time zero (not line start) in milliseconds
@@ -39,6 +46,14 @@ public:
 
 		/// Get the text of this line with override tags and optionally the karaoke tag
 		std::string GetText(bool k_tag) const;
+
+		// [Satoshi preserve timings on cut] Convenience accessors for a compact model
+		int GetDurationCs() const { return (duration + 5) / 10; }
+		TagType GetTagType() const {
+			if (tag_type == "\\kf") return TagType::kf;
+			if (tag_type == "\\ko") return TagType::ko;
+			return TagType::k;
+		}
 	};
 private:
 	std::vector<Syllable> syls;
@@ -60,6 +75,9 @@ public:
 
 	/// Add a split before character pos in syllable syl_idx
 	void AddSplit(size_t syl_idx, size_t pos);
+	/// Add a split before character pos in syllable syl_idx, preserving existing timings
+	/// [Satoshi preserve timings on cut]
+	void AddSplitPreserveTimes(size_t syl_idx, size_t pos);
 	/// Remove the split at the given index
 	void RemoveSplit(size_t syl_idx);
 	/// Set the start time of a syllable in ms

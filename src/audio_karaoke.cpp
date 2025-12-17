@@ -307,8 +307,19 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 
 	if (click_will_remove_split)
 		kara->RemoveSplit(syl + (click_left && !click_right));
-	else
-		kara->AddSplit(syl, char_to_byte[split_pos] - 1);
+	else {
+		// [Satoshi preserve timings on cut] Optionally preserve existing timings when splitting
+		auto before_size = kara->size();
+		auto split_byte_pos = char_to_byte[split_pos] - 1;
+		if (OPT_GET("Audio/Karaoke/Preserve Timings on Cut")->GetBool())
+			kara->AddSplitPreserveTimes(syl, split_byte_pos);
+		else
+			kara->AddSplit(syl, split_byte_pos);
+
+		// No-op split (e.g. on a boundary) should not enable commit UI
+		if (kara->size() == before_size)
+			return;
+	}
 
 	SetDisplayText();
 	accept_button->Enable(true);
