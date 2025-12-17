@@ -184,7 +184,7 @@ void VideoController::PlayLine() {
 void VideoController::Stop() {
 	if (IsPlaying()) {
 		playback.Stop();
-		audio_playback_mode = AudioPlaybackMode::None;
+		audio_playback_mode = AudioPlaybackMode::NoAudio;
 		context->audioController->Stop();
 	}
 }
@@ -229,7 +229,7 @@ void VideoController::OnPlaybackSpeedChanged() {
 	playback_speed = new_speed;
 
 	switch (audio_playback_mode) {
-		case AudioPlaybackMode::None:
+		case AudioPlaybackMode::NoAudio:
 			break;
 		case AudioPlaybackMode::ToEnd:
 			context->audioController->PlayToEnd(start_ms, playback_speed);

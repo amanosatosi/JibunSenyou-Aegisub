@@ -85,12 +85,12 @@ class VideoController final : public wxEvtHandler {
 	double playback_speed = 1.0;
 
 	enum class AudioPlaybackMode {
-		None,
+		NoAudio,
 		ToEnd,
 		Range
 	};
 
-	AudioPlaybackMode audio_playback_mode = AudioPlaybackMode::None;
+	AudioPlaybackMode audio_playback_mode = AudioPlaybackMode::NoAudio;
 	int audio_playback_end_ms = 0;
 
 	/// The last frame to play if video is currently playing
