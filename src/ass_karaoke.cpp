@@ -222,18 +222,15 @@ void AssKaraoke::AddSplitPreserveTimes(size_t syl_idx, size_t pos) {
 
 	// pos has the same semantics as AddSplit: a 0-based byte offset into the
 	// syllable text where the new syllable begins (i.e. the split point).
-	const size_t split_at = pos;
-
-	// Don't create empty syllables when cutting on a boundary; treat it as a no-op.
 	const auto& orig = syls[syl_idx].text;
-	if (split_at == 0 || split_at >= orig.size()) return;
+	const size_t split_at = std::min(pos, orig.size());
 
 	// Calculate the split position as a Unicode character boundary.
 	// This avoids crashing on invalid UTF-8 and keeps the split aligned to the
 	// same character segmentation used by the karaoke split UI.
 	size_t total_chars = 0;
 	size_t left_chars = 0;
-	bool split_at_boundary = false;
+	bool split_at_boundary = (split_at == 0 || split_at == orig.size());
 	using namespace boost::locale::boundary;
 	const ssegment_index characters(character, orig.begin(), orig.end());
 	for (auto chr : characters) {
@@ -244,7 +241,10 @@ void AssKaraoke::AddSplitPreserveTimes(size_t syl_idx, size_t pos) {
 		++total_chars;
 	}
 
-	if (!split_at_boundary || left_chars == 0 || left_chars >= total_chars) return;
+	if (split_at == orig.size())
+		left_chars = total_chars;
+
+	if (!split_at_boundary) return;
 
 	int total_cs = (syls[syl_idx].duration + 5) / 10;
 	syls.insert(syls.begin() + syl_idx + 1, Syllable());
@@ -252,13 +252,22 @@ void AssKaraoke::AddSplitPreserveTimes(size_t syl_idx, size_t pos) {
 	Syllable &new_syl = syls[syl_idx + 1];
 
 	// Split text
-	new_syl.text = syl.text.substr(split_at);
-	syl.text = syl.text.substr(0, split_at);
+	if (split_at < syl.text.size()) {
+		new_syl.text = syl.text.substr(split_at);
+		syl.text = syl.text.substr(0, split_at);
+	}
 
-	// Split duration proportionally by character count (not bytes)
-	auto split = agi::SplitKaraokeDurationCs(total_cs, left_chars, total_chars);
-	syl.duration = split.first * 10;
-	new_syl.duration = split.second * 10;
+	// Split duration proportionally by character count (not bytes).
+	// If the syllable has no characters, preserve existing timing and just add
+	// another zero-duration empty syllable (legacy behavior).
+	if (total_chars == 0) {
+		new_syl.duration = 0;
+	}
+	else {
+		auto split = agi::SplitKaraokeDurationCs(total_cs, left_chars, total_chars);
+		syl.duration = split.first * 10;
+		new_syl.duration = split.second * 10;
+	}
 
 	new_syl.start_time = syl.start_time + syl.duration;
 	new_syl.tag_type = syl.tag_type;

@@ -316,7 +316,7 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 		else
 			kara->AddSplit(syl, split_byte_pos);
 
-		// No-op split (e.g. on a boundary) should not enable commit UI
+		// No-op split (e.g. invalid UTF-8 boundary) should not enable commit UI
 		if (kara->size() == before_size)
 			return;
 	}

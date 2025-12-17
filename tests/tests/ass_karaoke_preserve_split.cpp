@@ -105,7 +105,46 @@ TEST(AssKaraoke, AddSplitPreserveTimes_UTF8Boundary) {
 	EXPECT_EQ(std::string(u8"{\\k10}あ{\\k10}い"), kara.GetText());
 }
 
-TEST(AssKaraoke, AddSplitPreserveTimes_NoOpOnBoundaries) {
+TEST(AssKaraoke, AddSplitPreserveTimes_BoundarySplitsCreateEmptySyllables) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 200;
+	dia.Text = "{\\k20}abc";
+
+	{
+		AssKaraoke kara(&dia, false, false);
+		ASSERT_EQ(1u, kara.size());
+
+		kara.AddSplitPreserveTimes(0, 0);
+		ASSERT_EQ(2u, kara.size());
+		EXPECT_EQ("", kara.begin()->text);
+		EXPECT_EQ(0, kara.begin()->duration);
+
+		auto it = kara.begin();
+		++it;
+		EXPECT_EQ("abc", it->text);
+		EXPECT_EQ(200, it->duration);
+		EXPECT_EQ("{\\k0}{\\k20}abc", kara.GetText());
+	}
+
+	{
+		AssKaraoke kara(&dia, false, false);
+		ASSERT_EQ(1u, kara.size());
+
+		kara.AddSplitPreserveTimes(0, kara.begin()->text.size());
+		ASSERT_EQ(2u, kara.size());
+
+		auto it = kara.begin();
+		EXPECT_EQ("abc", it->text);
+		EXPECT_EQ(200, it->duration);
+		++it;
+		EXPECT_EQ("", it->text);
+		EXPECT_EQ(0, it->duration);
+		EXPECT_EQ("{\\k20}abc{\\k0}", kara.GetText());
+	}
+}
+
+TEST(AssKaraoke, AddSplitPreserveTimes_AllowsMultipleEmptySyllables) {
 	AssDialogue dia;
 	dia.Start = 0;
 	dia.End = 200;
@@ -114,10 +153,26 @@ TEST(AssKaraoke, AddSplitPreserveTimes_NoOpOnBoundaries) {
 	AssKaraoke kara(&dia, false, false);
 	ASSERT_EQ(1u, kara.size());
 
+	// Repeated boundary splits should keep creating empty syllables.
 	kara.AddSplitPreserveTimes(0, 0);
-	EXPECT_EQ(1u, kara.size());
-
-	kara.AddSplitPreserveTimes(0, kara.begin()->text.size());
-	EXPECT_EQ(1u, kara.size());
+	kara.AddSplitPreserveTimes(1, 0);
+	ASSERT_EQ(3u, kara.size());
+	EXPECT_EQ("{\\k0}{\\k0}{\\k20}abc", kara.GetText());
 }
 
+TEST(AssKaraoke, AddSplitPreserveTimes_AllowsSplittingEmptySyllables) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 0;
+	dia.Text = "{\\k0}";
+
+	AssKaraoke kara(&dia, false, false);
+	ASSERT_EQ(1u, kara.size());
+	EXPECT_EQ("", kara.begin()->text);
+	EXPECT_EQ(0, kara.begin()->duration);
+
+	kara.AddSplitPreserveTimes(0, 0);
+	kara.AddSplitPreserveTimes(0, 0);
+	ASSERT_EQ(3u, kara.size());
+	EXPECT_EQ("{\\k0}{\\k0}{\\k0}", kara.GetText());
+}
