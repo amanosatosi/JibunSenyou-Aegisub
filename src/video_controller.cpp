@@ -44,6 +44,7 @@
 
 #include <libaegisub/ass/time.h>
 
+#include <cmath>
 #include <wx/log.h>
 
 VideoController::VideoController(agi::Context *c)
@@ -53,6 +54,7 @@ VideoController::VideoController(agi::Context *c)
 	context->ass->AddCommitListener(&VideoController::OnSubtitlesCommit, this),
 	context->project->AddVideoProviderListener(&VideoController::OnNewVideoProvider, this),
 	context->selectionController->AddActiveLineListener(&VideoController::OnActiveLineChanged, this),
+	OPT_SUB("Video/Playback/Speed", &VideoController::OnPlaybackSpeedChanged, this),
 }))
 {
 	Bind(EVT_VIDEO_ERROR, &VideoController::OnVideoError, this);
@@ -143,7 +145,12 @@ void VideoController::Play() {
 	start_ms = TimeAtFrame(frame_n);
 	end_frame = provider->GetFrameCount() - 1;
 
-	context->audioController->PlayToEnd(start_ms);
+	playback_speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+	if (!std::isfinite(playback_speed) || playback_speed <= 0.0)
+		playback_speed = 1.0;
+
+	audio_playback_mode = AudioPlaybackMode::ToEnd;
+	context->audioController->PlayToEnd(start_ms, playback_speed);
 
 	playback_start_time = std::chrono::steady_clock::now();
 	playback.Start(10);
@@ -155,12 +162,18 @@ void VideoController::PlayLine() {
 	AssDialogue *curline = context->selectionController->GetActiveLine();
 	if (!curline) return;
 
-	context->audioController->PlayRange(TimeRange(curline->Start, curline->End));
-
 	// Round-trip conversion to convert start to exact
 	int startFrame = FrameAtTime(context->selectionController->GetActiveLine()->Start, agi::vfr::START);
 	start_ms = TimeAtFrame(startFrame);
 	end_frame = FrameAtTime(context->selectionController->GetActiveLine()->End, agi::vfr::END) + 1;
+
+	playback_speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+	if (!std::isfinite(playback_speed) || playback_speed <= 0.0)
+		playback_speed = 1.0;
+
+	audio_playback_mode = AudioPlaybackMode::Range;
+	audio_playback_end_ms = curline->End;
+	context->audioController->PlayRange(TimeRange(start_ms, curline->End), playback_speed);
 
 	JumpToFrame(startFrame);
 
@@ -171,13 +184,20 @@ void VideoController::PlayLine() {
 void VideoController::Stop() {
 	if (IsPlaying()) {
 		playback.Stop();
+		audio_playback_mode = AudioPlaybackMode::None;
 		context->audioController->Stop();
 	}
 }
 
 void VideoController::OnPlayTimer(wxTimerEvent &) {
 	using namespace std::chrono;
-	int next_frame = FrameAtTime(start_ms + duration_cast<milliseconds>(steady_clock::now() - playback_start_time).count());
+	double speed = playback_speed;
+	if (!std::isfinite(speed) || speed <= 0.0)
+		speed = 1.0;
+
+	auto elapsed_ms = duration_cast<milliseconds>(steady_clock::now() - playback_start_time).count();
+	auto target_ms = static_cast<int64_t>(start_ms) + static_cast<int64_t>(std::llround(elapsed_ms * speed));
+	int next_frame = FrameAtTime(static_cast<int>(target_ms));
 	if (next_frame == frame_n) return;
 
 	if (next_frame >= end_frame)
@@ -186,6 +206,40 @@ void VideoController::OnPlayTimer(wxTimerEvent &) {
 		frame_n = next_frame;
 		RequestFrame();
 		Seek(frame_n);
+	}
+}
+
+void VideoController::OnPlaybackSpeedChanged() {
+	double new_speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+	if (!std::isfinite(new_speed) || new_speed <= 0.0)
+		new_speed = 1.0;
+
+	if (!IsPlaying()) {
+		playback_speed = new_speed;
+		return;
+	}
+
+	using namespace std::chrono;
+	auto now = steady_clock::now();
+	auto elapsed_ms = duration_cast<milliseconds>(now - playback_start_time).count();
+	auto cur_ms = static_cast<int64_t>(start_ms) + static_cast<int64_t>(std::llround(elapsed_ms * playback_speed));
+
+	start_ms = static_cast<int>(cur_ms);
+	playback_start_time = now;
+	playback_speed = new_speed;
+
+	switch (audio_playback_mode) {
+		case AudioPlaybackMode::None:
+			break;
+		case AudioPlaybackMode::ToEnd:
+			context->audioController->PlayToEnd(start_ms, playback_speed);
+			break;
+		case AudioPlaybackMode::Range:
+			if (start_ms < audio_playback_end_ms)
+				context->audioController->PlayRange(TimeRange(start_ms, audio_playback_end_ms), playback_speed);
+			else
+				Stop();
+			break;
 	}
 }
 

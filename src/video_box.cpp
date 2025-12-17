@@ -45,10 +45,12 @@
 #include "video_slider.h"
 
 #include <boost/range/algorithm/binary_search.hpp>
+#include <cmath>
 #include <wx/clipbrd.h>
 #include <wx/cursor.h>
 #include <wx/dataobj.h>
 #include <wx/combobox.h>
+#include <wx/choice.h>
 #include <wx/sizer.h>
 #include <wx/statline.h>
 #include <wx/textctrl.h>
@@ -63,13 +65,46 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 
 	auto mainToolbar = toolbar::GetToolbar(this, "video", context, "Video", false);
 
-	VideoPosition = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
+	VideoPosition = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(80, -1), wxTE_READONLY);
+	VideoPosition->SetMinSize(wxSize(60, -1));
 	VideoPosition->SetToolTip(_("Current frame time and number"));
 
-	VideoSubsPos = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(110, -1), wxTE_READONLY);
+	VideoSubsPos = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(80, -1), wxTE_READONLY);
+	VideoSubsPos->SetMinSize(wxSize(60, -1));
 	VideoSubsPos->SetToolTip(_("Time of this frame relative to start and end of current subs"));
 	VideoSubsPos->SetCursor(wxCursor(wxCURSOR_HAND));
 	VideoSubsPos->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnSubsReadoutClick, this);
+
+	static const double playback_speeds[] = {0.50, 0.75, 1.00, 1.25, 1.50, 2.00};
+	static const wxString playback_speed_labels[] = {"0.50x", "0.75x", "1.00x", "1.25x", "1.50x", "2.00x"};
+
+	wxArrayString playback_speed_choices;
+	for (auto const& label : playback_speed_labels)
+		playback_speed_choices.Add(label);
+
+	VideoPlaybackSpeed = new wxChoice(this, -1, wxDefaultPosition, wxDefaultSize, playback_speed_choices);
+	VideoPlaybackSpeed->SetToolTip(_("Video playback speed"));
+	VideoPlaybackSpeed->SetMinSize(wxSize(70, -1));
+
+	auto playback_speed_to_index = [](double speed) {
+		int best = 2; // 1.00x
+		double best_dist = std::abs(speed - playback_speeds[best]);
+		for (int i = 0; i < (int)WXSIZEOF(playback_speeds); ++i) {
+			double dist = std::abs(speed - playback_speeds[i]);
+			if (dist < best_dist) {
+				best = i;
+				best_dist = dist;
+			}
+		}
+		return best;
+	};
+
+	VideoPlaybackSpeed->SetSelection(playback_speed_to_index(OPT_GET("Video/Playback/Speed")->GetDouble()));
+	VideoPlaybackSpeed->Bind(wxEVT_CHOICE, [=](wxCommandEvent&) {
+		int sel = VideoPlaybackSpeed->GetSelection();
+		if (sel >= 0 && sel < (int)WXSIZEOF(playback_speeds))
+			OPT_SET("Video/Playback/Speed")->SetDouble(playback_speeds[sel]);
+	});
 
 	wxArrayString choices;
 	for (int i = 1; i <= 24; ++i)
@@ -94,6 +129,7 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 	videoBottomSizer->Add(mainToolbar, wxSizerFlags(0).Center());
 	videoBottomSizer->Add(VideoPosition, wxSizerFlags(1).Center().Border(wxLEFT));
 	videoBottomSizer->Add(VideoSubsPos, wxSizerFlags(1).Center().Border(wxLEFT));
+	videoBottomSizer->Add(VideoPlaybackSpeed, wxSizerFlags(0).Center().Border(wxLEFT));
 	videoBottomSizer->Add(zoomBox, wxSizerFlags(0).Center().Border(wxLEFT | wxRIGHT));
 
 	auto VideoSizer = new wxBoxSizer(wxVERTICAL);
@@ -112,6 +148,12 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 		context->project->AddVideoProviderListener(&VideoBox::UpdateTimeBoxes, this),
 		context->selectionController->AddSelectionListener(&VideoBox::UpdateTimeBoxes, this),
 		context->videoController->AddSeekListener(&VideoBox::UpdateTimeBoxes, this),
+		OPT_SUB("Video/Playback/Speed", [=](agi::OptionValue const& opt) {
+			if (!VideoPlaybackSpeed) return;
+			int new_sel = playback_speed_to_index(opt.GetDouble());
+			if (new_sel != VideoPlaybackSpeed->GetSelection())
+				VideoPlaybackSpeed->SetSelection(new_sel);
+		}),
 	});
 }
 

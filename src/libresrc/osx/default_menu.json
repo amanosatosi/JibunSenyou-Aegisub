@@ -168,6 +168,7 @@
         {},
         { "command" : "video/detach" },
         { "submenu" : "main/video/set zoom", "text" : "Set &Zoom" },
+        { "submenu" : "main/video/playback speed", "text" : "Playback &Speed" },
         { "submenu" : "main/video/override ar", "text" : "Override &AR" },
         { "command" : "video/show_overscan" },
         {},
@@ -179,6 +180,14 @@
         { "command" : "video/zoom/50" },
         { "command" : "video/zoom/100" },
         { "command" : "video/zoom/200" }
+    ],
+    "main/video/playback speed" : [
+        { "command" : "video/playback_speed/50" },
+        { "command" : "video/playback_speed/75" },
+        { "command" : "video/playback_speed/100" },
+        { "command" : "video/playback_speed/125" },
+        { "command" : "video/playback_speed/150" },
+        { "command" : "video/playback_speed/200" }
     ],
     "main/video/override ar" : [
         { "command" : "video/aspect/default" },

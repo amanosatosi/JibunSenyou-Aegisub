@@ -87,6 +87,12 @@ class AudioController final : public wxEvtHandler {
 	agi::AudioProvider *provider = nullptr;
 	agi::signal::Connection provider_connection;
 
+	/// Audio provider wrapper used for playback-speed changes
+	class SpeedProvider;
+	std::unique_ptr<SpeedProvider> speed_provider;
+	double playback_speed = 1.0;
+	double playback_sample_offset = 0.0;
+
 	void OnAudioProvider(agi::AudioProvider *new_provider);
 
 	/// Event handler for the playback timer
@@ -132,6 +138,7 @@ public:
 	/// The end of the played back range may be requested changed, but is not
 	/// changed automatically from any other operations.
 	void PlayRange(const TimeRange &range);
+	void PlayRange(const TimeRange &range, double speed);
 
 	/// @brief Start or restart audio playback, playing the primary playback range
 	///
@@ -154,6 +161,7 @@ public:
 	/// playback can, it will continue until the end is reached, it is stopped,
 	/// or restarted.
 	void PlayToEnd(int start_ms);
+	void PlayToEnd(int start_ms, double speed);
 
 	/// @brief Stop all audio playback
 	void Stop();

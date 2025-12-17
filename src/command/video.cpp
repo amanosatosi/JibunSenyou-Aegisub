@@ -59,11 +59,43 @@
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
+#include <cmath>
 #include <wx/msgdlg.h>
 #include <wx/textdlg.h>
 
 namespace {
 	using cmd::Command;
+
+	const double playback_speeds[] = {0.50, 0.75, 1.00, 1.25, 1.50, 2.00};
+
+	double GetPlaybackSpeed() {
+		double speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+		if (!std::isfinite(speed) || speed <= 0.0)
+			return 1.0;
+		return speed;
+	}
+
+	void SetPlaybackSpeed(double speed) {
+		if (!std::isfinite(speed) || speed <= 0.0)
+			speed = 1.0;
+		OPT_SET("Video/Playback/Speed")->SetDouble(speed);
+	}
+
+	double NextPlaybackSpeed(double cur) {
+		for (double s : playback_speeds) {
+			if (s > cur + 1e-9)
+				return s;
+		}
+		return playback_speeds[WXSIZEOF(playback_speeds) - 1];
+	}
+
+	double PrevPlaybackSpeed(double cur) {
+		for (size_t i = WXSIZEOF(playback_speeds); i-- > 0;) {
+			if (playback_speeds[i] < cur - 1e-9)
+				return playback_speeds[i];
+		}
+		return playback_speeds[0];
+	}
 
 struct validator_video_loaded : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
@@ -692,6 +724,135 @@ struct video_play_line final : public validator_video_loaded {
 	}
 };
 
+struct video_playback_speed_increase final : public Command {
+	CMD_NAME("video/playback_speed/increase")
+	STR_MENU("Increase playback speed")
+	STR_DISP("Increase playback speed")
+	STR_HELP("Increase video playback speed")
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(NextPlaybackSpeed(GetPlaybackSpeed()));
+	}
+};
+
+struct video_playback_speed_decrease final : public Command {
+	CMD_NAME("video/playback_speed/decrease")
+	STR_MENU("Decrease playback speed")
+	STR_DISP("Decrease playback speed")
+	STR_HELP("Decrease video playback speed")
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(PrevPlaybackSpeed(GetPlaybackSpeed()));
+	}
+};
+
+struct video_playback_speed_reset final : public Command {
+	CMD_NAME("video/playback_speed/reset")
+	STR_MENU("Reset playback speed")
+	STR_DISP("Reset playback speed")
+	STR_HELP("Reset video playback speed to 1.00x")
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(1.0);
+	}
+};
+
+struct video_playback_speed_50 final : public Command {
+	CMD_NAME("video/playback_speed/50")
+	STR_MENU("&0.50x")
+	STR_DISP("0.50x")
+	STR_HELP("Set video playback speed to 0.50x")
+	CMD_TYPE(COMMAND_RADIO)
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - 0.50) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(0.50);
+	}
+};
+
+struct video_playback_speed_75 final : public Command {
+	CMD_NAME("video/playback_speed/75")
+	STR_MENU("0.&75x")
+	STR_DISP("0.75x")
+	STR_HELP("Set video playback speed to 0.75x")
+	CMD_TYPE(COMMAND_RADIO)
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - 0.75) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(0.75);
+	}
+};
+
+struct video_playback_speed_100 final : public Command {
+	CMD_NAME("video/playback_speed/100")
+	STR_MENU("&1.00x")
+	STR_DISP("1.00x")
+	STR_HELP("Set video playback speed to 1.00x")
+	CMD_TYPE(COMMAND_RADIO)
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - 1.00) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(1.00);
+	}
+};
+
+struct video_playback_speed_125 final : public Command {
+	CMD_NAME("video/playback_speed/125")
+	STR_MENU("1.&25x")
+	STR_DISP("1.25x")
+	STR_HELP("Set video playback speed to 1.25x")
+	CMD_TYPE(COMMAND_RADIO)
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - 1.25) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(1.25);
+	}
+};
+
+struct video_playback_speed_150 final : public Command {
+	CMD_NAME("video/playback_speed/150")
+	STR_MENU("1.&50x")
+	STR_DISP("1.50x")
+	STR_HELP("Set video playback speed to 1.50x")
+	CMD_TYPE(COMMAND_RADIO)
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - 1.50) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(1.50);
+	}
+};
+
+struct video_playback_speed_200 final : public Command {
+	CMD_NAME("video/playback_speed/200")
+	STR_MENU("&2.00x")
+	STR_DISP("2.00x")
+	STR_HELP("Set video playback speed to 2.00x")
+	CMD_TYPE(COMMAND_RADIO)
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - 2.00) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(2.00);
+	}
+};
+
 struct video_show_overscan final : public validator_video_loaded {
 	CMD_NAME("video/show_overscan")
 	STR_MENU("Show &Overscan Mask")
@@ -839,6 +1000,15 @@ namespace cmd {
 		reg(agi::make_unique<video_pan_reset>());
 		reg(agi::make_unique<video_play>());
 		reg(agi::make_unique<video_play_line>());
+		reg(agi::make_unique<video_playback_speed_increase>());
+		reg(agi::make_unique<video_playback_speed_decrease>());
+		reg(agi::make_unique<video_playback_speed_reset>());
+		reg(agi::make_unique<video_playback_speed_50>());
+		reg(agi::make_unique<video_playback_speed_75>());
+		reg(agi::make_unique<video_playback_speed_100>());
+		reg(agi::make_unique<video_playback_speed_125>());
+		reg(agi::make_unique<video_playback_speed_150>());
+		reg(agi::make_unique<video_playback_speed_200>());
 		reg(agi::make_unique<video_show_overscan>());
 		reg(agi::make_unique<video_stop>());
 		reg(agi::make_unique<video_zoom_100>());
