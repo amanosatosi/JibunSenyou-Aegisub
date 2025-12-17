@@ -21,6 +21,7 @@ all_test_dep_libs += [
 all_test_sources += [
     'support/main.cpp',
     'support/util.cpp',
+    'support/float_to_string_stub.cpp',
 
     # Compile minimal Aegisub sources needed for AssKaraoke tests
     '../src/ass_dialogue.cpp',
