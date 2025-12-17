@@ -137,6 +137,48 @@ protected:
 	}
 };
 
+void AudioController::EnsureAudioPlayerForSpeed(double speed) {
+	if (!provider) return;
+
+	if (!std::isfinite(speed) || speed <= 0.0)
+		speed = 1.0;
+
+	// Hard bypass at 1.0x: use the exact pre-playback-speed audio pipeline
+	// (player fed from the original provider) to avoid quality regressions.
+	const bool want_speed_provider = std::abs(speed - 1.0) >= 1e-9;
+	if (player && player_uses_speed_provider == want_speed_provider)
+		return;
+
+	if (playback_mode != PM_NotPlaying)
+		Stop();
+	else if (player)
+		player->Stop();
+
+	player.reset();
+	player_uses_speed_provider = want_speed_provider;
+
+	try {
+		if (want_speed_provider) {
+			if (!speed_provider)
+				speed_provider = std::make_unique<SpeedProvider>(provider);
+			else
+				speed_provider->SetSource(provider);
+
+			player = AudioPlayerFactory::GetAudioPlayer(speed_provider.get(), context->parent);
+		}
+		else {
+			player = AudioPlayerFactory::GetAudioPlayer(provider, context->parent);
+		}
+	}
+	catch (...) {
+		player.reset();
+		player_uses_speed_provider = false;
+		context->project->CloseAudio();
+	}
+
+	AnnounceAudioPlayerOpened();
+}
+
 AudioController::AudioController(agi::Context *context)
 : context(context)
 , playback_timer(this)
@@ -180,6 +222,7 @@ void AudioController::OnComputerSuspending(wxPowerEvent &)
 {
 	Stop();
 	player.reset();
+	player_uses_speed_provider = false;
 }
 
 void AudioController::OnComputerResuming(wxPowerEvent &)
@@ -194,12 +237,11 @@ void AudioController::OnAudioPlayerChanged()
 
 	Stop();
 	player.reset();
+	player_uses_speed_provider = false;
 
 	try
 	{
-		if (!speed_provider)
-			speed_provider = std::make_unique<SpeedProvider>(provider);
-		player = AudioPlayerFactory::GetAudioPlayer(speed_provider.get(), context->parent);
+		player = AudioPlayerFactory::GetAudioPlayer(provider, context->parent);
 	}
 	catch (...)
 	{
@@ -214,9 +256,8 @@ void AudioController::OnAudioProvider(agi::AudioProvider *new_provider)
 	provider = new_provider;
 	Stop();
 	player.reset();
+	player_uses_speed_provider = false;
 	speed_provider.reset();
-	if (provider)
-		speed_provider = std::make_unique<SpeedProvider>(provider);
 	OnAudioPlayerChanged();
 }
 
@@ -237,12 +278,11 @@ void AudioController::OnTimingControllerUpdatedPrimaryRange()
 
 void AudioController::PlayRange(const TimeRange &range)
 {
-	if (!player || !speed_provider) return;
+	EnsureAudioPlayerForSpeed(1.0);
+	if (!player) return;
 
 	playback_speed = 1.0;
 	playback_sample_offset = 0.0;
-	speed_provider->SetSpeed(1.0);
-	speed_provider->SetSampleOffset(0.0);
 
 	player->Play(SamplesFromMilliseconds(range.begin()), SamplesFromMilliseconds(range.length()));
 	playback_mode = PM_Range;
@@ -253,13 +293,15 @@ void AudioController::PlayRange(const TimeRange &range)
 
 void AudioController::PlayRange(const TimeRange &range, double speed)
 {
-	if (!player || !speed_provider) return;
 	if (!std::isfinite(speed) || speed <= 0.0)
 		speed = 1.0;
 	if (std::abs(speed - 1.0) < 1e-9) {
 		PlayRange(range);
 		return;
 	}
+
+	EnsureAudioPlayerForSpeed(speed);
+	if (!player || !speed_provider) return;
 
 	int64_t start_sample = SamplesFromMilliseconds(range.begin());
 	int64_t sample_count = SamplesFromMilliseconds(range.length());
@@ -294,12 +336,11 @@ void AudioController::PlayToEndOfPrimary(int start_ms)
 
 void AudioController::PlayToEnd(int start_ms)
 {
-	if (!player || !speed_provider) return;
+	EnsureAudioPlayerForSpeed(1.0);
+	if (!player || !provider) return;
 
 	playback_speed = 1.0;
 	playback_sample_offset = 0.0;
-	speed_provider->SetSpeed(1.0);
-	speed_provider->SetSampleOffset(0.0);
 
 	int64_t start_sample = SamplesFromMilliseconds(start_ms);
 	player->Play(start_sample, provider->GetNumSamples()-start_sample);
@@ -311,13 +352,15 @@ void AudioController::PlayToEnd(int start_ms)
 
 void AudioController::PlayToEnd(int start_ms, double speed)
 {
-	if (!player || !speed_provider) return;
 	if (!std::isfinite(speed) || speed <= 0.0)
 		speed = 1.0;
 	if (std::abs(speed - 1.0) < 1e-9) {
 		PlayToEnd(start_ms);
 		return;
 	}
+
+	EnsureAudioPlayerForSpeed(speed);
+	if (!player || !speed_provider || !provider) return;
 
 	int64_t start_sample = SamplesFromMilliseconds(start_ms);
 	int64_t sample_count = provider->GetNumSamples() - start_sample;

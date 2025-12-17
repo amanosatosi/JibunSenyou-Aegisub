@@ -67,6 +67,7 @@ class AudioController final : public wxEvtHandler {
 
 	/// The audio output object
 	std::unique_ptr<AudioPlayer> player;
+	bool player_uses_speed_provider = false;
 
 	/// The current timing mode, if any; owned by the audio controller
 	std::unique_ptr<AudioTimingController> timing_controller;
@@ -92,6 +93,8 @@ class AudioController final : public wxEvtHandler {
 	std::unique_ptr<SpeedProvider> speed_provider;
 	double playback_speed = 1.0;
 	double playback_sample_offset = 0.0;
+
+	void EnsureAudioPlayerForSpeed(double speed);
 
 	void OnAudioProvider(agi::AudioProvider *new_provider);
 
