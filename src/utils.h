@@ -38,6 +38,8 @@
 #include <wx/string.h>
 
 class wxKeyEvent;
+class wxFrame;
+class wxMenu;
 class wxMouseEvent;
 class wxStyledTextCtrl;
 class wxWindow;
