@@ -18,12 +18,12 @@
 
 #include "ass_dialogue.h"
 
-#include <libaegisub/character_count.h>
 #include <libaegisub/format.h>
 #include <libaegisub/karaoke_split.h>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
+#include <boost/locale/boundary.hpp>
 
 std::string AssKaraoke::Syllable::GetText(bool k_tag) const {
 	std::string ret;
@@ -220,26 +220,42 @@ void AssKaraoke::AddSplitPreserveTimes(size_t syl_idx, size_t pos) {
 	// This keeps the total duration identical and only affects the split syllable.
 	if (syl_idx >= syls.size()) return;
 
+	// pos has the same semantics as AddSplit: a 0-based byte offset into the
+	// syllable text where the new syllable begins (i.e. the split point).
+	const size_t split_at = pos;
+
 	// Don't create empty syllables when cutting on a boundary; treat it as a no-op.
 	const auto& orig = syls[syl_idx].text;
-	if (pos == 0 || pos >= orig.size()) return;
+	if (split_at == 0 || split_at >= orig.size()) return;
 
-	size_t total_chars = agi::CharacterCount(orig, agi::IGNORE_NONE);
-	if (total_chars == 0) return;
+	// Calculate the split position as a Unicode character boundary.
+	// This avoids crashing on invalid UTF-8 and keeps the split aligned to the
+	// same character segmentation used by the karaoke split UI.
+	size_t total_chars = 0;
+	size_t left_chars = 0;
+	bool split_at_boundary = false;
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, orig.begin(), orig.end());
+	for (auto chr : characters) {
+		if (!split_at_boundary && static_cast<size_t>(chr.begin() - orig.begin()) == split_at) {
+			left_chars = total_chars;
+			split_at_boundary = true;
+		}
+		++total_chars;
+	}
 
-	size_t left_chars = agi::CharacterCount(orig.begin(), orig.begin() + pos, agi::IGNORE_NONE);
-	if (left_chars == 0 || left_chars >= total_chars) return;
+	if (!split_at_boundary || left_chars == 0 || left_chars >= total_chars) return;
 
+	int total_cs = (syls[syl_idx].duration + 5) / 10;
 	syls.insert(syls.begin() + syl_idx + 1, Syllable());
 	Syllable &syl = syls[syl_idx];
 	Syllable &new_syl = syls[syl_idx + 1];
 
 	// Split text
-	new_syl.text = syl.text.substr(pos);
-	syl.text = syl.text.substr(0, pos);
+	new_syl.text = syl.text.substr(split_at);
+	syl.text = syl.text.substr(0, split_at);
 
 	// Split duration proportionally by character count (not bytes)
-	int total_cs = (syl.duration + 5) / 10;
 	auto split = agi::SplitKaraokeDurationCs(total_cs, left_chars, total_chars);
 	syl.duration = split.first * 10;
 	new_syl.duration = split.second * 10;

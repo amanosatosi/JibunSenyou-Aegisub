@@ -12,14 +12,20 @@ all_test_deps += [
     gtest_dep, 
     gmock_dep,
     iconv_dep,
-    boost_dep
+    boost_dep,
 ]
+all_test_deps += deps
 all_test_dep_libs += [
     libaegisub
 ]
 all_test_sources += [
     'support/main.cpp',
     'support/util.cpp',
+
+    # Compile minimal Aegisub sources needed for AssKaraoke tests
+    '../src/ass_dialogue.cpp',
+    '../src/ass_override.cpp',
+    '../src/ass_karaoke.cpp',
 
     'tests/access.cpp',
     'tests/audio.cpp',
@@ -33,6 +39,7 @@ all_test_sources += [
     'tests/hotkey.cpp',
     'tests/iconv.cpp',
     'tests/ifind.cpp',
+    'tests/ass_karaoke_preserve_split.cpp',
     'tests/karaoke_split.cpp',
     'tests/karaoke_matcher.cpp',
     'tests/keyframe.cpp',
@@ -54,6 +61,7 @@ all_test_sources += [
 ]
 
 test_inc = include_directories('support')
+src_inc = include_directories('../src')
 
 # force UTF8 for MSVC
 if host_machine.system() == 'windows'
@@ -65,7 +73,7 @@ endif
 runner = executable(
     'gtest-main',
     all_test_sources,
-    include_directories : [test_inc, libaegisub_inc, deps_inc],
+    include_directories : [test_inc, src_inc, libaegisub_inc, deps_inc],
     dependencies : all_test_deps,
     cpp_args : extra_args,
     link_with : all_test_dep_libs,
