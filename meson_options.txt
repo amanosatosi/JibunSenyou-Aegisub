@@ -5,6 +5,7 @@ option('portaudio', type: 'feature', description: 'PortAudio audio output')
 option('directsound', type: 'feature', description: 'DirectSound audio output')
 option('xaudio2', type: 'feature', description: 'XAudio2 audio output')
 option('default_audio_output', type: 'combo', choices: ['auto', 'ALSA', 'OpenAL', 'PulseAudio', 'PortAudio', 'DirectSound', 'XAudio2'], description: 'Default audio output')
+option('soundtouch', type: 'feature', value: 'enabled', description: 'SoundTouch time-stretch support')
 
 option('ffms2', type: 'feature', description: 'FFMS2 video source')
 option('avisynth', type: 'feature', description: 'AviSynth video source')

@@ -1,0 +1,9 @@
+[wrap-file]
+directory = soundtouch
+source_url = https://codeberg.org/soundtouch/soundtouch/archive/2.3.3.tar.gz
+source_filename = soundtouch-2.3.3.tar.gz
+source_hash = 43b23dfac2f64a3aff55d64be096ffc7b73842c3f5665caff44975633a975a99
+patch_directory = soundtouch
+
+[provide]
+soundtouch = soundtouch_dep

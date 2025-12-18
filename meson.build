@@ -245,6 +245,17 @@ foreach dep: [
     endif
 endforeach
 
+soundtouch_opt = get_option('soundtouch')
+if not soundtouch_opt.disabled()
+    soundtouch_dep = dependency('soundtouch', fallback: ['soundtouch', 'soundtouch_dep'], required: soundtouch_opt)
+    if soundtouch_dep.found()
+        deps += soundtouch_dep
+        conf.set('WITH_SOUNDTOUCH', 1)
+    elif soundtouch_opt.enabled()
+        error('SoundTouch enabled but not found')
+    endif
+endif
+
 needs_ffmpeg = false
 
 if get_option('bestsource').enabled()
