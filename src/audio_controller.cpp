@@ -78,7 +78,7 @@ class AudioController::SpeedProvider final : public agi::AudioProvider {
 		void Put(const float *in, int frames) { st.putSamples(in, frames); }
 	};
 
-	SoundTouchTimeStretch stretch;
+	mutable SoundTouchTimeStretch stretch;
 #endif
 
 	mutable std::mutex stretch_mutex;
