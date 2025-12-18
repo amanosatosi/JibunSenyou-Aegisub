@@ -75,8 +75,17 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 	VideoSubsPos->SetCursor(wxCursor(wxCURSOR_HAND));
 	VideoSubsPos->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnSubsReadoutClick, this);
 
-	static const double playback_speeds[] = {0.50, 0.75, 1.00, 1.25, 1.50, 2.00};
-	static const wxString playback_speed_labels[] = {"0.50x", "0.75x", "1.00x", "1.25x", "1.50x", "2.00x"};
+	static const double playback_speeds[] = {
+		0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00,
+		2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00
+	};
+	static wxString playback_speed_labels[WXSIZEOF(playback_speeds)];
+	static bool playback_labels_init = false;
+	if (!playback_labels_init) {
+		for (size_t i = 0; i < WXSIZEOF(playback_speeds); ++i)
+			playback_speed_labels[i] = wxString::Format("%.2fx", playback_speeds[i]);
+		playback_labels_init = true;
+	}
 
 	wxArrayString playback_speed_choices;
 	for (auto const& label : playback_speed_labels)

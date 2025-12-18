@@ -60,13 +60,20 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <cmath>
+#include <vector>
 #include <wx/msgdlg.h>
 #include <wx/textdlg.h>
 
 namespace {
 	using cmd::Command;
 
-	const double playback_speeds[] = {0.50, 0.75, 1.00, 1.25, 1.50, 2.00};
+	const std::vector<double>& PlaybackSpeeds() {
+		static const std::vector<double> speeds = {
+			0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00,
+			2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00
+		};
+		return speeds;
+	}
 
 	double GetPlaybackSpeed() {
 		double speed = OPT_GET("Video/Playback/Speed")->GetDouble();
@@ -82,19 +89,23 @@ namespace {
 	}
 
 	double NextPlaybackSpeed(double cur) {
-		for (double s : playback_speeds) {
+		for (double s : PlaybackSpeeds()) {
 			if (s > cur + 1e-9)
 				return s;
 		}
-		return playback_speeds[WXSIZEOF(playback_speeds) - 1];
+		return PlaybackSpeeds().back();
 	}
 
 	double PrevPlaybackSpeed(double cur) {
-		for (size_t i = WXSIZEOF(playback_speeds); i-- > 0;) {
-			if (playback_speeds[i] < cur - 1e-9)
-				return playback_speeds[i];
+		for (size_t i = PlaybackSpeeds().size(); i-- > 0;) {
+			if (PlaybackSpeeds()[i] < cur - 1e-9)
+				return PlaybackSpeeds()[i];
 		}
-		return playback_speeds[0];
+		return PlaybackSpeeds().front();
+	}
+
+	wxString SpeedLabel(double speed) {
+		return wxString::Format("%.2fx", speed);
 	}
 
 struct validator_video_loaded : public Command {
@@ -757,99 +768,33 @@ struct video_playback_speed_reset final : public Command {
 	}
 };
 
-struct video_playback_speed_50 final : public Command {
-	CMD_NAME("video/playback_speed/50")
-	STR_MENU("&0.50x")
-	STR_DISP("0.50x")
-	STR_HELP("Set video playback speed to 0.50x")
+class video_playback_speed_radio final : public Command {
+	std::string name_;
+	wxString menu_;
+	wxString disp_;
+	double speed_;
+
+public:
+	video_playback_speed_radio(std::string name, wxString menu, double speed)
+	: name_(std::move(name))
+	, menu_(std::move(menu))
+	, disp_(menu_)
+	, speed_(speed)
+	{ }
+
 	CMD_TYPE(COMMAND_RADIO)
 
+	const char* name() const override { return name_.c_str(); }
+	wxString StrMenu(const agi::Context *) const override { return menu_; }
+	wxString StrDisplay(const agi::Context *) const override { return disp_; }
+	wxString StrHelp() const override { return _("Set video playback speed"); }
+
 	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - 0.50) < 1e-9;
+		return std::abs(GetPlaybackSpeed() - speed_) < 1e-9;
 	}
 
 	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(0.50);
-	}
-};
-
-struct video_playback_speed_75 final : public Command {
-	CMD_NAME("video/playback_speed/75")
-	STR_MENU("0.&75x")
-	STR_DISP("0.75x")
-	STR_HELP("Set video playback speed to 0.75x")
-	CMD_TYPE(COMMAND_RADIO)
-
-	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - 0.75) < 1e-9;
-	}
-
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(0.75);
-	}
-};
-
-struct video_playback_speed_100 final : public Command {
-	CMD_NAME("video/playback_speed/100")
-	STR_MENU("&1.00x")
-	STR_DISP("1.00x")
-	STR_HELP("Set video playback speed to 1.00x")
-	CMD_TYPE(COMMAND_RADIO)
-
-	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - 1.00) < 1e-9;
-	}
-
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(1.00);
-	}
-};
-
-struct video_playback_speed_125 final : public Command {
-	CMD_NAME("video/playback_speed/125")
-	STR_MENU("1.&25x")
-	STR_DISP("1.25x")
-	STR_HELP("Set video playback speed to 1.25x")
-	CMD_TYPE(COMMAND_RADIO)
-
-	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - 1.25) < 1e-9;
-	}
-
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(1.25);
-	}
-};
-
-struct video_playback_speed_150 final : public Command {
-	CMD_NAME("video/playback_speed/150")
-	STR_MENU("1.&50x")
-	STR_DISP("1.50x")
-	STR_HELP("Set video playback speed to 1.50x")
-	CMD_TYPE(COMMAND_RADIO)
-
-	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - 1.50) < 1e-9;
-	}
-
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(1.50);
-	}
-};
-
-struct video_playback_speed_200 final : public Command {
-	CMD_NAME("video/playback_speed/200")
-	STR_MENU("&2.00x")
-	STR_DISP("2.00x")
-	STR_HELP("Set video playback speed to 2.00x")
-	CMD_TYPE(COMMAND_RADIO)
-
-	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - 2.00) < 1e-9;
-	}
-
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(2.00);
+		SetPlaybackSpeed(speed_);
 	}
 };
 
@@ -1003,12 +948,12 @@ namespace cmd {
 		reg(agi::make_unique<video_playback_speed_increase>());
 		reg(agi::make_unique<video_playback_speed_decrease>());
 		reg(agi::make_unique<video_playback_speed_reset>());
-		reg(agi::make_unique<video_playback_speed_50>());
-		reg(agi::make_unique<video_playback_speed_75>());
-		reg(agi::make_unique<video_playback_speed_100>());
-		reg(agi::make_unique<video_playback_speed_125>());
-		reg(agi::make_unique<video_playback_speed_150>());
-		reg(agi::make_unique<video_playback_speed_200>());
+		for (double speed : PlaybackSpeeds()) {
+			int speed_int = static_cast<int>(std::round(speed * 100));
+			auto name = "video/playback_speed/" + std::to_string(speed_int);
+			auto label = SpeedLabel(speed);
+			reg(agi::make_unique<video_playback_speed_radio>(name, label, speed));
+		}
 		reg(agi::make_unique<video_show_overscan>());
 		reg(agi::make_unique<video_stop>());
 		reg(agi::make_unique<video_zoom_100>());
