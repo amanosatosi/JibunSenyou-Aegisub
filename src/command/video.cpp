@@ -75,17 +75,17 @@ namespace {
 		return speeds;
 	}
 
-	double GetPlaybackSpeed() {
-		double speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+	double GetPlaybackSpeed(agi::Context *c) {
+		double speed = c->videoController->GetPlaybackSpeed();
 		if (!std::isfinite(speed) || speed <= 0.0)
 			return 1.0;
 		return speed;
 	}
 
-	void SetPlaybackSpeed(double speed) {
+	void SetPlaybackSpeed(agi::Context *c, double speed) {
 		if (!std::isfinite(speed) || speed <= 0.0)
 			speed = 1.0;
-		OPT_SET("Video/Playback/Speed")->SetDouble(speed);
+		c->videoController->SetPlaybackSpeed(speed);
 	}
 
 	double NextPlaybackSpeed(double cur) {
@@ -741,8 +741,8 @@ struct video_playback_speed_increase final : public Command {
 	STR_DISP("Increase playback speed")
 	STR_HELP("Increase video playback speed")
 
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(NextPlaybackSpeed(GetPlaybackSpeed()));
+	void operator()(agi::Context *c) override {
+		SetPlaybackSpeed(c, NextPlaybackSpeed(GetPlaybackSpeed(c)));
 	}
 };
 
@@ -752,8 +752,8 @@ struct video_playback_speed_decrease final : public Command {
 	STR_DISP("Decrease playback speed")
 	STR_HELP("Decrease video playback speed")
 
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(PrevPlaybackSpeed(GetPlaybackSpeed()));
+	void operator()(agi::Context *c) override {
+		SetPlaybackSpeed(c, PrevPlaybackSpeed(GetPlaybackSpeed(c)));
 	}
 };
 
@@ -763,8 +763,8 @@ struct video_playback_speed_reset final : public Command {
 	STR_DISP("Reset playback speed")
 	STR_HELP("Reset video playback speed to 1.00x")
 
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(1.0);
+	void operator()(agi::Context *c) override {
+		SetPlaybackSpeed(c, 1.0);
 	}
 };
 
@@ -789,12 +789,12 @@ public:
 	wxString StrDisplay(const agi::Context *) const override { return disp_; }
 	wxString StrHelp() const override { return _("Set video playback speed"); }
 
-	bool IsActive(const agi::Context *) override {
-		return std::abs(GetPlaybackSpeed() - speed_) < 1e-9;
+	bool IsActive(const agi::Context *c) override {
+		return std::abs(GetPlaybackSpeed(const_cast<agi::Context *>(c)) - speed_) < 1e-9;
 	}
 
-	void operator()(agi::Context *) override {
-		SetPlaybackSpeed(speed_);
+	void operator()(agi::Context *c) override {
+		SetPlaybackSpeed(c, speed_);
 	}
 };
 

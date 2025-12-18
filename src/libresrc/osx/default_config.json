@@ -645,9 +645,6 @@
 
 	"Video" : {
 		"Disable Scroll Zoom" : false,
-		"Playback" : {
-			"Speed" : 1.0
-		},
 		"Reverse Zoom" : false,
 		"Default Zoom" : 7,
 		"Force Default Zoom" : false,

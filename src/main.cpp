@@ -207,6 +207,8 @@ bool AegisubApp::OnInit() {
 
 	try {
 		config::opt->ConfigUser();
+		// Drop deprecated playback speed persistence; runtime-only now.
+		config::opt->Remove("Video/Playback/Speed");
 	}
 	catch (agi::Exception const& err) {
 		wxMessageBox("Configuration file is invalid. Error reported:\n" + to_wx(err.GetMessage()), "Error");

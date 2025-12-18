@@ -60,6 +60,8 @@ class VideoController final : public wxEvtHandler {
 	agi::signal::Signal<int> Seek;
 	/// Aspect ratio was changed (type, value)
 	agi::signal::Signal<AspectRatio, double> ARChange;
+	/// Playback speed changed
+	agi::signal::Signal<double> PlaybackSpeedChanged;
 
 	agi::Context *context;
 
@@ -113,7 +115,7 @@ class VideoController final : public wxEvtHandler {
 	std::vector<agi::signal::Connection> connections;
 
 	void OnPlayTimer(wxTimerEvent &event);
-	void OnPlaybackSpeedChanged();
+	void OnPlaybackSpeedChanged(double new_speed);
 
 	void OnVideoError(VideoProviderErrorEvent const& err);
 	void OnSubtitlesError(SubtitlesProviderErrorEvent const& err);
@@ -170,8 +172,14 @@ public:
 
 	DEFINE_SIGNAL_ADDERS(Seek, AddSeekListener)
 	DEFINE_SIGNAL_ADDERS(ARChange, AddARChangeListener)
+	DEFINE_SIGNAL_ADDERS(PlaybackSpeedChanged, AddPlaybackSpeedListener)
 
 	int TimeAtFrame(int frame, agi::vfr::Time type = agi::vfr::EXACT) const;
 	int FrameAtTime(int time, agi::vfr::Time type = agi::vfr::EXACT) const;
 	std::shared_ptr<VideoFrame> GetFrame(int frame, bool raw) const;
+
+	double GetPlaybackSpeed() const { return playback_speed; }
+	void SetPlaybackSpeed(double speed);
+	/// Playback speed is intentionally not persisted; always default to 1.0 on load/new window.
+	void ResetPlaybackSpeedToDefault();
 };

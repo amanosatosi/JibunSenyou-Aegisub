@@ -158,6 +158,7 @@ bool Project::DoLoadSubtitles(agi::fs::path const& path, std::string encoding, P
 	}
 	context->selectionController->SetSelectionAndActive(std::move(sel), active_line);
 	context->subsGrid->ScrollTo(properties.scroll_position);
+	context->videoController->ResetPlaybackSpeedToDefault();
 
 	return true;
 }
@@ -279,6 +280,7 @@ void Project::DoLoadAudio(agi::fs::path const& path, bool quiet) {
 
 	SetPath(audio_file, "?audio", "Audio", path);
 	AnnounceAudioProviderModified(audio_provider.get());
+	context->videoController->ResetPlaybackSpeedToDefault();
 }
 
 void Project::LoadAudio(agi::fs::path path) {
@@ -347,6 +349,7 @@ void Project::LoadVideo(agi::fs::path path) {
 	else
 		context->videoController->SetAspectRatio(AspectRatio::Default);
 	context->videoController->JumpToFrame(0);
+	context->videoController->ResetPlaybackSpeedToDefault();
 }
 
 void Project::CloseVideo() {

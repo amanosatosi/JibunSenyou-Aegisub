@@ -75,6 +75,11 @@ public:
 	OptionValue *Get(const char *name);
 	OptionValue *Get(std::string const& name) { return Get(name.c_str()); }
 
+	/// @brief Remove an option by name if it exists.
+	/// Used to drop deprecated keys before writing config back out.
+	bool Remove(const char *name);
+	bool Remove(std::string const& name) { return Remove(name.c_str()); }
+
 	/// @brief Next configuration file to load.
 	/// @param[in] src Stream to load from.
 	/// Load next config which will supersede any values from previous configs
