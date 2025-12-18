@@ -955,6 +955,183 @@ static int SafeInsertPosForEndpoint(int pos, const std::vector<OverrideBlockRang
 	return blocks[static_cast<size_t>(idx)].end;
 }
 
+struct TInsertionPoint {
+	bool valid = false;
+	bool replace = false;
+	int insert_pos = -1;
+	int replace_start = -1;
+	int replace_end = -1;
+};
+
+// Manual caret test cases (| = caret):
+// A) {\\t(0,100,\\fs50|)}          -> insert before closing ')'
+// B) {\\t(0,100,\\fs50|)\\Nnext}   -> insert before ')'
+// C) {\\t(0,100,\\fs50|\\Nnext)}   -> insert before '\N'
+// D) {\\t(0,100,\\clip(m 0 0 l 10 10)|\\bord2)} -> insert before the ')' closing \t, not inside clip(...)
+// E) malformed {\\t(0,100,\\fs50|} -> fall back to legacy behavior
+static bool FindTInsertionPoint(const std::string& text, int caret, const std::vector<std::string>& tag_names, TInsertionPoint& out_point) {
+	out_point = TInsertionPoint();
+	if (tag_names.empty())
+		return false;
+
+	OverrideBlockInfo block = FindOverrideBlock(text, caret);
+	if (!block.in_block)
+		return false;
+
+	// Find nearest \t( to the left within the block
+	int t_open = -1;
+	int scan_start = std::min(caret, block.end);
+	for (int i = scan_start; i >= block.start + 2; --i) {
+		if (text[i] == '(' && (text[i - 1] == 't' || text[i - 1] == 'T') && text[i - 2] == '\\') {
+			t_open = i - 2;
+			break;
+		}
+		if (text[i] == '{' || text[i] == '}')
+			break;
+	}
+	if (t_open == -1)
+		return false;
+
+	int args_start = t_open + 2; // position of '('
+	if (caret < args_start)
+		return false;
+
+	// Find closing ')' for this \t( ... )
+	int depth = 0;
+	int t_close = -1;
+	for (int i = args_start; i <= block.end; ++i) {
+		char ch = text[i];
+		if (ch == '(') {
+			++depth;
+		}
+		else if (ch == ')') {
+			if (depth == 0) {
+				t_close = i;
+				break;
+			}
+			else {
+				--depth;
+			}
+		}
+	}
+	if (t_close == -1 || caret > t_close)
+		return false;
+
+	// Compute depth at caret so nested (...) are skipped naturally
+	int depth_at_caret = 0;
+	for (int i = args_start; i < caret && i < static_cast<int>(text.size()); ++i) {
+		char ch = text[i];
+		if (ch == '(')
+			++depth_at_caret;
+		else if (ch == ')' && depth_at_caret > 0)
+			--depth_at_caret;
+	}
+	if (depth_at_caret < 0)
+		depth_at_caret = 0;
+
+	// Try replace-mode: find an existing matching tag inside this \t(...) at depth 0
+	struct Candidate {
+		int start = -1;
+		int value_start = -1;
+		int value_end = -1;
+		bool contains_caret = false;
+	};
+	std::optional<Candidate> best;
+	std::optional<Candidate> left_best;
+	depth = 0;
+	for (int i = args_start; i < t_close; ++i) {
+		char ch = text[i];
+		if (ch == '(') {
+			++depth;
+			continue;
+		}
+		if (ch == ')') {
+			if (depth > 0)
+				--depth;
+			continue;
+		}
+		if (ch != '\\' || depth != 0)
+			continue;
+
+		for (auto const& name : tag_names) {
+			auto name_len = static_cast<int>(name.size());
+			if (i + name_len > t_close)
+				continue;
+			if (text.compare(i, name_len, name) != 0)
+				continue;
+
+			int value_start = i + name_len;
+			int val_depth = 0;
+			int j = value_start;
+			for (; j < t_close; ++j) {
+				char vch = text[j];
+				if (vch == '(')
+					++val_depth;
+				else if (vch == ')') {
+					if (val_depth == 0)
+						break;
+					--val_depth;
+				}
+				else if (vch == '\\' && val_depth == 0 && j != value_start) {
+					break;
+				}
+			}
+			int value_end = j;
+			bool contains = caret >= value_start && caret <= value_end;
+			Candidate cand{i, value_start, value_end, contains};
+			if (contains) {
+				best = cand;
+				break;
+			}
+			if (i <= caret) {
+				if (!left_best || i > left_best->start)
+					left_best = cand;
+			}
+			break;
+		}
+		if (best)
+			break;
+	}
+	if (!best && left_best)
+		best = left_best;
+	if (best) {
+		out_point.valid = true;
+		out_point.replace = true;
+		out_point.insert_pos = best->value_start;
+		out_point.replace_start = best->value_start;
+		out_point.replace_end = best->value_end;
+		return true;
+	}
+
+	// No replace: compute insertion point using depth-aware forward scan
+	int ins_pos = -1;
+	int scan_depth = depth_at_caret;
+	for (int i = caret; i <= t_close; ++i) {
+		char ch = text[i];
+		if (ch == '(') {
+			++scan_depth;
+		}
+		else if (ch == ')') {
+			if (scan_depth == 0) {
+				ins_pos = i;
+				break;
+			}
+			if (scan_depth > 0)
+				--scan_depth;
+		}
+		else if (ch == '\\' && i + 1 <= t_close && text[i + 1] == 'N' && scan_depth == 0) {
+			ins_pos = i;
+			break;
+		}
+	}
+	if (ins_pos == -1)
+		return false;
+
+	out_point.valid = true;
+	out_point.insert_pos = ins_pos;
+	return true;
+}
+
 static std::string MakeChannelColorTag(int channel) {
 	return agi::format("\\%dc", channel);
 }
@@ -1937,21 +2114,49 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 				int insert_pos = scope.insert_pos;
 
 				if (scope.in_t) {
+					scope_start = std::max(scope_start, 0);
+					auto apply_tag_in_t = [&](const std::vector<std::string>& names, const std::string& value) {
+						if (names.empty())
+							return;
+						int caret_pos = sel_start + shift;
+						TInsertionPoint plan;
+						if (FindTInsertionPoint(raw_text, caret_pos, names, plan)) {
+							if (plan.replace) {
+								int old_len = plan.replace_end - plan.replace_start;
+								raw_text.replace(plan.replace_start, old_len, value);
+								int delta = static_cast<int>(value.size()) - old_len;
+								shift += delta;
+								if (plan.replace_start <= scope_end)
+									scope_end += delta;
+								insert_pos = caret_pos + shift;
+								return;
+							}
+							if (!value.empty()) {
+								std::string insertion = names.front() + value;
+								raw_text.insert(plan.insert_pos, insertion);
+								int delta = static_cast<int>(insertion.size());
+								shift += delta;
+								if (plan.insert_pos <= scope_end)
+									scope_end += delta;
+								insert_pos = caret_pos + shift;
+								return;
+							}
+						}
+						int delta = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, names, value);
+						shift += delta;
+						scope_end += delta;
+						insert_pos += delta;
+					};
+
 					std::vector<std::string> tag_names;
 					if (tag == "\\c")
 						tag_names = {"\\c", "\\1c"};
 					else
 						tag_names = {tag};
-					shift += ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, tag_names, new_color.GetAssOverrideFormatted());
-					scope_start = std::max(scope_start, 0);
-					scope_end += shift;
-					insert_pos += shift;
+					apply_tag_in_t(tag_names, new_color.GetAssOverrideFormatted());
 					if (new_color.a != line.color.a) {
 						std::vector<std::string> alpha_names = {alpha};
-						int alpha_shift = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, alpha_names, agi::format("&H%02X&", (int)new_color.a));
-						shift += alpha_shift;
-						scope_end += alpha_shift;
-						insert_pos += alpha_shift;
+						apply_tag_in_t(alpha_names, agi::format("&H%02X&", (int)new_color.a));
 					}
 					line.color.a = new_color.a;
 				}
