@@ -59,11 +59,54 @@
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
+#include <cmath>
+#include <vector>
 #include <wx/msgdlg.h>
 #include <wx/textdlg.h>
 
 namespace {
 	using cmd::Command;
+
+	const std::vector<double>& PlaybackSpeeds() {
+		static const std::vector<double> speeds = {
+			0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00,
+			2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00
+		};
+		return speeds;
+	}
+
+	double GetPlaybackSpeed() {
+		double speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+		if (!std::isfinite(speed) || speed <= 0.0)
+			return 1.0;
+		return speed;
+	}
+
+	void SetPlaybackSpeed(double speed) {
+		if (!std::isfinite(speed) || speed <= 0.0)
+			speed = 1.0;
+		OPT_SET("Video/Playback/Speed")->SetDouble(speed);
+	}
+
+	double NextPlaybackSpeed(double cur) {
+		for (double s : PlaybackSpeeds()) {
+			if (s > cur + 1e-9)
+				return s;
+		}
+		return PlaybackSpeeds().back();
+	}
+
+	double PrevPlaybackSpeed(double cur) {
+		for (size_t i = PlaybackSpeeds().size(); i-- > 0;) {
+			if (PlaybackSpeeds()[i] < cur - 1e-9)
+				return PlaybackSpeeds()[i];
+		}
+		return PlaybackSpeeds().front();
+	}
+
+	wxString SpeedLabel(double speed) {
+		return wxString::Format("%.2fx", speed);
+	}
 
 struct validator_video_loaded : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
@@ -692,6 +735,69 @@ struct video_play_line final : public validator_video_loaded {
 	}
 };
 
+struct video_playback_speed_increase final : public Command {
+	CMD_NAME("video/playback_speed/increase")
+	STR_MENU("Increase playback speed")
+	STR_DISP("Increase playback speed")
+	STR_HELP("Increase video playback speed")
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(NextPlaybackSpeed(GetPlaybackSpeed()));
+	}
+};
+
+struct video_playback_speed_decrease final : public Command {
+	CMD_NAME("video/playback_speed/decrease")
+	STR_MENU("Decrease playback speed")
+	STR_DISP("Decrease playback speed")
+	STR_HELP("Decrease video playback speed")
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(PrevPlaybackSpeed(GetPlaybackSpeed()));
+	}
+};
+
+struct video_playback_speed_reset final : public Command {
+	CMD_NAME("video/playback_speed/reset")
+	STR_MENU("Reset playback speed")
+	STR_DISP("Reset playback speed")
+	STR_HELP("Reset video playback speed to 1.00x")
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(1.0);
+	}
+};
+
+class video_playback_speed_radio final : public Command {
+	std::string name_;
+	wxString menu_;
+	wxString disp_;
+	double speed_;
+
+public:
+	video_playback_speed_radio(std::string name, wxString menu, double speed)
+	: name_(std::move(name))
+	, menu_(std::move(menu))
+	, disp_(menu_)
+	, speed_(speed)
+	{ }
+
+	CMD_TYPE(COMMAND_RADIO)
+
+	const char* name() const override { return name_.c_str(); }
+	wxString StrMenu(const agi::Context *) const override { return menu_; }
+	wxString StrDisplay(const agi::Context *) const override { return disp_; }
+	wxString StrHelp() const override { return _("Set video playback speed"); }
+
+	bool IsActive(const agi::Context *) override {
+		return std::abs(GetPlaybackSpeed() - speed_) < 1e-9;
+	}
+
+	void operator()(agi::Context *) override {
+		SetPlaybackSpeed(speed_);
+	}
+};
+
 struct video_show_overscan final : public validator_video_loaded {
 	CMD_NAME("video/show_overscan")
 	STR_MENU("Show &Overscan Mask")
@@ -839,6 +945,15 @@ namespace cmd {
 		reg(agi::make_unique<video_pan_reset>());
 		reg(agi::make_unique<video_play>());
 		reg(agi::make_unique<video_play_line>());
+		reg(agi::make_unique<video_playback_speed_increase>());
+		reg(agi::make_unique<video_playback_speed_decrease>());
+		reg(agi::make_unique<video_playback_speed_reset>());
+		for (double speed : PlaybackSpeeds()) {
+			int speed_int = static_cast<int>(std::round(speed * 100));
+			auto name = "video/playback_speed/" + std::to_string(speed_int);
+			auto label = SpeedLabel(speed);
+			reg(agi::make_unique<video_playback_speed_radio>(name, label, speed));
+		}
 		reg(agi::make_unique<video_show_overscan>());
 		reg(agi::make_unique<video_stop>());
 		reg(agi::make_unique<video_zoom_100>());

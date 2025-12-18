@@ -35,6 +35,7 @@
 #include <wx/string.h>
 
 namespace agi { struct Context; }
+class wxChoice;
 class wxTextCtrl;
 class wxMouseEvent;
 
@@ -45,6 +46,7 @@ class VideoBox final : public wxPanel {
 	agi::Context *context;     ///< Project context
 	wxTextCtrl *VideoPosition; ///< Current frame/time
 	wxTextCtrl *VideoSubsPos;  ///< Time relative to the active subtitle line
+	wxChoice *VideoPlaybackSpeed = nullptr; ///< Video playback speed selector
 	wxString subs_offset_readout_;
 	wxString subs_remaining_readout_;
 

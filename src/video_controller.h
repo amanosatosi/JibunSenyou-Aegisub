@@ -81,6 +81,18 @@ class VideoController final : public wxEvtHandler {
 	/// video is not currently playing
 	int start_ms = 0;
 
+	/// Playback speed multiplier (1.0 = normal)
+	double playback_speed = 1.0;
+
+	enum class AudioPlaybackMode {
+		NoAudio,
+		ToEnd,
+		Range
+	};
+
+	AudioPlaybackMode audio_playback_mode = AudioPlaybackMode::NoAudio;
+	int audio_playback_end_ms = 0;
+
 	/// The last frame to play if video is currently playing
 	int end_frame = 0;
 
@@ -101,6 +113,7 @@ class VideoController final : public wxEvtHandler {
 	std::vector<agi::signal::Connection> connections;
 
 	void OnPlayTimer(wxTimerEvent &event);
+	void OnPlaybackSpeedChanged();
 
 	void OnVideoError(VideoProviderErrorEvent const& err);
 	void OnSubtitlesError(SubtitlesProviderErrorEvent const& err);
