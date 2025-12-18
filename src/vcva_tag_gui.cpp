@@ -17,9 +17,9 @@
 namespace {
 
 const wxSize slot_button_size(40, 40);
-const wxSize corner_button_size(22, 22);
-const wxSize top_bottom_button_size(90, 22);
-const wxSize side_button_size(18, 60);
+const wxSize corner_button_size(29, 29);
+const wxSize top_bottom_button_size(117, 29);
+const wxSize side_button_size(23, 78);
 
 wxString GradientTooltip(const wxString& label, const wxString& slots) {
 	return wxString::Format(_("Apply a color to %s (%s)"), label, slots);

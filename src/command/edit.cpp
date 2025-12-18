@@ -921,6 +921,217 @@ static std::optional<OverrideBlockRange> GetEnclosingBlock(const std::vector<Ove
 	return std::nullopt;
 }
 
+static int FindOverrideSpanIndexContainingPos(const std::vector<OverrideBlockRange>& blocks, int pos) {
+	for (size_t i = 0; i < blocks.size(); ++i) {
+		if (pos > blocks[i].start && pos < blocks[i].end)
+			return static_cast<int>(i);
+	}
+	return -1;
+}
+
+static bool SelectionHasNormalText(int sel_start, int sel_end, const std::vector<OverrideBlockRange>& blocks) {
+	sel_start = std::max(sel_start, 0);
+	sel_end = std::max(sel_end, sel_start);
+	if (sel_start == sel_end)
+		return false;
+
+	int cursor = sel_start;
+	for (auto const& block : blocks) {
+		if (block.end < cursor)
+			continue;
+		if (block.start > cursor)
+			return true;
+		cursor = std::max(cursor, block.end + 1);
+		if (cursor >= sel_end)
+			break;
+	}
+	return cursor < sel_end;
+}
+
+static int SafeInsertPosForEndpoint(int pos, const std::vector<OverrideBlockRange>& blocks) {
+	int idx = FindOverrideSpanIndexContainingPos(blocks, pos);
+	if (idx == -1)
+		return pos;
+	return blocks[static_cast<size_t>(idx)].end;
+}
+
+struct TInsertionPoint {
+	bool valid = false;
+	bool replace = false;
+	int insert_pos = -1;
+	int replace_start = -1;
+	int replace_end = -1;
+};
+
+// Manual caret test cases (| = caret):
+// A) {\\t(0,100,\\fs50|)}          -> insert before closing ')'
+// B) {\\t(0,100,\\fs50|)\\Nnext}   -> insert before ')'
+// C) {\\t(0,100,\\fs50|\\Nnext)}   -> insert before '\N'
+// D) {\\t(0,100,\\clip(m 0 0 l 10 10)|\\bord2)} -> insert before the ')' closing \t, not inside clip(...)
+// E) malformed {\\t(0,100,\\fs50|} -> fall back to legacy behavior
+static bool FindTInsertionPoint(const std::string& text, int caret, const std::vector<std::string>& tag_names, TInsertionPoint& out_point) {
+	out_point = TInsertionPoint();
+	if (tag_names.empty())
+		return false;
+
+	OverrideBlockInfo block = FindOverrideBlock(text, caret);
+	if (!block.in_block)
+		return false;
+
+	// Find nearest \t( to the left within the block
+	int t_open = -1;
+	int scan_start = std::min(caret, block.end);
+	for (int i = scan_start; i >= block.start + 2; --i) {
+		if (text[i] == '(' && (text[i - 1] == 't' || text[i - 1] == 'T') && text[i - 2] == '\\') {
+			t_open = i - 2;
+			break;
+		}
+		if (text[i] == '{' || text[i] == '}')
+			break;
+	}
+	if (t_open == -1)
+		return false;
+
+	int args_start = t_open + 2; // position of '('
+	if (caret < args_start)
+		return false;
+
+	// Find closing ')' for this \t( ... )
+	int depth = 0;
+	int t_close = -1;
+	for (int i = args_start; i <= block.end; ++i) {
+		char ch = text[i];
+		if (ch == '(') {
+			++depth;
+		}
+		else if (ch == ')') {
+			if (depth == 0) {
+				t_close = i;
+				break;
+			}
+			else {
+				--depth;
+			}
+		}
+	}
+	if (t_close == -1 || caret > t_close)
+		return false;
+
+	// Compute depth at caret so nested (...) are skipped naturally
+	int depth_at_caret = 0;
+	for (int i = args_start; i < caret && i < static_cast<int>(text.size()); ++i) {
+		char ch = text[i];
+		if (ch == '(')
+			++depth_at_caret;
+		else if (ch == ')' && depth_at_caret > 0)
+			--depth_at_caret;
+	}
+	if (depth_at_caret < 0)
+		depth_at_caret = 0;
+
+	// Try replace-mode: find an existing matching tag inside this \t(...) at depth 0
+	struct Candidate {
+		int start = -1;
+		int value_start = -1;
+		int value_end = -1;
+		bool contains_caret = false;
+	};
+	std::optional<Candidate> best;
+	std::optional<Candidate> left_best;
+	depth = 0;
+	for (int i = args_start; i < t_close; ++i) {
+		char ch = text[i];
+		if (ch == '(') {
+			++depth;
+			continue;
+		}
+		if (ch == ')') {
+			if (depth > 0)
+				--depth;
+			continue;
+		}
+		if (ch != '\\' || depth != 0)
+			continue;
+
+		for (auto const& name : tag_names) {
+			auto name_len = static_cast<int>(name.size());
+			if (i + name_len > t_close)
+				continue;
+			if (text.compare(i, name_len, name) != 0)
+				continue;
+
+			int value_start = i + name_len;
+			int val_depth = 0;
+			int j = value_start;
+			for (; j < t_close; ++j) {
+				char vch = text[j];
+				if (vch == '(')
+					++val_depth;
+				else if (vch == ')') {
+					if (val_depth == 0)
+						break;
+					--val_depth;
+				}
+				else if (vch == '\\' && val_depth == 0 && j != value_start) {
+					break;
+				}
+			}
+			int value_end = j;
+			bool contains = caret >= value_start && caret <= value_end;
+			Candidate cand{i, value_start, value_end, contains};
+			if (contains) {
+				best = cand;
+				break;
+			}
+			if (i <= caret) {
+				if (!left_best || i > left_best->start)
+					left_best = cand;
+			}
+			break;
+		}
+		if (best)
+			break;
+	}
+	if (!best && left_best)
+		best = left_best;
+	if (best) {
+		out_point.valid = true;
+		out_point.replace = true;
+		out_point.insert_pos = best->value_start;
+		out_point.replace_start = best->value_start;
+		out_point.replace_end = best->value_end;
+		return true;
+	}
+
+	// No replace: compute insertion point using depth-aware forward scan
+	int ins_pos = -1;
+	int scan_depth = depth_at_caret;
+	for (int i = caret; i <= t_close; ++i) {
+		char ch = text[i];
+		if (ch == '(') {
+			++scan_depth;
+		}
+		else if (ch == ')') {
+			if (scan_depth == 0) {
+				ins_pos = i;
+				break;
+			}
+			if (scan_depth > 0)
+				--scan_depth;
+		}
+		else if (ch == '\\' && i + 1 <= t_close && text[i + 1] == 'N' && scan_depth == 0) {
+			ins_pos = i;
+			break;
+		}
+	}
+	if (ins_pos == -1)
+		return false;
+
+	out_point.valid = true;
+	out_point.insert_pos = ins_pos;
+	return true;
+}
+
 static std::string MakeChannelColorTag(int channel) {
 	return agi::format("\\%dc", channel);
 }
@@ -1394,7 +1605,9 @@ static SelectionApplyResult InsertBoundaryTags(
 	int sel_start,
 	int sel_end,
 	const std::string& start_content,
-	const std::string& end_content)
+	const std::string& end_content,
+	bool start_inside_override,
+	bool end_inside_override)
 {
 	SelectionApplyResult result;
 	std::string text = base_text;
@@ -1402,17 +1615,25 @@ static SelectionApplyResult InsertBoundaryTags(
 	int selection_end = sel_end;
 
 	if (!end_content.empty()) {
-		bool inside_next_block = selection_end < static_cast<int>(text.size()) && text[selection_end] == '{';
-		if (inside_next_block)
+		bool inside_block = end_inside_override || (selection_end < static_cast<int>(text.size()) && text[selection_end] == '}');
+		if (inside_block) {
+			text.insert(selection_end, end_content);
+		}
+		else if (selection_end < static_cast<int>(text.size()) && text[selection_end] == '{') {
 			text.insert(selection_end + 1, end_content);
-		else
+		}
+		else {
 			text.insert(selection_end, "{" + end_content + "}");
+		}
 	}
 
 	if (!start_content.empty()) {
-		bool inside_prev_block = selection_start > 0 && text[selection_start - 1] == '}';
+		bool inside_prev_block =
+			start_inside_override ||
+			(selection_start > 0 && text[selection_start - 1] == '}') ||
+			(selection_start < static_cast<int>(text.size()) && text[selection_start] == '}');
 		if (inside_prev_block) {
-			text.insert(selection_start - 1, start_content);
+			text.insert(selection_start, start_content);
 			selection_start += static_cast<int>(start_content.size());
 			selection_end += static_cast<int>(start_content.size());
 		}
@@ -1450,14 +1671,33 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 	int selection_end = std::clamp(sel_end, 0, static_cast<int>(text.size()));
 	selection_end = std::max(selection_end, selection_start);
 
-	SelectionContext ctx = ScanSelectionContext(text, selection_start);
-	ChannelTagState prev_color = ctx.channels[params.channel - 1];
-	AlphaTagState prev_alpha = ctx.alphas[params.channel - 1];
+	const int original_start = selection_start;
+	const int original_end = selection_end;
 
-	bool whole_line = IsWholeLineSelection(text, selection_start, selection_end);
+	std::vector<OverrideBlockRange> spans = FindOverrideBlocks(text);
+	int apply_start = selection_start;
+	int apply_end = selection_end;
+	if (selection_start < selection_end) {
+		apply_start = SafeInsertPosForEndpoint(selection_start, spans);
+		int end_probe = selection_end > selection_start ? selection_end - 1 : selection_end;
+		apply_end = SafeInsertPosForEndpoint(end_probe, spans);
+		apply_end = std::max(apply_end, apply_start);
+	}
+
+	const bool whole_line = IsWholeLineSelection(text, original_start, original_end);
+
+	SelectionContext start_ctx = ScanSelectionContext(text, apply_start);
+	SelectionContext end_ctx = ScanSelectionContext(text, apply_end);
+	ChannelTagState start_prev_color = start_ctx.channels[params.channel - 1];
+	AlphaTagState start_prev_alpha = start_ctx.alphas[params.channel - 1];
+	ChannelTagState restore_prev_color = end_ctx.channels[params.channel - 1];
+	AlphaTagState restore_prev_alpha = end_ctx.alphas[params.channel - 1];
+
 	if (whole_line) {
-		prev_color = ChannelTagState();
-		prev_alpha = AlphaTagState();
+		start_prev_color = ChannelTagState();
+		restore_prev_color = ChannelTagState();
+		start_prev_alpha = AlphaTagState();
+		restore_prev_alpha = AlphaTagState();
 	}
 
 	std::vector<std::string> start_alpha_tags;
@@ -1476,25 +1716,26 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 			if (auto tag = make_tag(params.gradient_tag_name, params.new_color_value); !tag.empty())
 				start_color_tags.push_back(tag);
 
-			bool alpha_ff = prev_alpha.has && !prev_alpha.gradient && prev_alpha.simple_value == 0xFF;
+			bool alpha_ff = start_prev_alpha.has && !start_prev_alpha.gradient && start_prev_alpha.simple_value == 0xFF;
 			if (params.channel <= 2 && !params.alpha_tag_name.empty() && alpha_ff &&
-								(prev_color.type == ChannelTagType::TagColor || prev_color.type == ChannelTagType::TagNone)) {
+								(start_prev_color.type == ChannelTagType::TagColor || start_prev_color.type == ChannelTagType::TagNone)) {
 				if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0)); !tag.empty())
 					start_alpha_tags.push_back(tag);
 				if (!whole_line) {
-					const std::string restore_value = prev_alpha.gradient ? prev_alpha.value : FormatAlphaValue(prev_alpha.simple_value);
-					if (auto tag = make_tag(prev_alpha.name.empty() ? params.alpha_tag_name : prev_alpha.name, restore_value); !tag.empty())
+					const std::string restore_value = restore_prev_alpha.gradient ? restore_prev_alpha.value : FormatAlphaValue(restore_prev_alpha.simple_value);
+					const std::string restore_name = restore_prev_alpha.name.empty() ? params.alpha_tag_name : restore_prev_alpha.name;
+					if (auto tag = make_tag(restore_name, restore_value); !tag.empty())
 						end_alpha_tags.push_back(tag);
 				}
 			}
 
 			if (!whole_line) {
-				if (prev_color.type == ChannelTagType::TagGradient) {
-					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+				if (restore_prev_color.type == ChannelTagType::TagGradient) {
+					if (auto tag = make_tag(restore_prev_color.name, restore_prev_color.value); !tag.empty())
 						end_color_tags.push_back(tag);
 				}
-				else if (prev_color.type == ChannelTagType::TagColor) {
-					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+				else if (restore_prev_color.type == ChannelTagType::TagColor) {
+					if (auto tag = make_tag(restore_prev_color.name, restore_prev_color.value); !tag.empty())
 						end_color_tags.push_back(tag);
 				}
 				else {
@@ -1507,11 +1748,12 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 			if (auto tag = make_tag(params.color_tag_name, params.new_color_value); !tag.empty())
 				start_color_tags.push_back(tag);
 
-			bool prev_is_gradient = prev_color.type == ChannelTagType::TagGradient;
-			bool alpha_ff = prev_alpha.has && !prev_alpha.gradient && prev_alpha.simple_value == 0xFF;
+			bool start_is_gradient = start_prev_color.type == ChannelTagType::TagGradient;
+			bool restore_is_gradient = restore_prev_color.type == ChannelTagType::TagGradient;
+			bool alpha_ff = start_prev_alpha.has && !start_prev_alpha.gradient && start_prev_alpha.simple_value == 0xFF;
 
 			if (params.channel <= 2 && !params.alpha_tag_name.empty()) {
-				if (prev_is_gradient && !alpha_ff) {
+				if (start_is_gradient && !alpha_ff) {
 					if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0xFF)); !tag.empty())
 						start_alpha_tags.push_back(tag);
 					if (!whole_line)
@@ -1519,24 +1761,25 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 							end_alpha_tags.push_back(tag);
 				}
 
-				if ((prev_color.type == ChannelTagType::TagColor || prev_color.type == ChannelTagType::TagNone) && alpha_ff) {
+				if ((start_prev_color.type == ChannelTagType::TagColor || start_prev_color.type == ChannelTagType::TagNone) && alpha_ff) {
 					if (auto tag = make_tag(params.alpha_tag_name, FormatAlphaValue(0)); !tag.empty())
 						start_alpha_tags.push_back(tag);
 					if (!whole_line) {
-						const std::string restore_value = prev_alpha.gradient ? prev_alpha.value : FormatAlphaValue(prev_alpha.simple_value);
-						if (auto tag = make_tag(prev_alpha.name.empty() ? params.alpha_tag_name : prev_alpha.name, restore_value); !tag.empty())
+						const std::string restore_value = restore_prev_alpha.gradient ? restore_prev_alpha.value : FormatAlphaValue(restore_prev_alpha.simple_value);
+						const std::string restore_name = restore_prev_alpha.name.empty() ? params.alpha_tag_name : restore_prev_alpha.name;
+						if (auto tag = make_tag(restore_name, restore_value); !tag.empty())
 							end_alpha_tags.push_back(tag);
 					}
 				}
 			}
 
 			if (!whole_line) {
-				if (prev_is_gradient) {
-					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+				if (restore_is_gradient) {
+					if (auto tag = make_tag(restore_prev_color.name, restore_prev_color.value); !tag.empty())
 						end_color_tags.push_back(tag);
 				}
-				else if (prev_color.type == ChannelTagType::TagColor) {
-					if (auto tag = make_tag(prev_color.name, prev_color.value); !tag.empty())
+				else if (restore_prev_color.type == ChannelTagType::TagColor) {
+					if (auto tag = make_tag(restore_prev_color.name, restore_prev_color.value); !tag.empty())
 						end_color_tags.push_back(tag);
 				}
 				else {
@@ -1553,8 +1796,8 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 				start_alpha_tags.push_back(tag);
 
 		if (!whole_line) {
-			if (prev_alpha.has && !prev_alpha.name.empty())
-				if (auto tag = make_tag(prev_alpha.name, prev_alpha.value); !tag.empty())
+			if (restore_prev_alpha.has && !restore_prev_alpha.name.empty())
+				if (auto tag = make_tag(restore_prev_alpha.name, restore_prev_alpha.value); !tag.empty())
 					end_alpha_tags.push_back(tag);
 			else if (!params.alpha_tag_name.empty())
 				if (auto tag = make_tag(params.alpha_tag_name, ""); !tag.empty())
@@ -1574,7 +1817,22 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 	std::string start_content = combine_tags(start_alpha_tags, start_color_tags);
 	std::string end_content = combine_tags(end_alpha_tags, end_color_tags);
 
-	return InsertBoundaryTags(text, selection_start, selection_end, start_content, end_content);
+	auto inside_or_closing = [&](int pos) {
+		if (FindOverrideSpanIndexContainingPos(spans, pos) != -1)
+			return true;
+		for (auto const& span : spans) {
+			if (pos == span.end)
+				return true;
+		}
+		return false;
+	};
+	bool start_inside_block = inside_or_closing(apply_start);
+	bool end_inside_block = inside_or_closing(apply_end);
+
+	SelectionApplyResult wrapped = InsertBoundaryTags(text, apply_start, apply_end, start_content, end_content, start_inside_block, end_inside_block);
+	wrapped.shift.start += apply_start - original_start;
+	wrapped.shift.end += apply_end - original_end;
+	return wrapped;
 }
 
 void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), const char *tag, const char *alt, const char *alpha, ColorPickerInvoker picker = GetColorFromUser) {
@@ -1591,6 +1849,27 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 		c->subsEditBox->MapDisplayRangeToRaw(disp_sel_start, disp_sel_end, active_raw_text, sel_start, sel_end);
 
 	bool has_selection = sel_end > sel_start;
+	if (has_selection && active_line) {
+		auto spans = FindOverrideBlocks(active_raw_text);
+		bool selection_has_normal = SelectionHasNormalText(sel_start, sel_end, spans);
+		// Selection rules sanity checks:
+		// - {\i1}word{\i0} selecting "word" -> wrap normally.
+		// - {\fad(200,200)} selecting inside params -> collapse to caret (no wrap).
+		// - {\i1}word{\i0} selecting "1}word{\\i" -> move to safe } boundaries, keep wrap.
+		// - a{\i1}b{\i0}c selecting across text -> wrap normally.
+		auto enclosing_span = [&]() -> int {
+			for (size_t i = 0; i < spans.size(); ++i) {
+				if (sel_start >= spans[i].start && sel_end <= spans[i].end + 1)
+					return static_cast<int>(i);
+			}
+			return -1;
+		};
+		int span_idx = enclosing_span();
+		if (!selection_has_normal && span_idx != -1) {
+			sel_start = sel_end;
+			has_selection = false;
+		}
+	}
 	if (!has_selection && active_line) {
 		OverrideBlockInfo block = FindOverrideBlock(active_raw_text, sel_start);
 		bool inside_t = IsInsideTParens(active_raw_text, block, sel_start);
@@ -1835,21 +2114,49 @@ void show_color_picker(const agi::Context *c, agi::Color (AssStyle::*field), con
 				int insert_pos = scope.insert_pos;
 
 				if (scope.in_t) {
+					scope_start = std::max(scope_start, 0);
+					auto apply_tag_in_t = [&](const std::vector<std::string>& names, const std::string& value) {
+						if (names.empty())
+							return;
+						int caret_pos = sel_start + shift;
+						TInsertionPoint plan;
+						if (FindTInsertionPoint(raw_text, caret_pos, names, plan)) {
+							if (plan.replace) {
+								int old_len = plan.replace_end - plan.replace_start;
+								raw_text.replace(plan.replace_start, old_len, value);
+								int delta = static_cast<int>(value.size()) - old_len;
+								shift += delta;
+								if (plan.replace_start <= scope_end)
+									scope_end += delta;
+								insert_pos = caret_pos + shift;
+								return;
+							}
+							if (!value.empty()) {
+								std::string insertion = names.front() + value;
+								raw_text.insert(plan.insert_pos, insertion);
+								int delta = static_cast<int>(insertion.size());
+								shift += delta;
+								if (plan.insert_pos <= scope_end)
+									scope_end += delta;
+								insert_pos = caret_pos + shift;
+								return;
+							}
+						}
+						int delta = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, names, value);
+						shift += delta;
+						scope_end += delta;
+						insert_pos += delta;
+					};
+
 					std::vector<std::string> tag_names;
 					if (tag == "\\c")
 						tag_names = {"\\c", "\\1c"};
 					else
 						tag_names = {tag};
-					shift += ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, tag_names, new_color.GetAssOverrideFormatted());
-					scope_start = std::max(scope_start, 0);
-					scope_end += shift;
-					insert_pos += shift;
+					apply_tag_in_t(tag_names, new_color.GetAssOverrideFormatted());
 					if (new_color.a != line.color.a) {
 						std::vector<std::string> alpha_names = {alpha};
-						int alpha_shift = ReplaceOrInsertInRange(raw_text, scope_start, scope_end, insert_pos, alpha_names, agi::format("&H%02X&", (int)new_color.a));
-						shift += alpha_shift;
-						scope_end += alpha_shift;
-						insert_pos += alpha_shift;
+						apply_tag_in_t(alpha_names, agi::format("&H%02X&", (int)new_color.a));
 					}
 					line.color.a = new_color.a;
 				}
