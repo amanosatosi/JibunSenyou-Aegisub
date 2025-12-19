@@ -108,11 +108,11 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 		return best;
 	};
 
-	VideoPlaybackSpeed->SetSelection(playback_speed_to_index(OPT_GET("Video/Playback/Speed")->GetDouble()));
+	VideoPlaybackSpeed->SetSelection(playback_speed_to_index(context->videoController->GetPlaybackSpeed()));
 	VideoPlaybackSpeed->Bind(wxEVT_CHOICE, [=](wxCommandEvent&) {
 		int sel = VideoPlaybackSpeed->GetSelection();
 		if (sel >= 0 && sel < (int)WXSIZEOF(playback_speeds))
-			OPT_SET("Video/Playback/Speed")->SetDouble(playback_speeds[sel]);
+			context->videoController->SetPlaybackSpeed(playback_speeds[sel]);
 	});
 
 	wxArrayString choices;
@@ -157,9 +157,9 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 		context->project->AddVideoProviderListener(&VideoBox::UpdateTimeBoxes, this),
 		context->selectionController->AddSelectionListener(&VideoBox::UpdateTimeBoxes, this),
 		context->videoController->AddSeekListener(&VideoBox::UpdateTimeBoxes, this),
-		OPT_SUB("Video/Playback/Speed", [=](agi::OptionValue const& opt) {
+		context->videoController->AddPlaybackSpeedListener([=](double speed) {
 			if (!VideoPlaybackSpeed) return;
-			int new_sel = playback_speed_to_index(opt.GetDouble());
+			int new_sel = playback_speed_to_index(speed);
 			if (new_sel != VideoPlaybackSpeed->GetSelection())
 				VideoPlaybackSpeed->SetSelection(new_sel);
 		}),

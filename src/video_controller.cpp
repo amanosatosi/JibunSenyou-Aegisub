@@ -54,12 +54,13 @@ VideoController::VideoController(agi::Context *c)
 	context->ass->AddCommitListener(&VideoController::OnSubtitlesCommit, this),
 	context->project->AddVideoProviderListener(&VideoController::OnNewVideoProvider, this),
 	context->selectionController->AddActiveLineListener(&VideoController::OnActiveLineChanged, this),
-	OPT_SUB("Video/Playback/Speed", &VideoController::OnPlaybackSpeedChanged, this),
 }))
 {
 	Bind(EVT_VIDEO_ERROR, &VideoController::OnVideoError, this);
 	Bind(EVT_SUBTITLES_ERROR, &VideoController::OnSubtitlesError, this);
 	playback.Bind(wxEVT_TIMER, &VideoController::OnPlayTimer, this);
+
+	ResetPlaybackSpeedToDefault();
 }
 
 void VideoController::OnNewVideoProvider(AsyncVideoProvider *new_provider) {
@@ -145,10 +146,6 @@ void VideoController::Play() {
 	start_ms = TimeAtFrame(frame_n);
 	end_frame = provider->GetFrameCount() - 1;
 
-	playback_speed = OPT_GET("Video/Playback/Speed")->GetDouble();
-	if (!std::isfinite(playback_speed) || playback_speed <= 0.0)
-		playback_speed = 1.0;
-
 	audio_playback_mode = AudioPlaybackMode::ToEnd;
 	context->audioController->PlayToEnd(start_ms, playback_speed);
 
@@ -166,10 +163,6 @@ void VideoController::PlayLine() {
 	int startFrame = FrameAtTime(context->selectionController->GetActiveLine()->Start, agi::vfr::START);
 	start_ms = TimeAtFrame(startFrame);
 	end_frame = FrameAtTime(context->selectionController->GetActiveLine()->End, agi::vfr::END) + 1;
-
-	playback_speed = OPT_GET("Video/Playback/Speed")->GetDouble();
-	if (!std::isfinite(playback_speed) || playback_speed <= 0.0)
-		playback_speed = 1.0;
 
 	audio_playback_mode = AudioPlaybackMode::Range;
 	audio_playback_end_ms = curline->End;
@@ -209,13 +202,13 @@ void VideoController::OnPlayTimer(wxTimerEvent &) {
 	}
 }
 
-void VideoController::OnPlaybackSpeedChanged() {
-	double new_speed = OPT_GET("Video/Playback/Speed")->GetDouble();
+void VideoController::OnPlaybackSpeedChanged(double new_speed) {
 	if (!std::isfinite(new_speed) || new_speed <= 0.0)
 		new_speed = 1.0;
 
 	if (!IsPlaying()) {
 		playback_speed = new_speed;
+		PlaybackSpeedChanged(new_speed);
 		return;
 	}
 
@@ -227,6 +220,7 @@ void VideoController::OnPlaybackSpeedChanged() {
 	start_ms = static_cast<int>(cur_ms);
 	playback_start_time = now;
 	playback_speed = new_speed;
+	PlaybackSpeedChanged(new_speed);
 
 	switch (audio_playback_mode) {
 		case AudioPlaybackMode::NoAudio:
@@ -241,6 +235,15 @@ void VideoController::OnPlaybackSpeedChanged() {
 				Stop();
 			break;
 	}
+}
+
+void VideoController::SetPlaybackSpeed(double speed) {
+	OnPlaybackSpeedChanged(speed);
+}
+
+void VideoController::ResetPlaybackSpeedToDefault() {
+	// Playback speed is intentionally not persisted; always default to 1.0 on load/new window.
+	SetPlaybackSpeed(1.0);
 }
 
 double VideoController::GetARFromType(AspectRatio type) const {

@@ -69,6 +69,7 @@
 		"Medusa Timing Hotkeys" : false,
 		"Next Line on Commit" : true,
 		"Player" : "",
+		"Keep Pitch When Changing Speed" : true,
 		"Plays When Stepping Video" : false,
 		"Provider" : "FFmpegSource",
 		"Renderer" : {
@@ -646,9 +647,6 @@
 
 	"Video" : {
 		"Disable Scroll Zoom" : false,
-		"Playback" : {
-			"Speed" : 1.0
-		},
 		"Reverse Zoom" : false,
 		"Default Zoom" : 7,
 		"Force Default Zoom" : false,

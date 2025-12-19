@@ -267,6 +267,14 @@ OptionValue *Options::Get(const char *name) {
 	throw agi::InternalError("Option value not found: " + std::string(name));
 }
 
+bool Options::Remove(const char *name) {
+	auto index = lower_bound(begin(values), end(values), name, option_name_cmp());
+	if (index == end(values) || (*index)->GetName() != name)
+		return false;
+	values.erase(index);
+	return true;
+}
+
 void Options::Flush() const {
 	json::Object obj_out;
 
