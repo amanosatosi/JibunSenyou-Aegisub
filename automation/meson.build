@@ -9,6 +9,7 @@ install_data(
     'autoload/kara-templater.lua',
     'autoload/macro-1-edgeblur.lua',
     'autoload/macro-2-mkfullwitdh.lua',
+    'autoload/garret.depctrl_config.lua',
     'autoload/select-overlaps.moon',
     'autoload/strip-tags.lua',
     install_dir: automation_dir / 'autoload')
