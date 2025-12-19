@@ -277,7 +277,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	// Japanese bracket insert button sits next to the existing fn control
 	int icon_px = OPT_GET("App/Toolbar Icon Size")->GetInt();
 	icon_px = static_cast<int>(icon_px * retina_helper->GetScaleFactor());
-	wxSize bracket_size(icon_px + 6, icon_px + 6);
+	wxSize bracket_size = wxWindow::FromDIP(wxSize(icon_px + 6, icon_px + 6), this);
 	bracket_button_ = new wxButton(this, wxID_ANY, wxS("『』"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 	bracket_button_->SetToolTip(_("Insert Japanese bracket pair"));
 	if (bracket_size.GetWidth() > 0 && bracket_size.GetHeight() > 0) {
@@ -515,9 +515,6 @@ void SubsEditBox::OnBracketButton(wxCommandEvent &) {
 		if (index >= kBracketPairs.size()) return;
 		last_bracket_pair_index_ = index;
 		InsertBracketPair(kBracketPairs[index].left, kBracketPairs[index].right);
-		if (bracket_button_) {
-			bracket_button_->SetLabel(kBracketPairs[index].left + kBracketPairs[index].right);
-		}
 	});
 
 	wxPoint pos = bracket_button_ ? bracket_button_->GetPosition() : wxPoint(0, 0);
