@@ -24,6 +24,7 @@ install_data(
     'include/clipboard.lua',
     'include/karaskel-auto4.lua',
     'include/karaskel.lua',
+    'include/kCompatibility.lua',
     'include/lfs.lua',
     'include/moonscript.lua',
     'include/re.lua',

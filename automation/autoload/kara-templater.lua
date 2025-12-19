@@ -40,6 +40,7 @@ script_version = "2.1.7"
 
 
 include("karaskel.lua")
+include("kCompatibility.lua")
 
 
 -- Find and parse/prepare all karaoke template lines
