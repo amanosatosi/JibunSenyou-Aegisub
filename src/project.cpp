@@ -226,10 +226,12 @@ void Project::LoadUnloadFiles(ProjectProperties properties) {
 				vc->SetAspectRatio(properties.ar_value);
 			else
 				vc->SetAspectRatio(ar_mode);
+			bool force_default_zoom = OPT_GET("Video/Force Default Zoom")->GetBool();
 			double zoom = properties.video_zoom;
-			if (OPT_GET("Video/Force Default Zoom")->GetBool())
+			if (force_default_zoom)
 				zoom = OPT_GET("Video/Default Zoom")->GetInt() * .125 + .125;
-			context->videoDisplay->SetWindowZoom(zoom);
+			// Preserve any existing pan offsets when forcing default zoom; only zoom should change.
+			context->videoDisplay->SetWindowZoom(zoom, !force_default_zoom);
 		}
 	}
 

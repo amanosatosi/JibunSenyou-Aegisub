@@ -168,7 +168,7 @@ public:
 
 	/// @brief Set the zoom level
 	/// @param value The new zoom level
-	void SetWindowZoom(double value);
+	void SetWindowZoom(double value, bool adjust_pan = true);
 	void SetVideoZoom(int step);
 	/// @brief Get the current zoom level
 	double GetZoom() const { return windowZoomValue; }
