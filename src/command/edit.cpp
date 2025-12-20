@@ -1679,8 +1679,7 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 	int apply_end = selection_end;
 	if (selection_start < selection_end) {
 		apply_start = SafeInsertPosForEndpoint(selection_start, spans);
-		int end_probe = selection_end > selection_start ? selection_end - 1 : selection_end;
-		apply_end = SafeInsertPosForEndpoint(end_probe, spans);
+		apply_end = SafeInsertPosForEndpoint(selection_end, spans);
 		apply_end = std::max(apply_end, apply_start);
 	}
 
