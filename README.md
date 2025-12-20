@@ -1,5 +1,7 @@
 # aegisub toshi-ban v1.0
 
+English [မြန်မာ](https://github.com/amanosatosi/Aegisub_Toshi-ban/blob/main/Readme-MM.md)
+
 > *vibe-coded out of necessity*
 
 This is my personal Aegisub fork. I made it to fix the issues I hit while doing real subtitle work.
