@@ -43,11 +43,10 @@ This project is open source for transparency, and tested by actually using it.
 - **Show `\N` as a real line break** in the grid *(optional)* (‌Also works inside tag brackets.)
 <img width="610" height="137" alt="image" src="https://github.com/user-attachments/assets/06dbeba9-0d97-4f71-b830-c787f3bc3657" />
 
-- **K-timing cuts no longer r
+- **K-timing cuts no longer reset existing timing**
 
 https://github.com/user-attachments/assets/3a9f5606-9d49-4984-84d1-de58a4e3c1d1
 
-eset existing timing**
   
 - **Japanese brackets support**: Easier insertion and editing without changing keyboard layouts
 - <img width="390" height="366" alt="image" src="https://github.com/user-attachments/assets/165b7117-bd83-4f9c-92f5-a4c23c784df7" />
