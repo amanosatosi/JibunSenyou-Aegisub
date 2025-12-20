@@ -40,7 +40,7 @@ This project is open source for transparency, and tested by actually using it.
 ## Notable features & changes
 
 ### Subtitle editing
-- **Show `\N` as a real line break** in the grid *(optional)*
+- **Show `\N` as a real line break** in the grid *(optional)* (‌Also works inside tag brackets.)
 <img width="610" height="137" alt="image" src="https://github.com/user-attachments/assets/06dbeba9-0d97-4f71-b830-c787f3bc3657" />
 
 - **K-timing cuts no longer r
