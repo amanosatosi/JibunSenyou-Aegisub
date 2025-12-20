@@ -1,5 +1,7 @@
 # aegisub toshi-ban v1.0
 
+[English](https://github.com/amanosatosi/Aegisub_Toshi-ban) မြန်မာ
+
 > *vibe-coded out of necessity*
 
 aegisub version အသစ်ကိုတင်လိုက်တာ ဘာမှအသစ်လဲပါမလာတာတင်မက kfx template တွေပါပျက်ကုန်လို့စိတ်ညစ်နေသူများအတွက်
