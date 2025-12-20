@@ -77,7 +77,7 @@ https://github.com/user-attachments/assets/85be641b-4d56-47c1-9c09-e432611f32b9
   * **Nanashi mode (optional)**: Ctrl works as Enter, Alt navigates to previous line
   - Note: **CJK / complex IMEs may not be fully supported yet**
 
-If you want an Actor-name workflow without writing scripts, check out **Irodori**: *(link)*
+If you want an Actor-name workflow without writing scripts, check out **[Irodori](https://github.com/amanosatosi/irodori)**
 
 ---
 
