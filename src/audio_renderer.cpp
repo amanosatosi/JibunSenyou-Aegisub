@@ -191,8 +191,13 @@ void AudioRenderer::Render(wxDC &dc, wxPoint origin, const int start, const int 
 	const int firstbitmap = start / cache_bitmap_width;
 	// And the offset in it to start its use at
 	const int firstbitmapoffset = start % cache_bitmap_width;
-	// The last bitmap required
-	const int lastbitmap = std::min<int>(end / cache_bitmap_width, NumBlocks(provider->GetDecodedSamples()) - 1);
+	// The last bitmap required. Some providers do not track decoded samples
+	// (or don't need a decode pass when caching is disabled); fall back to the
+	// total length in those cases so we still render the waveform.
+	int64_t decoded_samples = provider->GetDecodedSamples();
+	if (decoded_samples == 0 && !provider->NeedsCache())
+		decoded_samples = provider->GetNumSamples();
+	const int lastbitmap = std::min<int>(end / cache_bitmap_width, NumBlocks(decoded_samples) - 1);
 
 	// Set a clipping region so that the first and last bitmaps don't draw
 	// outside the requested range

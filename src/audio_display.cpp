@@ -1243,7 +1243,11 @@ void AudioDisplay::OnAudioOpen(agi::AudioProvider *provider)
 			OnTimingController();
 		}
 
-		last_sample_decoded = provider->GetDecodedSamples();
+		int64_t decoded_samples = provider->GetDecodedSamples();
+		if (decoded_samples == 0 && !provider->NeedsCache())
+			decoded_samples = provider->GetNumSamples();
+
+		last_sample_decoded = decoded_samples;
 		audio_load_position = -1;
 		audio_load_speed = 0;
 		audio_load_start_time = std::chrono::steady_clock::now();
