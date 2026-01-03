@@ -112,57 +112,106 @@ int csri_request_fmt(csri_inst *inst, const struct csri_fmt *fmt)
 
 void csri_render(csri_inst *inst, struct csri_frame *frame, double time)
 {
-	ass_image_t *img = ass_render_frame(inst->ass_renderer,
-		inst->ass_track, (int)(time * 1000), NULL);
+	int detect_change = 0;
+	ASS_RenderResult render_result = ass_render_frame_auto(inst->ass_renderer,
+		inst->ass_track, (int)(time * 1000), &detect_change);
 
-	while (img) {
-		unsigned bpp, alpha = 256 - (img->color && 0xFF);
-		int src_d, dst_d;
-		unsigned char *src, *dst, *endy, *endx;
-		unsigned char c[3] = {
-			(img->color >> 8) & 0xFF,	/* B */
-			(img->color >> 16) & 0xFF,	/* G */
-			img->color >> 24		/* R */
-		};
-		if ((frame->pixfmt | 1) == CSRI_F__RGB
-			|| frame->pixfmt == CSRI_F_RGB) {
-			unsigned char tmp = c[2];
-			c[2] = c[0]; 
-			c[0] = tmp;
-		}
-		bpp = frame->pixfmt >= 0x200 ? 3 : 4;
+	if (render_result.use_rgba && render_result.imgs_rgba) {
+		ASS_ImageRGBA *img = render_result.imgs_rgba;
+		while (img) {
+			unsigned bpp = frame->pixfmt >= 0x200 ? 3 : 4;
+			int src_d = img->stride - img->w * 4;
+			int dst_d = frame->strides[0] - img->w * bpp;
+			unsigned char *src = img->rgba;
+			unsigned char *dst = frame->planes[0]
+				+ img->dst_y * frame->strides[0]
+				+ img->dst_x * bpp;
+			unsigned char *endy = src + img->h * img->stride;
+			int rgb_order = (frame->pixfmt | 1) == CSRI_F__RGB || frame->pixfmt == CSRI_F_RGB;
 
-		dst = frame->planes[0]
-			+ img->dst_y * frame->strides[0]
-			+ img->dst_x * bpp;
-		if (frame->pixfmt & 1)
-			dst++;
-		src = img->bitmap;
+			if (frame->pixfmt & 1)
+				dst++;
 
-		src_d = img->stride - img->w;
-		dst_d = frame->strides[0] - img->w * bpp;
-		endy = src + img->h * img->stride;
+			while (src != endy) {
+				unsigned char *endx = src + img->w * 4;
+				while (src != endx) {
+					unsigned a = src[3];
+					unsigned inv_a = 255 - a;
 
-		while (src != endy) {
-			endx = src + img->w;
-			while (src != endx) {
-				/* src[x]: 0..255, alpha: 1..256 (see above)
-				 * -> src[x]*alpha: 0<<8..255<<8
-				 * -> need 1..256 for mult => +1
-				 */
-				unsigned s = ((*src++ * alpha) >> 8) + 1;
-				unsigned d = 257 - s;
-				/* c[0]: 0.255, s/d: 1..256 */
-				dst[0] = (s*c[0] + d*dst[0]) >> 8;
-				dst[1] = (s*c[1] + d*dst[1]) >> 8;
-				dst[2] = (s*c[2] + d*dst[2]) >> 8;
-				dst += bpp;
+					if (rgb_order) {
+						dst[0] = (unsigned char)(src[0] + (dst[0] * inv_a) / 255);
+						dst[1] = (unsigned char)(src[1] + (dst[1] * inv_a) / 255);
+						dst[2] = (unsigned char)(src[2] + (dst[2] * inv_a) / 255);
+					} else {
+						dst[0] = (unsigned char)(src[2] + (dst[0] * inv_a) / 255);
+						dst[1] = (unsigned char)(src[1] + (dst[1] * inv_a) / 255);
+						dst[2] = (unsigned char)(src[0] + (dst[2] * inv_a) / 255);
+					}
+
+					dst += bpp;
+					src += 4;
+				}
+				dst += dst_d;
+				src += src_d;
 			}
-			dst += dst_d;
-			src += src_d;
+
+			img = img->next;
 		}
-		img = img->next;
 	}
+	else {
+		ass_image_t *img = render_result.imgs;
+		while (img) {
+			unsigned bpp, alpha = 256 - (img->color && 0xFF);
+			int src_d, dst_d;
+			unsigned char *src, *dst, *endy, *endx;
+			unsigned char c[3] = {
+				(img->color >> 8) & 0xFF,	/* B */
+				(img->color >> 16) & 0xFF,	/* G */
+				img->color >> 24		/* R */
+			};
+			if ((frame->pixfmt | 1) == CSRI_F__RGB
+				|| frame->pixfmt == CSRI_F_RGB) {
+				unsigned char tmp = c[2];
+				c[2] = c[0]; 
+				c[0] = tmp;
+			}
+			bpp = frame->pixfmt >= 0x200 ? 3 : 4;
+
+			dst = frame->planes[0]
+				+ img->dst_y * frame->strides[0]
+				+ img->dst_x * bpp;
+			if (frame->pixfmt & 1)
+				dst++;
+			src = img->bitmap;
+
+			src_d = img->stride - img->w;
+			dst_d = frame->strides[0] - img->w * bpp;
+			endy = src + img->h * img->stride;
+
+			while (src != endy) {
+				endx = src + img->w;
+				while (src != endx) {
+					/* src[x]: 0..255, alpha: 1..256 (see above)
+					 * -> src[x]*alpha: 0<<8..255<<8
+					 * -> need 1..256 for mult => +1
+					 */
+					unsigned s = ((*src++ * alpha) >> 8) + 1;
+					unsigned d = 257 - s;
+					/* c[0]: 0.255, s/d: 1..256 */
+					dst[0] = (s*c[0] + d*dst[0]) >> 8;
+					dst[1] = (s*c[1] + d*dst[1]) >> 8;
+					dst[2] = (s*c[2] + d*dst[2]) >> 8;
+					dst += bpp;
+				}
+				dst += dst_d;
+				src += src_d;
+			}
+			img = img->next;
+		}
+	}
+
+	if (render_result.imgs_rgba)
+		ass_free_images_rgba(render_result.imgs_rgba);
 }
 
 static csri_inst *libass_init_stream(csri_rend *renderer,
