@@ -28,10 +28,10 @@
 					"Alpha Scale" : 1.0,
 					"Hue Offset" : 85.0,
 					"Hue Scale" : 0.0,
-					"Lightness Offset" : 0.0,
-					"Lightness Scale" : 0.0,
 					"Saturation Offset" : 255.0,
-					"Saturation Scale" : 0.0
+					"Saturation Scale" : 0.0,
+					"Lightness Offset" : 0.0,
+					"Lightness Scale" : 200.0
 				}
 			},
 			"Icy Blue" : {
@@ -48,12 +48,12 @@
 				"Normal" : {
 					"Alpha Offset" : 0.0,
 					"Alpha Scale" : 1.0,
-					"Hue Offset" : 188.0,
-					"Hue Scale" : 0.0,
+					"Hue Offset" : 191.0,
+					"Hue Scale" : -128.0,
+					"Saturation Offset" : 127.0,
+					"Saturation Scale" : 128.0,
 					"Lightness Offset" : 0.0,
-					"Lightness Scale" : 1.0,
-					"Saturation Offset" : 88.0,
-					"Saturation Scale" : 0.69999999999999995559
+					"Lightness Scale" : 255.0
 				}
 			}
 		},
