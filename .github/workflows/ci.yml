@@ -3,9 +3,7 @@ name: Meson CI
 on:
   push:
     branches:
-      - master
-      - feature
-      - cibuilds
+      - '**'
   pull_request:
     branches:
       - master

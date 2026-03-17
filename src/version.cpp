@@ -35,16 +35,24 @@
 #include "version.h"
 #include "git_version.h"
 
-namespace {
-static const char kCustomVersionString[] = "Toshi-ban V1.1";
-}
+#ifdef _DEBUG
+	#define DEBUG_SUFFIX " [DEBUG VERSION]"
+#else
+	#define DEBUG_SUFFIX ""
+#endif
+
+#if defined(BUILD_CREDIT) && !TAGGED_RELEASE
+	#define BUILD_CREDIT_SUFFIX ", " BUILD_CREDIT
+#else
+	#define BUILD_CREDIT_SUFFIX ""
+#endif
 
 const char *GetAegisubLongVersionString() {
-	return kCustomVersionString;
+	return BUILD_GIT_VERSION_STRING BUILD_CREDIT_SUFFIX DEBUG_SUFFIX;
 }
 
 const char *GetAegisubShortVersionString() {
-	return kCustomVersionString;
+	return BUILD_GIT_VERSION_STRING DEBUG_SUFFIX;
 }
 
 #ifdef BUILD_CREDIT

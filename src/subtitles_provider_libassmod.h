@@ -23,4 +23,6 @@ namespace agi { class BackgroundRunner; }
 namespace libassmod {
 	std::unique_ptr<SubtitlesProvider> Create(std::string const&, agi::BackgroundRunner *br);
 	void CacheFonts();
+	bool IsAvailable(std::string *error = nullptr);
+	std::string PrimaryLibraryName();
 }

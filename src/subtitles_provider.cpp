@@ -21,11 +21,18 @@
 #include "ass_file.h"
 #include "ass_info.h"
 #include "ass_style.h"
+#include "compat.h"
 #include "factory_manager.h"
 #include "options.h"
 #include "subtitles_provider_csri.h"
 #include "subtitles_provider_libass.h"
 #include "subtitles_provider_libassmod.h"
+
+#include <libaegisub/log.h>
+
+#include <mutex>
+
+#include <wx/log.h>
 
 namespace {
 	struct factory {
@@ -35,6 +42,24 @@ namespace {
 		bool hidden;
 	};
 
+	void WarnLibassmodFallback(std::string const& libassmod_error) {
+		static std::once_flag warned_once;
+		std::call_once(warned_once, [&] {
+			std::string message;
+			if (libassmod_error.find("Could not load libassmod") != std::string::npos) {
+				message = libassmod::PrimaryLibraryName() + " doesn't exist. Falling back to libass.";
+			}
+			else {
+				message = "libassmod unavailable. Falling back to libass.";
+			}
+			if (!libassmod_error.empty())
+				message += " (" + libassmod_error + ")";
+
+			LOG_W("subtitle/provider") << message;
+			wxLogWarning("%s", to_wx(message));
+		});
+	}
+
 	std::vector<factory> const& factories() {
 		static std::vector<factory> factories;
 		if (factories.size()) return factories;
@@ -43,7 +68,11 @@ namespace {
 			factories.push_back(factory{"CSRI/" + subtype, subtype, csri::Create, false});
 #endif
 		factories.push_back(factory{"libass", "", libass::Create, false});
-		factories.push_back(factory{"libassmod", "", libassmod::Create, false});
+		std::string libassmod_error;
+		if (libassmod::IsAvailable(&libassmod_error))
+			factories.push_back(factory{"libassmod", "", libassmod::Create, false});
+		else
+			LOG_D("subtitle/provider") << "libassmod provider hidden: " << libassmod_error;
 		return factories;
 	}
 }
@@ -54,6 +83,13 @@ std::vector<std::string> SubtitlesProviderFactory::GetClasses() {
 
 std::unique_ptr<SubtitlesProvider> SubtitlesProviderFactory::GetProvider(agi::BackgroundRunner *br) {
 	auto preferred = OPT_GET("Subtitle/Provider")->GetString();
+	if (preferred == "libassmod") {
+		std::string libassmod_error;
+		if (!libassmod::IsAvailable(&libassmod_error)) {
+			WarnLibassmodFallback(libassmod_error);
+			preferred = "libass";
+		}
+	}
 	auto sorted = GetSorted(factories(), preferred);
 
 	std::string error;
@@ -71,6 +107,7 @@ std::unique_ptr<SubtitlesProvider> SubtitlesProviderFactory::GetProvider(agi::Ba
 }
 
 void SubtitlesProvider::LoadSubtitles(AssFile *subs, int time) {
+	PrepareSubtitles(subs, time);
 	buffer.clear();
 
 	auto push_header = [&](const char *str) {

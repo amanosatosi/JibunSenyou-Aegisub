@@ -304,6 +304,7 @@ bool SubsController::CanSave() const {
 
 void SubsController::SetFileName(agi::fs::path const& path) {
 	filename = path;
+	context->ass->Filename = path;
 	context->path->SetToken("?script", path.parent_path());
 	config::mru->Add("Subtitle", path);
 	OPT_SET("Path/Last/Subtitles")->SetString(filename.parent_path().string());
@@ -375,13 +376,17 @@ void SubsController::Undo() {
 	commit_id = undo_stack.back().commit_id;
 
 	bool had_video = context->project->VideoProvider() != nullptr;
+	bool was_playing = had_video && context->videoController->IsPlaying();
 	int frame_to_restore = context->videoController->GetFrameN();
 
 	text_selection_connection.Block();
 	undo_stack.back().Apply(context);
 	text_selection_connection.Unblock();
 
-	if (had_video && context->project->VideoProvider())
+	// If undo was triggered during active playback and playback survived Apply(),
+	// avoid JumpToFrame to prevent a stop/restart "bump" in playback.
+	if (had_video && context->project->VideoProvider()
+		&& !(was_playing && context->videoController->IsPlaying()))
 		context->videoController->JumpToFrame(frame_to_restore);
 }
 
@@ -392,13 +397,15 @@ void SubsController::Redo() {
 	commit_id = undo_stack.back().commit_id;
 
 	bool had_video = context->project->VideoProvider() != nullptr;
+	bool was_playing = had_video && context->videoController->IsPlaying();
 	int frame_to_restore = context->videoController->GetFrameN();
 
 	text_selection_connection.Block();
 	undo_stack.back().Apply(context);
 	text_selection_connection.Unblock();
 
-	if (had_video && context->project->VideoProvider())
+	if (had_video && context->project->VideoProvider()
+		&& !(was_playing && context->videoController->IsPlaying()))
 		context->videoController->JumpToFrame(frame_to_restore);
 }
 

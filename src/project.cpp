@@ -209,7 +209,13 @@ void Project::LoadUnloadFiles(ProjectProperties properties) {
 		if (keyframes != keyframes_file)
 			append_file(keyframes, _("Unload keyframes"), _("Load keyframes file: %s"));
 
-		if (wxMessageBox(str, _("(Un)Load files?"), wxYES_NO | wxCENTRE, context->parent) != wxYES)
+		wxMessageDialog linked_files_dialog(
+			context->parent,
+			str,
+			_("(Un)Load files?"),
+			wxYES_NO | wxCENTRE);
+		linked_files_dialog.SetEscapeId(wxID_NO);
+		if (linked_files_dialog.ShowModal() != wxID_YES)
 			return;
 	}
 

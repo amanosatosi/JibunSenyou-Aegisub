@@ -706,6 +706,7 @@ void DialogStyleManager::OnCurrentImport() {
 			_("Resolution mismatch"),
 			wxYES_NO | wxICON_EXCLAMATION | wxCENTER);
 		res_dialog.SetYesNoLabels(_("Continue"), _("Cancel"));
+		res_dialog.SetEscapeId(wxID_NO);
 		if (res_dialog.ShowModal() != wxID_YES)
 			return;
 	}

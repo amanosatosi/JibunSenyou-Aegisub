@@ -102,6 +102,9 @@ void VideoController::JumpToFrame(int n) {
 	if (!provider) return;
 
 	bool was_playing = IsPlaying();
+	AudioPlaybackMode previous_mode = audio_playback_mode;
+	int previous_end_frame = end_frame;
+	int previous_audio_end_ms = audio_playback_end_ms;
 	if (was_playing)
 		Stop();
 
@@ -109,8 +112,25 @@ void VideoController::JumpToFrame(int n) {
 	RequestFrame();
 	Seek(frame_n);
 
-	if (was_playing)
-		Play();
+	if (!was_playing)
+		return;
+
+	if (previous_mode == AudioPlaybackMode::Range) {
+		start_ms = TimeAtFrame(frame_n);
+		if (frame_n >= previous_end_frame || start_ms >= previous_audio_end_ms)
+			return;
+
+		end_frame = previous_end_frame;
+		audio_playback_mode = AudioPlaybackMode::Range;
+		audio_playback_end_ms = previous_audio_end_ms;
+		context->audioController->PlayRange(TimeRange(start_ms, audio_playback_end_ms), playback_speed);
+
+		playback_start_time = std::chrono::steady_clock::now();
+		playback.Start(10);
+		return;
+	}
+
+	Play();
 }
 
 void VideoController::JumpToTime(int ms, agi::vfr::Time end) {

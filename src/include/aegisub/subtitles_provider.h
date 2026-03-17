@@ -44,6 +44,7 @@ struct VideoFrame;
 class SubtitlesProvider {
 	std::vector<char> buffer;
 	virtual void LoadSubtitles(const char *data, size_t len)=0;
+	virtual void PrepareSubtitles(AssFile *, int) { }
 
 public:
 	virtual ~SubtitlesProvider() = default;

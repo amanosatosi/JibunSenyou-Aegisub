@@ -1,4 +1,4 @@
-# aegisub toshi-ban v1.0
+# aegisub toshi-ban v1.1
 
 English [မြန်မာ](https://github.com/amanosatosi/Aegisub_Toshi-ban/blob/main/Readme-MM.md)
 

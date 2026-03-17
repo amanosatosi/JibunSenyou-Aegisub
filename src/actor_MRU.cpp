@@ -340,9 +340,7 @@ bool ActorMRUManager::HandleEnterKey() {
 		final_actor = GetSelectedName();
 	else if (!typed.empty())
 		final_actor = typed;
-	else if (!names_.empty())
-		final_actor = names_.front();
-	// MRU behaviour: prefer explicit selection, then typed text, then entry[0] if text is empty.
+	// Preserve explicit empty actor input: no fallback to MRU entry[0].
 
 	int current_row = owner_->line ? owner_->line->Row : -1;
 	LOG_D("actor/MRU") << "HandleEnterKey applying '" << from_wx(final_actor) << "' on row " << current_row;
