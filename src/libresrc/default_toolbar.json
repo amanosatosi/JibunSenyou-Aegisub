@@ -78,6 +78,7 @@
         "video/tool/clip",
         "video/tool/vector_clip",
         "",
-        "help/video"
+        "help/video",
+        "video/tool/motion_track"
     ]
 }

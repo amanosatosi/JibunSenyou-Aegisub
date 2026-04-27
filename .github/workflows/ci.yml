@@ -41,6 +41,7 @@ jobs:
               -Davisynth=enabled
               -Dbestsource=enabled
               -Dvapoursynth=enabled
+              -Dopencv=enabled
           - name: Windows MSVC Release (wx master)
             os: windows-latest
             msvc: true
@@ -64,6 +65,7 @@ jobs:
               -Dbestsource=enabled
               -Dvapoursynth=enabled
               -Dwx_version='3.3.1'
+              -Dopencv=enabled
           #- {
           #  name: Windows MinGW,
           #  os: windows-latest,
@@ -118,6 +120,22 @@ jobs:
         if: matrix.config.os == 'windows-latest'
         run: |
           choco install ninja innosetup
+
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) {
+            $vcpkgRoot = "C:\vcpkg"
+          }
+          vcpkg install "opencv4[core,calib3d]:x64-windows"
+          $opencvPrefix = Join-Path $vcpkgRoot "installed\x64-windows"
+          "OpenCV_DIR=$opencvPrefix\share\opencv4" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENCV_BIN_DIR=$opencvPrefix\bin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($env:CMAKE_PREFIX_PATH) {
+            "CMAKE_PREFIX_PATH=$opencvPrefix;$env:CMAKE_PREFIX_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            "CMAKE_PREFIX_PATH=$opencvPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          $opencvBin = Join-Path $opencvPrefix "bin"
+          $opencvBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
           $moonscripturl = "https://github.com/leafo/moonscript/releases/download/win32-v0.5.0/moonscript-187bac54ee5a7450013e9c38e005a0e671b76f45.zip"
           mkdir moonscript

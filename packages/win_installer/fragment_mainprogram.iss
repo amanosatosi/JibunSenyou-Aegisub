@@ -22,6 +22,7 @@ Name: "checkforupdates"; Description: "{cm:CheckForUpdates}"; GroupDescription: 
 ; main
 DestDir: {app}; Source: "{#BUILD_ROOT}\aegisub.exe"; Flags: ignoreversion; Components: main
 DestDir: {app}; Source: "{#BUILD_ROOT}\ass.dll"; Flags: ignoreversion; Components: main
+DestDir: {app}; Source: "{#BUILD_ROOT}\opencv-runtime\*.dll"; Flags: ignoreversion skipifsourcedoesntexist; Components: main
 DestDir: {app}; Source: "{#INSTALLER_DIR}\license.txt"; Flags: ignoreversion; Components: main
 
 [Icons]

@@ -49,6 +49,10 @@ meson install --no-rebuild --destdir $InstallerDir
 Write-Output 'Gathering files'
 Copy-New-Item $InstallerDir\bin\aegisub.exe  $PortableOutputDir
 Copy-New-Item $InstallerDir\bin\ass.dll  $PortableOutputDir
+Write-Output 'Copying - OpenCV runtime'
+$OpenCVRuntimeSetup = Join-Path $SourceRoot "tools\copy-opencv-runtime.ps1"
+& $OpenCVRuntimeSetup -DestinationDir $PortableOutputDir
+if(!$?) { Exit $LASTEXITCODE }
 
 Write-Output 'Copying - translations'
 Copy-New-Items "$InstallerDir\share\locale\*"  "$PortableOutputDir\locale" -Recurse

@@ -318,6 +318,22 @@ if get_option('vapoursynth').enabled()
     dep_avail += 'VapourSynth'
 endif
 
+opencv_opt = get_option('opencv')
+if not opencv_opt.disabled()
+    opencv_dep = dependency('OpenCV', method: 'cmake', required: false)
+    if not opencv_dep.found()
+        opencv_dep = dependency('opencv4', required: false)
+    endif
+
+    if opencv_dep.found()
+        deps += opencv_dep
+        conf.set('WITH_OPENCV', 1)
+        dep_avail += 'OpenCV'
+    elif opencv_opt.enabled()
+        error('OpenCV enabled but not found')
+    endif
+endif
+
 if host_machine.system() == 'windows'
     if not get_option('directsound').disabled()
         dsound_dep = cc.find_library('dsound', required: get_option('directsound'))

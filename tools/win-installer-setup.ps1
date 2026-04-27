@@ -175,6 +175,12 @@ Set-Location $BuildRoot
 meson compile aegisub-gmo
 if(!$?) { Exit $LASTEXITCODE }
 
+# OpenCV runtime DLLs for Motion Track
+$OpenCVRuntimeDir = Join-Path $BuildRoot "opencv-runtime"
+$OpenCVRuntimeSetup = Join-Path $SourceRoot "tools\copy-opencv-runtime.ps1"
+& $OpenCVRuntimeSetup -DestinationDir $OpenCVRuntimeDir
+if(!$?) { Exit $LASTEXITCODE }
+
 # Invoke InnoSetup
 $IssUrl = Join-Path $InstallerDir "aegisub_depctrl.iss"
 iscc $IssUrl
