@@ -139,7 +139,7 @@ public:
 
 class MotionTrackPreviewPanel final : public wxPanel {
 	enum class DragMode {
-		None,
+		NoDrag,
 		Pan,
 		Move,
 		Handle
@@ -151,7 +151,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 	wxPoint2DDouble offset{0.0, 0.0};
 	wxPoint2DDouble last_video_pos{0.0, 0.0};
 	wxPoint last_mouse_pos;
-	DragMode drag_mode = DragMode::None;
+	DragMode drag_mode = DragMode::NoDrag;
 
 	wxPoint2DDouble ImageToScreen(double x, double y) const {
 		return {offset.m_x + x * scale, offset.m_y + y * scale};
@@ -320,13 +320,13 @@ class MotionTrackPreviewPanel final : public wxPanel {
 		}
 
 		if (evt.LeftUp() || evt.MiddleUp()) {
-			drag_mode = DragMode::None;
+			drag_mode = DragMode::NoDrag;
 			if (HasCapture())
 				ReleaseMouse();
 			return;
 		}
 
-		if (evt.Dragging() && drag_mode != DragMode::None) {
+		if (evt.Dragging() && drag_mode != DragMode::NoDrag) {
 			if (drag_mode == DragMode::Pan) {
 				wxPoint pos = evt.GetPosition();
 				offset.m_x += pos.x - last_mouse_pos.x;
