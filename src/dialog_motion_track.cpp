@@ -55,6 +55,7 @@ bool ModeHasSize(motion_tracking::MotionTrackMode mode) {
 bool ModeHasRotation(motion_tracking::MotionTrackMode mode) {
 	return mode == motion_tracking::MotionTrackMode::PositionRotation || mode == motion_tracking::MotionTrackMode::PositionSizeRotation;
 }
+}
 
 class MotionTrackFrameBar final : public wxPanel {
 	DialogMotionTrack *dialog = nullptr;
@@ -130,7 +131,9 @@ public:
 	, dialog(dialog) {
 		SetBackgroundStyle(wxBG_STYLE_PAINT);
 		Bind(wxEVT_PAINT, &MotionTrackFrameBar::OnPaint, this);
-		Bind(wxEVT_MOUSE_EVENTS, &MotionTrackFrameBar::OnMouse, this);
+		Bind(wxEVT_LEFT_DOWN, &MotionTrackFrameBar::OnMouse, this);
+		Bind(wxEVT_LEFT_UP, &MotionTrackFrameBar::OnMouse, this);
+		Bind(wxEVT_MOTION, &MotionTrackFrameBar::OnMouse, this);
 	}
 };
 
@@ -402,7 +405,11 @@ public:
 		SetBackgroundStyle(wxBG_STYLE_PAINT);
 		SetMinSize(wxSize(320, 220));
 		Bind(wxEVT_PAINT, &MotionTrackPreviewPanel::OnPaint, this);
-		Bind(wxEVT_MOUSE_EVENTS, &MotionTrackPreviewPanel::OnMouse, this);
+		Bind(wxEVT_LEFT_DOWN, &MotionTrackPreviewPanel::OnMouse, this);
+		Bind(wxEVT_LEFT_UP, &MotionTrackPreviewPanel::OnMouse, this);
+		Bind(wxEVT_MIDDLE_DOWN, &MotionTrackPreviewPanel::OnMouse, this);
+		Bind(wxEVT_MIDDLE_UP, &MotionTrackPreviewPanel::OnMouse, this);
+		Bind(wxEVT_MOTION, &MotionTrackPreviewPanel::OnMouse, this);
 		Bind(wxEVT_MOUSEWHEEL, &MotionTrackPreviewPanel::OnMouseWheel, this);
 		Bind(wxEVT_LEFT_DCLICK, &MotionTrackPreviewPanel::OnDoubleClick, this);
 		Bind(wxEVT_KEY_DOWN, &MotionTrackPreviewPanel::OnKeyDown, this);
@@ -495,7 +502,6 @@ public:
 		Bind(wxEVT_PAINT, &MotionTrackGraphPanel::OnPaint, this);
 	}
 };
-}
 
 DialogMotionTrack::DialogMotionTrack(agi::Context *c)
 : wxDialog(c->parent, -1, _("Motion Track"), wxDefaultPosition, wxSize(780, 640), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER | wxMAXIMIZE_BOX | wxMINIMIZE_BOX)
