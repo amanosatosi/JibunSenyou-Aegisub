@@ -48,12 +48,12 @@ int SmoothingRadius(MotionTrackSmoothing smoothing) {
 	}
 }
 
-double EmaAlpha(MotionTrackSmoothing smoothing) {
+std::vector<double> SmoothingKernel(MotionTrackSmoothing smoothing) {
 	switch (smoothing) {
-		case MotionTrackSmoothing::Light: return 0.60;
-		case MotionTrackSmoothing::Medium: return 0.45;
-		case MotionTrackSmoothing::Heavy: return 0.30;
-		default: return 1.0;
+		case MotionTrackSmoothing::Light: return {0.25, 0.50, 0.25};
+		case MotionTrackSmoothing::Medium: return {0.10, 0.20, 0.40, 0.20, 0.10};
+		case MotionTrackSmoothing::Heavy: return {0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05};
+		default: return {1.0};
 	}
 }
 
@@ -74,13 +74,25 @@ std::vector<double> MedianSmooth(std::vector<double> const& values, int radius) 
 	return out;
 }
 
-std::vector<double> EmaSmooth(std::vector<double> values, double alpha) {
-	if (values.size() < 2 || alpha >= 1.0)
+std::vector<double> CenteredWeightedSmooth(std::vector<double> const& values, std::vector<double> const& kernel) {
+	if (kernel.size() < 3 || values.size() < 3)
 		return values;
 
-	for (size_t i = 1; i < values.size(); ++i)
-		values[i] = alpha * values[i] + (1.0 - alpha) * values[i - 1];
-	return values;
+	std::vector<double> out(values.size());
+	int radius = static_cast<int>(kernel.size() / 2);
+	for (size_t i = 0; i < values.size(); ++i) {
+		double total = 0.0;
+		double weight_sum = 0.0;
+		for (size_t k = 0; k < kernel.size(); ++k) {
+			int sample = static_cast<int>(i) + static_cast<int>(k) - radius;
+			if (sample < 0 || sample >= static_cast<int>(values.size()))
+				continue;
+			total += values[sample] * kernel[k];
+			weight_sum += kernel[k];
+		}
+		out[i] = weight_sum > 0.0 ? total / weight_sum : values[i];
+	}
+	return out;
 }
 
 void ApplyDeadzones(
@@ -109,15 +121,37 @@ void ApplyDeadzones(
 	}
 }
 
+void RestoreEndpoints(
+	std::vector<double>& x,
+	std::vector<double>& y,
+	std::vector<double>& scale_x,
+	std::vector<double>& scale_y,
+	std::vector<double>& rotation,
+	std::vector<MotionTrackFrame> const& frames) {
+
+	if (frames.empty())
+		return;
+
+	size_t last = frames.size() - 1;
+	x.front() = frames.front().x;
+	y.front() = frames.front().y;
+	scale_x.front() = frames.front().scale_x;
+	scale_y.front() = frames.front().scale_y;
+	rotation.front() = frames.front().rotation_deg;
+
+	x[last] = frames[last].x;
+	y[last] = frames[last].y;
+	scale_x[last] = frames[last].scale_x;
+	scale_y[last] = frames[last].scale_y;
+	rotation[last] = frames[last].rotation_deg;
+}
+
 std::vector<MotionTrackFrame> StabilizeFrames(std::vector<MotionTrackFrame> frames, MotionTrackExportSettings const& settings) {
 	if (frames.size() < 2)
 		return frames;
 
 	for (size_t i = 1; i < frames.size(); ++i)
 		frames[i].rotation_deg = frames[i - 1].rotation_deg + RotationDelta(frames[i].rotation_deg, frames[i - 1].rotation_deg);
-
-	if (settings.smoothing == MotionTrackSmoothing::Off)
-		return frames;
 
 	std::vector<double> x;
 	std::vector<double> y;
@@ -138,13 +172,22 @@ std::vector<MotionTrackFrame> StabilizeFrames(std::vector<MotionTrackFrame> fram
 	}
 
 	int radius = SmoothingRadius(settings.smoothing);
-	double alpha = EmaAlpha(settings.smoothing);
-	x = EmaSmooth(MedianSmooth(x, radius), alpha);
-	y = EmaSmooth(MedianSmooth(y, radius), alpha);
-	scale_x = EmaSmooth(MedianSmooth(scale_x, radius), alpha);
-	scale_y = EmaSmooth(MedianSmooth(scale_y, radius), alpha);
-	rotation = EmaSmooth(MedianSmooth(rotation, radius), alpha);
+	auto kernel = SmoothingKernel(settings.smoothing);
+	if (settings.smoothing != MotionTrackSmoothing::Off) {
+		// Offline centered smoothing avoids the frame delay caused by causal filters.
+		x = CenteredWeightedSmooth(MedianSmooth(x, radius), kernel);
+		y = CenteredWeightedSmooth(MedianSmooth(y, radius), kernel);
+		scale_x = CenteredWeightedSmooth(MedianSmooth(scale_x, radius), kernel);
+		scale_y = CenteredWeightedSmooth(MedianSmooth(scale_y, radius), kernel);
+		rotation = CenteredWeightedSmooth(MedianSmooth(rotation, radius), kernel);
+	}
+
+	if (settings.preserve_endpoints)
+		RestoreEndpoints(x, y, scale_x, scale_y, rotation, frames);
+
 	ApplyDeadzones(x, y, scale_x, scale_y, rotation, settings);
+	if (settings.preserve_endpoints)
+		RestoreEndpoints(x, y, scale_x, scale_y, rotation, frames);
 
 	for (size_t i = 0; i < frames.size(); ++i) {
 		frames[i].x = x[i];
@@ -159,8 +202,12 @@ std::vector<MotionTrackFrame> StabilizeFrames(std::vector<MotionTrackFrame> fram
 }
 }
 
+std::vector<MotionTrackFrame> StabilizeMotionTrackFrames(MotionTrackResult const& result, MotionTrackExportSettings settings) {
+	return StabilizeFrames(SortedFrames(result), settings);
+}
+
 std::string ExportAfterEffectsKeyframes(MotionTrackResult const& result, int first_frame, MotionTrackExportSettings settings) {
-	auto frames = StabilizeFrames(SortedFrames(result), settings);
+	auto frames = StabilizeMotionTrackFrames(result, settings);
 	if (first_frame < 0 && !frames.empty())
 		first_frame = frames.front().frame;
 	if (first_frame < 0)

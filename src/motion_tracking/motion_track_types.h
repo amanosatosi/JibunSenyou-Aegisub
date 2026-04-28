@@ -63,6 +63,7 @@ struct MotionTrackSettings {
 	bool prepass = true;
 	double correlation_threshold = 0.75;
 	MotionTrackSmoothing smoothing = MotionTrackSmoothing::Medium;
+	bool preserve_endpoints = true;
 };
 
 struct MotionTrackResult {

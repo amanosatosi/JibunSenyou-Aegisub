@@ -45,6 +45,7 @@ class DialogMotionTrack final : public wxDialog {
 	wxSpinCtrlDouble *threshold_ctrl = nullptr;
 	wxCheckBox *normalize_check = nullptr;
 	wxCheckBox *prepass_check = nullptr;
+	wxCheckBox *preserve_endpoints_check = nullptr;
 	wxChoice *base_choice = nullptr;
 	wxChoice *mode_choice = nullptr;
 	wxChoice *smoothing_choice = nullptr;
@@ -89,6 +90,8 @@ public:
 	int GetPreviewFrame() const { return preview_frame; }
 	wxImage const& GetPreviewImage() const { return preview_image; }
 	motion_tracking::MotionTrackResult const& GetResult() const { return result; }
+	motion_tracking::MotionTrackSmoothing GetSmoothing() const { return settings.smoothing; }
+	bool GetPreserveEndpoints() const { return settings.preserve_endpoints; }
 	bool HasCurrentMarker() const;
 	motion_tracking::MotionTrackMarker GetCurrentMarker() const;
 	void SetCurrentMarker(motion_tracking::MotionTrackMarker marker);

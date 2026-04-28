@@ -542,7 +542,10 @@ class MotionTrackGraphPanel final : public wxPanel {
 		dc.Clear();
 
 		auto frames = dialog->GetResult().frames;
-		std::sort(frames.begin(), frames.end(), [](auto const& a, auto const& b) { return a.frame < b.frame; });
+		motion_tracking::MotionTrackExportSettings export_settings;
+		export_settings.smoothing = dialog->GetSmoothing();
+		export_settings.preserve_endpoints = dialog->GetPreserveEndpoints();
+		frames = motion_tracking::StabilizeMotionTrackFrames(dialog->GetResult(), export_settings);
 
 		wxSize size = GetClientSize();
 		wxRect plot(44, 12, std::max(1, size.x - 58), std::max(1, size.y - 34));
@@ -712,9 +715,13 @@ void DialogMotionTrack::CreateControls() {
 	smoothing_choice->Append(_("Off"));
 	smoothing_choice->Append(_("Light"));
 	smoothing_choice->Append(_("Medium"));
-	smoothing_choice->Append(_("Heavy"));
+	smoothing_choice->Append(_("Strong"));
 	smoothing_choice->SetSelection(2);
-	mode_row->Add(smoothing_choice, 0);
+	mode_row->Add(smoothing_choice, 0, wxRIGHT, 8);
+	preserve_endpoints_check = new wxCheckBox(this, -1, _("Preserve endpoints"));
+	preserve_endpoints_check->SetValue(settings.preserve_endpoints);
+	preserve_endpoints_check->SetToolTip(_("Keep first and last tracked frame fixed while smoothing the frames between them."));
+	mode_row->Add(preserve_endpoints_check, 0, wxALIGN_CENTER_VERTICAL);
 	controls->Add(mode_row, 0, wxBOTTOM, 2);
 	main_sizer->Add(controls, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
@@ -763,6 +770,7 @@ void DialogMotionTrack::BindControls() {
 		update_settings();
 	});
 	smoothing_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
+	preserve_endpoints_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { update_settings(); });
 
 	track_to_start->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackRange(settings.start_frame); });
 	track_previous->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackOne(current_frame - 1); });
@@ -778,6 +786,7 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 	settings.correlation_threshold = std::clamp(threshold_ctrl->GetValue(), 0.0, 1.0);
 	settings.brightness_normalize = normalize_check->IsChecked();
 	settings.prepass = prepass_check->IsChecked();
+	settings.preserve_endpoints = preserve_endpoints_check->IsChecked();
 
 	settings.base = base_choice->GetSelection() == 1 ? motion_tracking::MotionTrackBase::FirstFrame : motion_tracking::MotionTrackBase::PreviousFrame;
 
@@ -795,6 +804,8 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 		default: settings.smoothing = motion_tracking::MotionTrackSmoothing::Medium; break;
 	}
 	UpdatePrepassControls();
+	if (graph)
+		graph->Refresh(false);
 }
 
 void DialogMotionTrack::UpdatePrepassControls() {
@@ -1022,6 +1033,7 @@ void DialogMotionTrack::CopyData() {
 	}
 	motion_tracking::MotionTrackExportSettings export_settings;
 	export_settings.smoothing = settings.smoothing;
+	export_settings.preserve_endpoints = settings.preserve_endpoints;
 	SetClipboard(motion_tracking::ExportAfterEffectsKeyframes(result, settings.start_frame, export_settings));
 }
 
@@ -1049,6 +1061,7 @@ void DialogMotionTrack::SaveData() {
 	}
 	motion_tracking::MotionTrackExportSettings export_settings;
 	export_settings.smoothing = settings.smoothing;
+	export_settings.preserve_endpoints = settings.preserve_endpoints;
 	file << motion_tracking::ExportAfterEffectsKeyframes(result, settings.start_frame, export_settings);
 }
 
