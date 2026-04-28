@@ -120,10 +120,14 @@ if (!(Test-Path BestSource)) {
 if (!(Test-Path SCXVid)) {
 	$scxDir = New-Item -ItemType Directory SCXVid
 	Set-Location $scxDir
-	$scxReleases = Invoke-WebRequest "https://api.github.com/repos/dubhatervapoursynth/vapoursynth-scxvid/releases/latest" -Headers $GitHeaders -UseBasicParsing | ConvertFrom-Json
-	$scxAsset = $scxReleases.assets | Where-Object { $_.name -eq "vapoursynth-scxvid-v1-win64.7z" } | Select-Object -First 1
+	$scxReleases = Invoke-WebRequest "https://api.github.com/repos/dubhatervapoursynth/vapoursynth-scxvid/releases?per_page=20" -Headers $GitHeaders -UseBasicParsing | ConvertFrom-Json
+	$scxAsset = $null
+	foreach ($scxRelease in $scxReleases) {
+		$scxAsset = $scxRelease.assets | Where-Object { $_.name -like "*win64*.7z" } | Select-Object -First 1
+		if ($scxAsset) { break }
+	}
 	if (!$scxAsset) {
-		throw "Could not find vapoursynth-scxvid-v1-win64.7z in the latest SCXVid release assets."
+		throw "Could not find a Windows x64 SCXVid archive in the published release assets."
 	}
 	$scxUrl = $scxAsset.browser_download_url
 	Invoke-WebRequestWithRetry -Uri $scxUrl -OutFile vapoursynth-scxvid-v1-win64.7z
