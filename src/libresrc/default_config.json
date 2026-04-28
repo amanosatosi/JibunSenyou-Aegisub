@@ -514,6 +514,13 @@
 		"Kanji Timer" : {
 			"Interpolation" : true
 		},
+		"Motion Track" : {
+			"Last" : {
+				"X" : -1,
+				"Y" : -1
+			},
+			"Maximized" : false
+		},
 		"Paste Lines Over" : {
 			"Fields" : [
 				{"bool" : false},
