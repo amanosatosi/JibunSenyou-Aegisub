@@ -26,6 +26,7 @@
 #include <string>
 
 #include <wx/button.h>
+#include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/dcbuffer.h>
 #include <wx/filedlg.h>
@@ -603,6 +604,14 @@ void DialogMotionTrack::CreateControls() {
 	settings_row->Add(new wxStaticText(this, -1, _("Search:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
 	search_ctrl = new wxSpinCtrl(this, -1, "", wxDefaultPosition, wxSize(70, -1), wxSP_ARROW_KEYS, 4, 4000, settings.search_size);
 	settings_row->Add(search_ctrl, 0, wxRIGHT, 8);
+	settings_row->Add(new wxStaticText(this, -1, _("Threshold:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+	threshold_ctrl = new wxSpinCtrlDouble(this, -1, "", wxDefaultPosition, wxSize(70, -1), wxSP_ARROW_KEYS, 0.0, 1.0, settings.correlation_threshold, 0.05);
+	threshold_ctrl->SetDigits(2);
+	settings_row->Add(threshold_ctrl, 0, wxRIGHT, 8);
+	normalize_check = new wxCheckBox(this, -1, _("Normalize"));
+	normalize_check->SetValue(settings.brightness_normalize);
+	normalize_check->SetToolTip(_("Normalize pattern and search patches before correlation matching"));
+	settings_row->Add(normalize_check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
 	settings_row->Add(new wxStaticText(this, -1, _("Base:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
 	base_choice = new wxChoice(this, -1);
 	base_choice->Append(_("Previous Frame"));
@@ -619,7 +628,15 @@ void DialogMotionTrack::CreateControls() {
 	mode_choice->Append(_("Position + Size"));
 	mode_choice->Append(_("Position + Size + Rotation"));
 	mode_choice->SetSelection(3);
-	mode_row->Add(mode_choice, 0);
+	mode_row->Add(mode_choice, 0, wxRIGHT, 8);
+	mode_row->Add(new wxStaticText(this, -1, _("Smoothing:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+	smoothing_choice = new wxChoice(this, -1);
+	smoothing_choice->Append(_("Off"));
+	smoothing_choice->Append(_("Light"));
+	smoothing_choice->Append(_("Medium"));
+	smoothing_choice->Append(_("Heavy"));
+	smoothing_choice->SetSelection(2);
+	mode_row->Add(smoothing_choice, 0);
 	controls->Add(mode_row, 0, wxBOTTOM, 2);
 	main_sizer->Add(controls, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
@@ -651,11 +668,14 @@ void DialogMotionTrack::CreateControls() {
 }
 
 void DialogMotionTrack::BindControls() {
-	auto update_settings = [=](wxCommandEvent &) { UpdateSettingsFromControls(); };
-	square_ctrl->Bind(wxEVT_SPINCTRL, update_settings);
-	search_ctrl->Bind(wxEVT_SPINCTRL, update_settings);
-	base_choice->Bind(wxEVT_CHOICE, update_settings);
-	mode_choice->Bind(wxEVT_CHOICE, update_settings);
+	auto update_settings = [=] { UpdateSettingsFromControls(); };
+	square_ctrl->Bind(wxEVT_SPINCTRL, [=](wxSpinEvent &) { update_settings(); });
+	search_ctrl->Bind(wxEVT_SPINCTRL, [=](wxSpinEvent &) { update_settings(); });
+	threshold_ctrl->Bind(wxEVT_SPINCTRLDOUBLE, [=](wxSpinDoubleEvent &) { update_settings(); });
+	normalize_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { update_settings(); });
+	base_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
+	mode_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
+	smoothing_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
 
 	track_to_start->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackRange(settings.start_frame); });
 	track_previous->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackOne(current_frame - 1); });
@@ -668,6 +688,8 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 	settings.search_size = std::max(search_ctrl->GetValue(), settings.square_size);
 	if (search_ctrl->GetValue() != settings.search_size)
 		search_ctrl->SetValue(settings.search_size);
+	settings.correlation_threshold = std::clamp(threshold_ctrl->GetValue(), 0.0, 1.0);
+	settings.brightness_normalize = normalize_check->IsChecked();
 
 	settings.base = base_choice->GetSelection() == 1 ? motion_tracking::MotionTrackBase::FirstFrame : motion_tracking::MotionTrackBase::PreviousFrame;
 
@@ -676,6 +698,13 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 		case 1: settings.mode = motion_tracking::MotionTrackMode::PositionRotation; break;
 		case 2: settings.mode = motion_tracking::MotionTrackMode::PositionSize; break;
 		default: settings.mode = motion_tracking::MotionTrackMode::PositionSizeRotation; break;
+	}
+
+	switch (smoothing_choice->GetSelection()) {
+		case 0: settings.smoothing = motion_tracking::MotionTrackSmoothing::Off; break;
+		case 1: settings.smoothing = motion_tracking::MotionTrackSmoothing::Light; break;
+		case 3: settings.smoothing = motion_tracking::MotionTrackSmoothing::Heavy; break;
+		default: settings.smoothing = motion_tracking::MotionTrackSmoothing::Medium; break;
 	}
 }
 
@@ -825,7 +854,8 @@ void DialogMotionTrack::TrackOne(int target_frame) {
 	}
 
 	int source_frame = current_frame;
-	auto source_marker = GetCurrentMarker();
+	auto search_marker = GetCurrentMarker();
+	auto source_marker = search_marker;
 	if (settings.base == motion_tracking::MotionTrackBase::FirstFrame && base_frame >= 0 && markers.count(base_frame)) {
 		source_frame = base_frame;
 		source_marker = markers[base_frame];
@@ -833,12 +863,12 @@ void DialogMotionTrack::TrackOne(int target_frame) {
 
 	try {
 		motion_tracking::MotionTrackEngine engine;
-		auto step = engine.TrackFrame(GetTrackImage(source_frame), GetTrackImage(target_frame), source_marker, target_frame, settings.mode, settings.brightness_normalize);
+		auto step = engine.TrackFrame(GetTrackImage(source_frame), GetTrackImage(target_frame), source_marker, search_marker, target_frame, settings);
 
 		if (!ModeHasSize(settings.mode))
-			step.marker.size = source_marker.size;
+			step.marker.size = search_marker.size;
 		if (!ModeHasRotation(settings.mode))
-			step.marker.rotation_deg = source_marker.rotation_deg;
+			step.marker.rotation_deg = search_marker.rotation_deg;
 		step.marker.search_size = std::max(step.marker.search_size, step.marker.size);
 
 		markers[target_frame] = step.marker;
@@ -875,7 +905,9 @@ void DialogMotionTrack::CopyData() {
 		wxMessageBox(_("No motion data to copy."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
 		return;
 	}
-	SetClipboard(motion_tracking::ExportAfterEffectsKeyframes(result, settings.start_frame));
+	motion_tracking::MotionTrackExportSettings export_settings;
+	export_settings.smoothing = settings.smoothing;
+	SetClipboard(motion_tracking::ExportAfterEffectsKeyframes(result, settings.start_frame, export_settings));
 }
 
 void DialogMotionTrack::SaveData() {
@@ -900,7 +932,9 @@ void DialogMotionTrack::SaveData() {
 		wxMessageBox(_("Could not open the selected file for writing."), _("Motion Track"), wxOK | wxICON_ERROR, this);
 		return;
 	}
-	file << motion_tracking::ExportAfterEffectsKeyframes(result, settings.start_frame);
+	motion_tracking::MotionTrackExportSettings export_settings;
+	export_settings.smoothing = settings.smoothing;
+	file << motion_tracking::ExportAfterEffectsKeyframes(result, settings.start_frame, export_settings);
 }
 
 void DialogMotionTrack::ClearData() {

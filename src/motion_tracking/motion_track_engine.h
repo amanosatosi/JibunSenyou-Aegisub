@@ -11,10 +11,10 @@ public:
 	MotionTrackStepResult TrackFrame(
 		MotionTrackImage const& from,
 		MotionTrackImage const& to,
-		MotionTrackMarker const& marker,
+		MotionTrackMarker const& pattern_marker,
+		MotionTrackMarker const& search_marker,
 		int target_frame,
-		MotionTrackMode mode,
-		bool brightness_normalize) const;
+		MotionTrackSettings const& settings) const;
 };
 
 } // namespace motion_tracking

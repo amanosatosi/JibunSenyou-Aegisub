@@ -6,6 +6,16 @@
 
 namespace motion_tracking {
 
-std::string ExportAfterEffectsKeyframes(MotionTrackResult const& result, int first_frame = -1);
+struct MotionTrackExportSettings {
+	MotionTrackSmoothing smoothing = MotionTrackSmoothing::Medium;
+	double position_deadzone = 0.25;
+	double scale_deadzone = 0.0015;
+	double rotation_deadzone = 0.10;
+};
+
+std::string ExportAfterEffectsKeyframes(
+	MotionTrackResult const& result,
+	int first_frame = -1,
+	MotionTrackExportSettings settings = MotionTrackExportSettings());
 
 } // namespace motion_tracking

@@ -24,6 +24,13 @@ enum class MotionTrackBase {
 	FirstFrame
 };
 
+enum class MotionTrackSmoothing {
+	Off,
+	Light,
+	Medium,
+	Heavy
+};
+
 enum class MotionTrackState {
 	Untracked,
 	Tracked,
@@ -53,6 +60,8 @@ struct MotionTrackSettings {
 	MotionTrackMode mode = MotionTrackMode::PositionSizeRotation;
 	MotionTrackBase base = MotionTrackBase::PreviousFrame;
 	bool brightness_normalize = true;
+	double correlation_threshold = 0.75;
+	MotionTrackSmoothing smoothing = MotionTrackSmoothing::Medium;
 };
 
 struct MotionTrackResult {

@@ -16,8 +16,10 @@ class MotionTrackGraphPanel;
 class MotionTrackPreviewPanel;
 class PersistLocation;
 class wxButton;
+class wxCheckBox;
 class wxChoice;
 class wxSpinCtrl;
+class wxSpinCtrlDouble;
 class wxStaticText;
 namespace agi { struct Context; }
 
@@ -38,8 +40,11 @@ class DialogMotionTrack final : public wxDialog {
 	wxStaticText *current_label = nullptr;
 	wxSpinCtrl *square_ctrl = nullptr;
 	wxSpinCtrl *search_ctrl = nullptr;
+	wxSpinCtrlDouble *threshold_ctrl = nullptr;
+	wxCheckBox *normalize_check = nullptr;
 	wxChoice *base_choice = nullptr;
 	wxChoice *mode_choice = nullptr;
+	wxChoice *smoothing_choice = nullptr;
 	wxButton *track_to_start = nullptr;
 	wxButton *track_previous = nullptr;
 	wxButton *track_next = nullptr;
