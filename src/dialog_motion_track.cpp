@@ -686,6 +686,10 @@ void DialogMotionTrack::CreateControls() {
 	normalize_check->SetValue(settings.brightness_normalize);
 	normalize_check->SetToolTip(_("Normalize pattern and search patches before correlation matching"));
 	settings_row->Add(normalize_check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+	prepass_check = new wxCheckBox(this, -1, _("Prepass"));
+	prepass_check->SetValue(settings.prepass);
+	prepass_check->SetToolTip(_("First track position only, then refine size/rotation from that result."));
+	settings_row->Add(prepass_check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
 	settings_row->Add(new wxStaticText(this, -1, _("Base:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
 	base_choice = new wxChoice(this, -1);
 	base_choice->Append(_("Previous Frame"));
@@ -738,6 +742,7 @@ void DialogMotionTrack::CreateControls() {
 	clear->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { ClearData(); });
 
 	SetSizer(main_sizer);
+	UpdatePrepassControls();
 	UpdateLabels();
 }
 
@@ -747,8 +752,16 @@ void DialogMotionTrack::BindControls() {
 	search_ctrl->Bind(wxEVT_SPINCTRL, [=](wxSpinEvent &) { update_settings(); });
 	threshold_ctrl->Bind(wxEVT_SPINCTRLDOUBLE, [=](wxSpinDoubleEvent &) { update_settings(); });
 	normalize_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { update_settings(); });
+	prepass_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) {
+		prepass_user_set = true;
+		update_settings();
+	});
 	base_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
-	mode_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
+	mode_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) {
+		if (!prepass_user_set && mode_choice->GetSelection() != 0)
+			prepass_check->SetValue(true);
+		update_settings();
+	});
 	smoothing_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
 
 	track_to_start->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackRange(settings.start_frame); });
@@ -764,6 +777,7 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 		search_ctrl->SetValue(settings.search_size);
 	settings.correlation_threshold = std::clamp(threshold_ctrl->GetValue(), 0.0, 1.0);
 	settings.brightness_normalize = normalize_check->IsChecked();
+	settings.prepass = prepass_check->IsChecked();
 
 	settings.base = base_choice->GetSelection() == 1 ? motion_tracking::MotionTrackBase::FirstFrame : motion_tracking::MotionTrackBase::PreviousFrame;
 
@@ -780,6 +794,15 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 		case 3: settings.smoothing = motion_tracking::MotionTrackSmoothing::Heavy; break;
 		default: settings.smoothing = motion_tracking::MotionTrackSmoothing::Medium; break;
 	}
+	UpdatePrepassControls();
+}
+
+void DialogMotionTrack::UpdatePrepassControls() {
+	if (!prepass_check)
+		return;
+
+	bool position_only = mode_choice && mode_choice->GetSelection() == 0;
+	prepass_check->Enable(!position_only);
 }
 
 void DialogMotionTrack::UpdateLabels() {

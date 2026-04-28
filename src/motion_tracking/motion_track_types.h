@@ -60,6 +60,7 @@ struct MotionTrackSettings {
 	MotionTrackMode mode = MotionTrackMode::PositionSizeRotation;
 	MotionTrackBase base = MotionTrackBase::PreviousFrame;
 	bool brightness_normalize = true;
+	bool prepass = true;
 	double correlation_threshold = 0.75;
 	MotionTrackSmoothing smoothing = MotionTrackSmoothing::Medium;
 };

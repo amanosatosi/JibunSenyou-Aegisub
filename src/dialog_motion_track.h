@@ -34,6 +34,7 @@ class DialogMotionTrack final : public wxDialog {
 	int preview_frame = -1;
 	int base_frame = -1;
 	double initial_marker_size = 80.0;
+	bool prepass_user_set = false;
 
 	wxImage preview_image;
 
@@ -43,6 +44,7 @@ class DialogMotionTrack final : public wxDialog {
 	wxSpinCtrl *search_ctrl = nullptr;
 	wxSpinCtrlDouble *threshold_ctrl = nullptr;
 	wxCheckBox *normalize_check = nullptr;
+	wxCheckBox *prepass_check = nullptr;
 	wxChoice *base_choice = nullptr;
 	wxChoice *mode_choice = nullptr;
 	wxChoice *smoothing_choice = nullptr;
@@ -61,6 +63,7 @@ class DialogMotionTrack final : public wxDialog {
 	void CreateControls();
 	void BindControls();
 	void UpdateSettingsFromControls();
+	void UpdatePrepassControls();
 	void UpdateLabels();
 	void UpdatePanels();
 	void RefreshPreview();

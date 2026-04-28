@@ -23,6 +23,10 @@ bool HasSize(MotionTrackMode mode) {
 	return mode == MotionTrackMode::PositionSize || mode == MotionTrackMode::PositionSizeRotation;
 }
 
+bool HasFullModel(MotionTrackMode mode) {
+	return HasRotation(mode) || HasSize(mode);
+}
+
 double NormalizeAngleDelta(double delta) {
 	while (delta > 180.0)
 		delta -= 360.0;
@@ -63,6 +67,8 @@ struct TemplateMatchResult {
 
 struct AffineRefinement {
 	bool valid = false;
+	double cx = 0.0;
+	double cy = 0.0;
 	double size = 0.0;
 	double rotation_deg = 0.0;
 	double confidence = 0.0;
@@ -261,6 +267,8 @@ AffineRefinement RefineAffine(
 		return refinement;
 
 	refinement.valid = true;
+	refinement.cx = transform.at<double>(0, 0) * pattern_marker.cx + transform.at<double>(0, 1) * pattern_marker.cy + transform.at<double>(0, 2);
+	refinement.cy = transform.at<double>(1, 0) * pattern_marker.cx + transform.at<double>(1, 1) * pattern_marker.cy + transform.at<double>(1, 2);
 	refinement.size = std::max(4.0, pattern_marker.size * scale);
 	refinement.rotation_deg = pattern_marker.rotation_deg + std::atan2(b, a) * 180.0 / pi;
 	refinement.confidence = std::clamp(inlier_ratio * static_cast<double>(good_from.size()) / static_cast<double>(points.size()), 0.0, 1.0);
@@ -273,6 +281,110 @@ MotionTrackStepResult PredictFromPrepass(
 	double confidence) {
 
 	return MakeResult(target_frame, marker, confidence, MotionTrackState::Predicted);
+}
+
+void ClampFrameToPlausibleChange(MotionTrackMarker& marker, MotionTrackMarker const& previous) {
+	double dx = marker.cx - previous.cx;
+	double dy = marker.cy - previous.cy;
+	double jump = std::sqrt(dx * dx + dy * dy);
+	double max_jump = std::max(previous.search_size, previous.size) / 2.0;
+	if (jump > max_jump && jump > 0.0) {
+		double scale = max_jump / jump;
+		marker.cx = previous.cx + dx * scale;
+		marker.cy = previous.cy + dy * scale;
+	}
+
+	double scale_change = marker.size / std::max(4.0, previous.size);
+	if (std::isfinite(scale_change))
+		marker.size = std::max(4.0, previous.size * std::clamp(scale_change, 0.95, 1.05));
+
+	double rotation_change = NormalizeAngleDelta(marker.rotation_deg - previous.rotation_deg);
+	marker.rotation_deg = previous.rotation_deg + std::clamp(rotation_change, -5.0, 5.0);
+	marker.search_size = std::max(marker.search_size, marker.size);
+}
+
+MotionTrackStepResult DirectAffineTrack(
+	cv::Mat const& prev_gray,
+	cv::Mat const& next_gray,
+	MotionTrackMarker const& pattern_marker,
+	MotionTrackMarker const& search_marker,
+	int target_frame,
+	MotionTrackSettings const& settings,
+	double high_threshold,
+	double medium_threshold,
+	double low_threshold) {
+
+	double square_size = std::max(4.0, pattern_marker.size);
+	double search_size = std::max(square_size, search_marker.search_size);
+	cv::Rect pattern_rect = ClampRect(pattern_marker.cx, pattern_marker.cy, square_size, prev_gray.cols, prev_gray.rows);
+	cv::Rect search_rect = ClampRect(search_marker.cx, search_marker.cy, search_size, next_gray.cols, next_gray.rows);
+	if (pattern_rect.width < 4 || pattern_rect.height < 4 || search_rect.width < 4 || search_rect.height < 4)
+		return MakeResult(target_frame, search_marker, 0.0, MotionTrackState::Lost);
+
+	cv::Mat mask = cv::Mat::zeros(prev_gray.size(), CV_8UC1);
+	mask(pattern_rect).setTo(255);
+
+	std::vector<cv::Point2f> points;
+	cv::goodFeaturesToTrack(prev_gray, points, 80, 0.01, 4.0, mask, 3, false, 0.04);
+	if (points.size() < 3)
+		return MakeResult(target_frame, search_marker, 0.0, MotionTrackState::Lost);
+
+	std::vector<cv::Point2f> next_points;
+	std::vector<unsigned char> status;
+	std::vector<float> err;
+	cv::calcOpticalFlowPyrLK(prev_gray, next_gray, points, next_points, status, err, cv::Size(21, 21), 3);
+
+	std::vector<cv::Point2f> good_from;
+	std::vector<cv::Point2f> good_to;
+	for (size_t i = 0; i < points.size(); ++i) {
+		if (!status[i])
+			continue;
+		if (!Contains(search_rect, next_points[i]))
+			continue;
+		good_from.push_back(points[i]);
+		good_to.push_back(next_points[i]);
+	}
+
+	if (good_from.size() < 3)
+		return MakeResult(target_frame, search_marker, 0.0, MotionTrackState::Lost);
+
+	cv::Mat inliers;
+	cv::Mat transform = cv::estimateAffinePartial2D(good_from, good_to, inliers, cv::RANSAC, 3.0, 2000, 0.99, 10);
+	if (transform.empty() || transform.cols != 3 || transform.rows != 2)
+		return PredictFromPrepass(target_frame, search_marker, 0.0);
+
+	double inlier_count = inliers.empty() ? static_cast<double>(good_from.size()) : cv::countNonZero(inliers);
+	double inlier_ratio = good_from.empty() ? 0.0 : inlier_count / static_cast<double>(good_from.size());
+	double point_ratio = std::min(1.0, static_cast<double>(good_from.size()) / static_cast<double>(points.size()));
+	double confidence = std::clamp(point_ratio * inlier_ratio, 0.0, 1.0);
+
+	if (confidence < low_threshold)
+		return MakeResult(target_frame, search_marker, confidence, MotionTrackState::Lost);
+
+	MotionTrackMarker next_marker = search_marker;
+	next_marker.cx = transform.at<double>(0, 0) * pattern_marker.cx + transform.at<double>(0, 1) * pattern_marker.cy + transform.at<double>(0, 2);
+	next_marker.cy = transform.at<double>(1, 0) * pattern_marker.cx + transform.at<double>(1, 1) * pattern_marker.cy + transform.at<double>(1, 2);
+
+	if (confidence < medium_threshold) {
+		ClampFrameToPlausibleChange(next_marker, search_marker);
+		return PredictFromPrepass(target_frame, next_marker, confidence);
+	}
+
+	if (confidence < high_threshold) {
+		ClampFrameToPlausibleChange(next_marker, search_marker);
+		return MakeResult(target_frame, next_marker, confidence, MotionTrackState::WeakTracked);
+	}
+
+	double a = transform.at<double>(0, 0);
+	double b = transform.at<double>(1, 0);
+	double scale = std::sqrt(a * a + b * b);
+	if (HasSize(settings.mode) && std::isfinite(scale) && scale > 0.0)
+		next_marker.size = std::max(4.0, pattern_marker.size * scale);
+	if (HasRotation(settings.mode))
+		next_marker.rotation_deg = pattern_marker.rotation_deg + std::atan2(b, a) * 180.0 / pi;
+
+	ClampFrameToPlausibleChange(next_marker, search_marker);
+	return MakeResult(target_frame, next_marker, confidence, MotionTrackState::Tracked);
 }
 #endif
 }
@@ -305,13 +417,16 @@ MotionTrackStepResult MotionTrackEngine::TrackFrame(
 	if (prev_gray.empty() || next_gray.empty())
 		return MakeResult(target_frame, search_marker, 0.0, MotionTrackState::Lost);
 
-	TemplateMatchResult match = RunTemplatePrepass(prev_gray, next_gray, pattern_marker, search_marker, settings);
-	if (!match.valid)
-		return MakeResult(target_frame, search_marker, 0.0, MotionTrackState::Lost);
-
 	double high_threshold = std::clamp(settings.correlation_threshold, 0.0, 1.0);
 	double medium_threshold = high_threshold * 0.70;
 	double low_threshold = std::max(0.05, high_threshold * 0.35);
+
+	if (!settings.prepass && HasFullModel(settings.mode))
+		return DirectAffineTrack(prev_gray, next_gray, pattern_marker, search_marker, target_frame, settings, high_threshold, medium_threshold, low_threshold);
+
+	TemplateMatchResult match = RunTemplatePrepass(prev_gray, next_gray, pattern_marker, search_marker, settings);
+	if (!match.valid)
+		return MakeResult(target_frame, search_marker, 0.0, MotionTrackState::Lost);
 
 	if (match.confidence < low_threshold)
 		return MakeResult(target_frame, search_marker, match.confidence, MotionTrackState::Lost);
@@ -319,29 +434,39 @@ MotionTrackStepResult MotionTrackEngine::TrackFrame(
 	if (match.confidence < medium_threshold || match.position_clamped)
 		return PredictFromPrepass(target_frame, match.marker, match.confidence);
 
+	if (!HasFullModel(settings.mode))
+		return MakeResult(target_frame, match.marker, match.confidence, match.confidence < high_threshold ? MotionTrackState::WeakTracked : MotionTrackState::Tracked);
+
 	if (match.confidence < high_threshold)
 		return MakeResult(target_frame, match.marker, match.confidence, MotionTrackState::WeakTracked);
 
+	// Prepass mimics Blender-style two-pass tracking: location first, full model refinement second.
 	MotionTrackMarker next_marker = match.marker;
 	MotionTrackState state = MotionTrackState::Tracked;
-	bool needs_affine = HasSize(settings.mode) || HasRotation(settings.mode);
+	double output_confidence = match.confidence;
 	AffineRefinement refinement = RefineAffine(prev_gray, next_gray, match, pattern_marker);
 	if (refinement.valid) {
-		if (HasSize(settings.mode)) {
-			double scale_change = refinement.size / std::max(4.0, search_marker.size);
-			if (std::isfinite(scale_change))
-				next_marker.size = std::max(4.0, search_marker.size * std::clamp(scale_change, 0.95, 1.05));
+		output_confidence = std::min(match.confidence, 0.5 + refinement.confidence * 0.5);
+		if (output_confidence >= high_threshold) {
+			next_marker.cx = refinement.cx;
+			next_marker.cy = refinement.cy;
+			if (HasSize(settings.mode)) {
+				double scale_change = refinement.size / std::max(4.0, search_marker.size);
+				if (std::isfinite(scale_change))
+					next_marker.size = refinement.size;
+			}
+			if (HasRotation(settings.mode)) {
+				next_marker.rotation_deg = refinement.rotation_deg;
+			}
 		}
-		if (HasRotation(settings.mode)) {
-			double rotation_change = NormalizeAngleDelta(refinement.rotation_deg - search_marker.rotation_deg);
-			next_marker.rotation_deg = search_marker.rotation_deg + std::clamp(rotation_change, -5.0, 5.0);
-		}
+		else
+			state = MotionTrackState::WeakTracked;
 	}
-	else if (needs_affine)
+	else
 		state = MotionTrackState::WeakTracked;
 
-	next_marker.search_size = std::max(next_marker.search_size, next_marker.size);
-	return MakeResult(target_frame, next_marker, match.confidence, state);
+	ClampFrameToPlausibleChange(next_marker, search_marker);
+	return MakeResult(target_frame, next_marker, output_confidence, state);
 #endif
 }
 
