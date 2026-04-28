@@ -16,12 +16,14 @@
 #include "video_frame.h"
 
 #include <libaegisub/ass/time.h>
+#include <libaegisub/exception.h>
 #include <libaegisub/make_unique.h>
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <string>
 
 #include <wx/button.h>
 #include <wx/choice.h>
@@ -522,7 +524,13 @@ DialogMotionTrack::DialogMotionTrack(agi::Context *c)
 	SetMinSize(wxSize(620, 460));
 	CenterOnParent();
 
-	persist = agi::make_unique<PersistLocation>(this, "Tool/Motion Track");
+	try {
+		persist = agi::make_unique<PersistLocation>(this, "Tool/Motion Track");
+	}
+	catch (agi::InternalError const& e) {
+		if (e.GetMessage().find("Tool/Motion Track/") == std::string::npos)
+			throw;
+	}
 	connections = agi::signal::make_vector({
 		context->videoController->AddSeekListener(&DialogMotionTrack::OnSeek, this),
 		context->project->AddVideoProviderListener([=](AsyncVideoProvider *) { Close(); })
