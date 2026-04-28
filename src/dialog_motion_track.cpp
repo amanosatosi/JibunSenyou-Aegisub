@@ -150,11 +150,18 @@ class MotionTrackPreviewPanel final : public wxPanel {
 
 	DialogMotionTrack *dialog = nullptr;
 	bool fit_mode = true;
+	bool fast_render = false;
 	double scale = 1.0;
 	wxPoint2DDouble offset{0.0, 0.0};
 	wxPoint2DDouble last_video_pos{0.0, 0.0};
 	wxPoint last_mouse_pos;
 	DragMode drag_mode = DragMode::NoDrag;
+	wxBitmap cached_view;
+	wxRect cached_source_rect;
+	wxPoint cached_draw_pos;
+	wxSize cached_draw_size;
+	int cached_frame = -1;
+	bool cached_fast_render = false;
 
 	wxPoint2DDouble ImageToScreen(double x, double y) const {
 		return {offset.m_x + x * scale, offset.m_y + y * scale};
@@ -257,7 +264,64 @@ class MotionTrackPreviewPanel final : public wxPanel {
 		offset.m_x = mouse.x - image_before.m_x * scale;
 		offset.m_y = mouse.y - image_before.m_y * scale;
 		fit_mode = false;
+		fast_render = true;
 		Refresh(false);
+	}
+
+	void DrawImage(wxDC &dc, wxImage const& image) {
+		wxSize client = GetClientSize();
+		if (client.x <= 0 || client.y <= 0 || scale <= 0.0)
+			return;
+
+		double src_left_f = std::max(0.0, (-offset.m_x) / scale);
+		double src_top_f = std::max(0.0, (-offset.m_y) / scale);
+		double src_right_f = std::min(static_cast<double>(image.GetWidth()), (client.x - offset.m_x) / scale);
+		double src_bottom_f = std::min(static_cast<double>(image.GetHeight()), (client.y - offset.m_y) / scale);
+
+		int src_left = std::clamp(static_cast<int>(std::floor(src_left_f)), 0, image.GetWidth());
+		int src_top = std::clamp(static_cast<int>(std::floor(src_top_f)), 0, image.GetHeight());
+		int src_right = std::clamp(static_cast<int>(std::ceil(src_right_f)), src_left, image.GetWidth());
+		int src_bottom = std::clamp(static_cast<int>(std::ceil(src_bottom_f)), src_top, image.GetHeight());
+		int src_w = src_right - src_left;
+		int src_h = src_bottom - src_top;
+		if (src_w <= 0 || src_h <= 0)
+			return;
+
+		int dst_x = static_cast<int>(std::floor(offset.m_x + src_left * scale));
+		int dst_y = static_cast<int>(std::floor(offset.m_y + src_top * scale));
+		int dst_right = static_cast<int>(std::ceil(offset.m_x + src_right * scale));
+		int dst_bottom = static_cast<int>(std::ceil(offset.m_y + src_bottom * scale));
+		int dst_w = std::max(1, dst_right - dst_x);
+		int dst_h = std::max(1, dst_bottom - dst_y);
+
+		wxRect source_rect(src_left, src_top, src_w, src_h);
+		wxPoint draw_pos(dst_x, dst_y);
+		wxSize draw_size(dst_w, dst_h);
+		bool cache_valid =
+			cached_view.IsOk() &&
+			cached_frame == dialog->GetPreviewFrame() &&
+			cached_source_rect.x == source_rect.x &&
+			cached_source_rect.y == source_rect.y &&
+			cached_source_rect.width == source_rect.width &&
+			cached_source_rect.height == source_rect.height &&
+			cached_draw_pos.x == draw_pos.x &&
+			cached_draw_pos.y == draw_pos.y &&
+			cached_draw_size.x == draw_size.x &&
+			cached_draw_size.y == draw_size.y &&
+			cached_fast_render == fast_render;
+
+		if (!cache_valid) {
+			wxImage crop = image.GetSubImage(source_rect);
+			wxImage scaled = crop.Scale(dst_w, dst_h, fast_render ? wxIMAGE_QUALITY_NORMAL : wxIMAGE_QUALITY_HIGH);
+			cached_view = wxBitmap(scaled);
+			cached_source_rect = source_rect;
+			cached_draw_pos = draw_pos;
+			cached_draw_size = draw_size;
+			cached_frame = dialog->GetPreviewFrame();
+			cached_fast_render = fast_render;
+		}
+
+		dc.DrawBitmap(cached_view, cached_draw_pos.x, cached_draw_pos.y);
 	}
 
 	void OnPaint(wxPaintEvent &) {
@@ -275,10 +339,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 		if (fit_mode)
 			UpdateFitTransform();
 
-		int draw_w = std::max(1, static_cast<int>(std::lround(image.GetWidth() * scale)));
-		int draw_h = std::max(1, static_cast<int>(std::lround(image.GetHeight() * scale)));
-		wxImage scaled = image.Scale(draw_w, draw_h, wxIMAGE_QUALITY_HIGH);
-		dc.DrawBitmap(wxBitmap(scaled), static_cast<int>(std::lround(offset.m_x)), static_cast<int>(std::lround(offset.m_y)));
+		DrawImage(dc, image);
 		DrawMarker(dc);
 	}
 
@@ -324,8 +385,10 @@ class MotionTrackPreviewPanel final : public wxPanel {
 
 		if (evt.LeftUp() || evt.MiddleUp()) {
 			drag_mode = DragMode::NoDrag;
+			fast_render = false;
 			if (HasCapture())
 				ReleaseMouse();
+			Refresh(false);
 			return;
 		}
 
@@ -335,6 +398,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 				offset.m_x += pos.x - last_mouse_pos.x;
 				offset.m_y += pos.y - last_mouse_pos.y;
 				last_mouse_pos = pos;
+				fast_render = true;
 				Refresh(false);
 				return;
 			}
@@ -376,6 +440,13 @@ class MotionTrackPreviewPanel final : public wxPanel {
 		Fit();
 	}
 
+	void OnIdle(wxIdleEvent &) {
+		if (fast_render && drag_mode == DragMode::NoDrag) {
+			fast_render = false;
+			Refresh(false);
+		}
+	}
+
 	void OnKeyDown(wxKeyEvent &evt) {
 		int code = evt.GetKeyCode();
 		if (code == WXK_DELETE || code == WXK_BACK) {
@@ -390,6 +461,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 				offset.m_x = (client.x - image.GetWidth()) / 2.0;
 				offset.m_y = (client.y - image.GetHeight()) / 2.0;
 				fit_mode = false;
+				fast_render = false;
 				Refresh(false);
 			}
 			return;
@@ -416,10 +488,12 @@ public:
 		Bind(wxEVT_MOUSEWHEEL, &MotionTrackPreviewPanel::OnMouseWheel, this);
 		Bind(wxEVT_LEFT_DCLICK, &MotionTrackPreviewPanel::OnDoubleClick, this);
 		Bind(wxEVT_KEY_DOWN, &MotionTrackPreviewPanel::OnKeyDown, this);
+		Bind(wxEVT_IDLE, &MotionTrackPreviewPanel::OnIdle, this);
 	}
 
 	void Fit() {
 		fit_mode = true;
+		fast_render = false;
 		Refresh(false);
 	}
 };
@@ -723,13 +797,25 @@ void DialogMotionTrack::UpdatePanels() {
 		graph->Refresh(false);
 }
 
+void DialogMotionTrack::RefreshPreview() {
+	if (preview)
+		preview->Refresh(false);
+}
+
 void DialogMotionTrack::LoadCurrentFrame() {
+	if (preview_frame == current_frame) {
+		UpdatePanels();
+		return;
+	}
+
 	try {
 		auto frame = context->videoController->GetFrame(current_frame, true);
 		preview_image = GetImage(*frame);
+		preview_frame = current_frame;
 	}
 	catch (...) {
 		preview_image = wxImage();
+		preview_frame = -1;
 	}
 	UpdatePanels();
 }
@@ -761,8 +847,7 @@ void DialogMotionTrack::SetCurrentMarker(motion_tracking::MotionTrackMarker mark
 		base_frame = current_frame;
 		initial_marker_size = marker.size;
 	}
-	StoreFrame(current_frame, marker, 1.0, motion_tracking::MotionTrackState::Untracked);
-	UpdatePanels();
+	RefreshPreview();
 }
 
 void DialogMotionTrack::PlaceCurrentMarker(double x, double y) {
@@ -860,6 +945,13 @@ void DialogMotionTrack::TrackOne(int target_frame) {
 		source_frame = base_frame;
 		source_marker = markers[base_frame];
 	}
+	auto source_output = std::find_if(result.frames.begin(), result.frames.end(), [=](auto const& frame) {
+		return frame.frame == source_frame;
+	});
+	if (source_output == result.frames.end())
+		StoreFrame(source_frame, source_marker, 1.0, motion_tracking::MotionTrackState::Untracked);
+	else
+		StoreFrame(source_frame, source_marker, source_output->confidence, source_output->state);
 
 	try {
 		motion_tracking::MotionTrackEngine engine;

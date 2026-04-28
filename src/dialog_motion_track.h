@@ -31,6 +31,7 @@ class DialogMotionTrack final : public wxDialog {
 	std::map<int, motion_tracking::MotionTrackMarker> markers;
 
 	int current_frame = 0;
+	int preview_frame = -1;
 	int base_frame = -1;
 	double initial_marker_size = 80.0;
 
@@ -62,6 +63,7 @@ class DialogMotionTrack final : public wxDialog {
 	void UpdateSettingsFromControls();
 	void UpdateLabels();
 	void UpdatePanels();
+	void RefreshPreview();
 	void LoadCurrentFrame();
 	void OnSeek(int frame);
 	void TrackOne(int target_frame);
@@ -81,6 +83,7 @@ public:
 	int GetStartFrame() const { return settings.start_frame; }
 	int GetEndFrame() const { return settings.end_frame; }
 	int GetCurrentFrame() const { return current_frame; }
+	int GetPreviewFrame() const { return preview_frame; }
 	wxImage const& GetPreviewImage() const { return preview_image; }
 	motion_tracking::MotionTrackResult const& GetResult() const { return result; }
 	bool HasCurrentMarker() const;
