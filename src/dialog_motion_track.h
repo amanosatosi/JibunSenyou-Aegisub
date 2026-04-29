@@ -4,24 +4,36 @@
 
 #include <libaegisub/signal.h>
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <vector>
 
 #include <wx/dialog.h>
 #include <wx/image.h>
+#include <wx/timer.h>
 
+class MotionTrackFrameCache;
 class MotionTrackFrameBar;
 class MotionTrackGraphPanel;
 class MotionTrackPreviewPanel;
 class PersistLocation;
+struct VideoFrame;
 class wxButton;
 class wxCheckBox;
 class wxChoice;
+class wxKeyEvent;
 class wxSpinCtrl;
 class wxSpinCtrlDouble;
 class wxStaticText;
+class wxTimerEvent;
 namespace agi { struct Context; }
+
+struct MotionTrackTrailMarker {
+	int frame = 0;
+	motion_tracking::MotionTrackMarker marker;
+	motion_tracking::MotionTrackState state = motion_tracking::MotionTrackState::Untracked;
+};
 
 class DialogMotionTrack final : public wxDialog {
 	agi::Context *context = nullptr;
@@ -35,20 +47,33 @@ class DialogMotionTrack final : public wxDialog {
 	int base_frame = -1;
 	double initial_marker_size = 80.0;
 	bool prepass_user_set = false;
+	bool show_track_trail = true;
+	int track_trail_past = 10;
+	int track_trail_future = 10;
+	bool playing = false;
+	int playback_start_frame = 0;
+	int playback_start_ms = 0;
+	std::chrono::steady_clock::time_point playback_start_time;
 
 	wxImage preview_image;
+	std::unique_ptr<MotionTrackFrameCache> frame_cache;
 
 	wxStaticText *range_label = nullptr;
 	wxStaticText *current_label = nullptr;
+	wxStaticText *cache_status_label = nullptr;
 	wxSpinCtrl *square_ctrl = nullptr;
 	wxSpinCtrl *search_ctrl = nullptr;
+	wxSpinCtrl *trail_past_ctrl = nullptr;
+	wxSpinCtrl *trail_future_ctrl = nullptr;
 	wxSpinCtrlDouble *threshold_ctrl = nullptr;
 	wxCheckBox *normalize_check = nullptr;
 	wxCheckBox *prepass_check = nullptr;
 	wxCheckBox *preserve_endpoints_check = nullptr;
+	wxCheckBox *trail_check = nullptr;
 	wxChoice *base_choice = nullptr;
 	wxChoice *mode_choice = nullptr;
 	wxChoice *smoothing_choice = nullptr;
+	wxButton *play_button = nullptr;
 	wxButton *track_to_start = nullptr;
 	wxButton *track_previous = nullptr;
 	wxButton *track_next = nullptr;
@@ -56,6 +81,8 @@ class DialogMotionTrack final : public wxDialog {
 	MotionTrackFrameBar *frame_bar = nullptr;
 	MotionTrackPreviewPanel *preview = nullptr;
 	MotionTrackGraphPanel *graph = nullptr;
+	wxTimer cache_timer;
+	wxTimer playback_timer;
 
 	std::vector<agi::signal::Connection> connections;
 	std::unique_ptr<PersistLocation> persist;
@@ -63,13 +90,28 @@ class DialogMotionTrack final : public wxDialog {
 	void CalculateSelectedFrameRange();
 	void CreateControls();
 	void BindControls();
+	void StartFrameCache();
+	void StopFrameCache();
 	void UpdateSettingsFromControls();
+	void UpdateTrailControls();
 	void UpdatePrepassControls();
 	void UpdateLabels();
+	void UpdateCacheStatus();
 	void UpdatePanels();
 	void RefreshPreview();
 	void LoadCurrentFrame();
 	void OnSeek(int frame);
+	void OnCacheTimer(wxTimerEvent &);
+	void OnPlaybackTimer(wxTimerEvent &);
+	void OnCharHook(wxKeyEvent &);
+	bool FocusIsTextInput() const;
+	void ShowFrame(int frame);
+	void StepFrame(int delta);
+	void TogglePlayback();
+	void StartPlayback();
+	void StopPlayback();
+	void UpdatePlaybackButton();
+	std::shared_ptr<VideoFrame> GetCachedFrame(int frame) const;
 	void TrackOne(int target_frame);
 	void TrackRange(int target_frame);
 	void CopyData();
@@ -90,6 +132,11 @@ public:
 	int GetPreviewFrame() const { return preview_frame; }
 	wxImage const& GetPreviewImage() const { return preview_image; }
 	motion_tracking::MotionTrackResult const& GetResult() const { return result; }
+	std::vector<MotionTrackTrailMarker> GetTrackTrailMarkers() const;
+	bool GetShowTrackTrail() const { return show_track_trail; }
+	int GetTrackTrailPast() const { return track_trail_past; }
+	int GetTrackTrailFuture() const { return track_trail_future; }
+	bool HandleNavigationKey(int key_code);
 	motion_tracking::MotionTrackSmoothing GetSmoothing() const { return settings.smoothing; }
 	bool GetPreserveEndpoints() const { return settings.preserve_endpoints; }
 	bool HasCurrentMarker() const;

@@ -20,10 +20,18 @@
 #include <libaegisub/make_unique.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cmath>
+#include <functional>
 #include <fstream>
+#include <list>
 #include <limits>
+#include <mutex>
+#include <set>
 #include <string>
+#include <thread>
 
 #include <wx/button.h>
 #include <wx/checkbox.h>
@@ -36,6 +44,8 @@
 #include <wx/spinctrl.h>
 #include <wx/statline.h>
 #include <wx/stattext.h>
+#include <wx/textctrl.h>
+#include <wx/timer.h>
 #include <wx/utils.h>
 
 namespace {
@@ -58,7 +68,241 @@ bool ModeHasSize(motion_tracking::MotionTrackMode mode) {
 bool ModeHasRotation(motion_tracking::MotionTrackMode mode) {
 	return mode == motion_tracking::MotionTrackMode::PositionRotation || mode == motion_tracking::MotionTrackMode::PositionSizeRotation;
 }
+
+size_t FrameMemoryEstimate(int width, int height, int frame_count) {
+	if (width <= 0 || height <= 0 || frame_count <= 0)
+		return 0;
+
+	auto frame_bytes = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+	if (frame_bytes == 0 || static_cast<size_t>(frame_count) > std::numeric_limits<size_t>::max() / frame_bytes)
+		return std::numeric_limits<size_t>::max();
+	return frame_bytes * static_cast<size_t>(frame_count);
 }
+}
+
+class MotionTrackFrameCache final {
+	using Loader = std::function<std::shared_ptr<VideoFrame>(int)>;
+
+	Loader loader;
+	mutable std::mutex mutex;
+	std::condition_variable condition;
+	std::map<int, std::shared_ptr<VideoFrame>> frames;
+	std::map<int, size_t> frame_bytes;
+	std::list<int> lru;
+	std::map<int, std::list<int>::iterator> lru_positions;
+	std::set<int> loading;
+	std::vector<int> cache_order;
+	std::thread worker;
+	std::atomic<bool> stop_requested{false};
+	std::atomic<bool> background_enabled{false};
+	std::atomic<bool> complete{false};
+	size_t max_bytes = 512ULL * 1024ULL * 1024ULL;
+	size_t current_bytes = 0;
+	size_t estimated_bytes = 0;
+	int target_count = 0;
+
+	size_t BytesForFrame(VideoFrame const& frame) const {
+		return frame.data.size();
+	}
+
+	void TouchLocked(int frame) {
+		auto pos = lru_positions.find(frame);
+		if (pos != lru_positions.end()) {
+			lru.erase(pos->second);
+			lru_positions.erase(pos);
+		}
+		lru.push_front(frame);
+		lru_positions[frame] = lru.begin();
+	}
+
+	void EraseLocked(int frame) {
+		auto frame_it = frames.find(frame);
+		if (frame_it == frames.end())
+			return;
+
+		auto bytes_it = frame_bytes.find(frame);
+		if (bytes_it != frame_bytes.end()) {
+			current_bytes -= std::min(current_bytes, bytes_it->second);
+			frame_bytes.erase(bytes_it);
+		}
+		auto lru_it = lru_positions.find(frame);
+		if (lru_it != lru_positions.end()) {
+			lru.erase(lru_it->second);
+			lru_positions.erase(lru_it);
+		}
+		frames.erase(frame_it);
+	}
+
+	void EvictLocked(int protected_frame) {
+		while (current_bytes > max_bytes && !lru.empty()) {
+			int victim = lru.back();
+			if (victim == protected_frame && lru.size() == 1)
+				break;
+
+			if (victim == protected_frame) {
+				lru.pop_back();
+				lru.push_front(victim);
+				lru_positions[victim] = lru.begin();
+				continue;
+			}
+
+			EraseLocked(victim);
+		}
+	}
+
+	void StoreLocked(int frame, std::shared_ptr<VideoFrame> data) {
+		if (!data)
+			return;
+
+		EraseLocked(frame);
+		frames[frame] = data;
+		size_t bytes = BytesForFrame(*data);
+		frame_bytes[frame] = bytes;
+		current_bytes += bytes;
+		TouchLocked(frame);
+		EvictLocked(frame);
+	}
+
+	void WorkerMain() {
+		for (int frame : cache_order) {
+			if (stop_requested)
+				break;
+			try {
+				GetFrameBlockingOrLoad(frame);
+			}
+			catch (...) {
+				std::lock_guard<std::mutex> lock(mutex);
+				loading.erase(frame);
+				condition.notify_all();
+			}
+		}
+		complete = true;
+		condition.notify_all();
+	}
+
+public:
+	explicit MotionTrackFrameCache(Loader loader)
+	: loader(std::move(loader)) {
+	}
+
+	~MotionTrackFrameCache() {
+		Stop();
+	}
+
+	void Start(int start, int end, int width, int height, int priority_frame) {
+		Stop();
+		Clear();
+
+		target_count = std::max(0, end - start + 1);
+		estimated_bytes = FrameMemoryEstimate(width, height, target_count);
+		stop_requested = false;
+		complete = false;
+		background_enabled = estimated_bytes <= max_bytes;
+
+		if (target_count <= 0) {
+			complete = true;
+			return;
+		}
+
+		if (!background_enabled) {
+			complete = true;
+			return;
+		}
+
+		priority_frame = mid(start, priority_frame, end);
+		cache_order.reserve(static_cast<size_t>(target_count));
+		cache_order.push_back(priority_frame);
+		for (int distance = 1; static_cast<int>(cache_order.size()) < target_count; ++distance) {
+			int forward = priority_frame + distance;
+			int backward = priority_frame - distance;
+			if (forward <= end)
+				cache_order.push_back(forward);
+			if (backward >= start)
+				cache_order.push_back(backward);
+		}
+
+		worker = std::thread([this] { WorkerMain(); });
+	}
+
+	void Stop() {
+		stop_requested = true;
+		condition.notify_all();
+		if (worker.joinable())
+			worker.join();
+	}
+
+	void Clear() {
+		std::lock_guard<std::mutex> lock(mutex);
+		frames.clear();
+		frame_bytes.clear();
+		lru.clear();
+		lru_positions.clear();
+		loading.clear();
+		cache_order.clear();
+		current_bytes = 0;
+	}
+
+	std::shared_ptr<VideoFrame> GetFrameBlockingOrLoad(int frame) {
+		{
+			std::unique_lock<std::mutex> lock(mutex);
+			auto it = frames.find(frame);
+			if (it != frames.end()) {
+				TouchLocked(frame);
+				return it->second;
+			}
+
+			while (!stop_requested && loading.count(frame)) {
+				condition.wait(lock);
+				it = frames.find(frame);
+				if (it != frames.end()) {
+					TouchLocked(frame);
+					return it->second;
+				}
+			}
+
+			if (stop_requested)
+				return {};
+			loading.insert(frame);
+		}
+
+		std::shared_ptr<VideoFrame> loaded;
+		try {
+			loaded = loader(frame);
+		}
+		catch (...) {
+			std::lock_guard<std::mutex> lock(mutex);
+			loading.erase(frame);
+			condition.notify_all();
+			throw;
+		}
+
+		{
+			std::lock_guard<std::mutex> lock(mutex);
+			loading.erase(frame);
+			StoreLocked(frame, loaded);
+		}
+		condition.notify_all();
+		return loaded;
+	}
+
+	int CachedCount() const {
+		std::lock_guard<std::mutex> lock(mutex);
+		return static_cast<int>(frames.size());
+	}
+
+	int TargetCount() const {
+		return target_count;
+	}
+
+	bool BackgroundEnabled() const {
+		return background_enabled;
+	}
+
+	bool Complete() const {
+		return complete;
+	}
+
+};
 
 class MotionTrackFrameBar final : public wxPanel {
 	DialogMotionTrack *dialog = nullptr;
@@ -184,6 +428,60 @@ class MotionTrackPreviewPanel final : public wxPanel {
 			scale = 1.0;
 		offset.m_x = (client.x - image.GetWidth() * scale) / 2.0;
 		offset.m_y = (client.y - image.GetHeight() * scale) / 2.0;
+	}
+
+	void DrawTrailMarkers(wxDC &dc) {
+		if (!dialog->GetShowTrackTrail())
+			return;
+
+		auto trail = dialog->GetTrackTrailMarkers();
+		if (trail.empty())
+			return;
+
+		int current = dialog->GetCurrentFrame();
+		int past = std::max(1, dialog->GetTrackTrailPast());
+		int future = std::max(1, dialog->GetTrackTrailFuture());
+
+		for (auto const& item : trail) {
+			auto marker = item.marker;
+			double angle = DegToRad(marker.rotation_deg);
+			double half = marker.size / 2.0;
+			auto center = ImageToScreen(marker.cx, marker.cy);
+			wxPoint c(static_cast<int>(std::lround(center.m_x)), static_cast<int>(std::lround(center.m_y)));
+
+			int distance = std::max(1, std::abs(item.frame - current));
+			int max_distance = item.frame < current ? past : future;
+			double proximity = 1.0 - (distance - 1) / static_cast<double>(std::max(1, max_distance));
+			proximity = std::clamp(proximity, 0.0, 1.0);
+			int alpha = static_cast<int>(std::lround(70 + proximity * 45));
+			if (item.state == motion_tracking::MotionTrackState::Predicted)
+				alpha = static_cast<int>(alpha * 0.65);
+			else if (item.state == motion_tracking::MotionTrackState::WeakTracked)
+				alpha = static_cast<int>(alpha * 0.8);
+
+			wxPoint corners[4];
+			wxPoint rel[] = {
+				RotatePoint(-half * scale, -half * scale, angle),
+				RotatePoint( half * scale, -half * scale, angle),
+				RotatePoint( half * scale,  half * scale, angle),
+				RotatePoint(-half * scale,  half * scale, angle)
+			};
+			for (int i = 0; i < 4; ++i)
+				corners[i] = wxPoint(c.x + rel[i].x, c.y + rel[i].y);
+
+			wxPen pen(wxColour(255, 45, 45, alpha), 1,
+				item.state == motion_tracking::MotionTrackState::Predicted ? wxPENSTYLE_SHORT_DASH : wxPENSTYLE_SOLID);
+			dc.SetPen(pen);
+			dc.SetBrush(*wxTRANSPARENT_BRUSH);
+			dc.DrawPolygon(4, corners);
+
+			wxPoint handle_rel = RotatePoint(half * scale, 0.0, angle);
+			wxPoint handle(c.x + handle_rel.x, c.y + handle_rel.y);
+			dc.DrawLine(c, handle);
+			dc.SetBrush(wxBrush(wxColour(255, 45, 45, alpha)));
+			dc.SetPen(wxPen(wxColour(255, 45, 45, alpha), 1));
+			dc.DrawCircle(c, 2);
+		}
 	}
 
 	void DrawMarker(wxDC &dc) {
@@ -340,6 +638,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 			UpdateFitTransform();
 
 		DrawImage(dc, image);
+		DrawTrailMarkers(dc);
 		DrawMarker(dc);
 	}
 
@@ -449,6 +748,8 @@ class MotionTrackPreviewPanel final : public wxPanel {
 
 	void OnKeyDown(wxKeyEvent &evt) {
 		int code = evt.GetKeyCode();
+		if (dialog->HandleNavigationKey(code))
+			return;
 		if (code == WXK_DELETE || code == WXK_BACK) {
 			dialog->DeleteCurrentMarker();
 			return;
@@ -595,9 +896,13 @@ DialogMotionTrack::DialogMotionTrack(agi::Context *c)
 	result.fps = context->project->Timecodes().FPS();
 	result.source_width = context->project->VideoProvider()->GetWidth();
 	result.source_height = context->project->VideoProvider()->GetHeight();
+	frame_cache = agi::make_unique<MotionTrackFrameCache>([=](int frame) {
+		return context->videoController->GetFrame(frame, true);
+	});
 
 	CreateControls();
 	BindControls();
+	StartFrameCache();
 	Fit();
 	SetMinSize(wxSize(620, 460));
 	CenterOnParent();
@@ -618,6 +923,8 @@ DialogMotionTrack::DialogMotionTrack(agi::Context *c)
 }
 
 DialogMotionTrack::~DialogMotionTrack() {
+	StopPlayback();
+	StopFrameCache();
 }
 
 void DialogMotionTrack::CalculateSelectedFrameRange() {
@@ -651,8 +958,10 @@ void DialogMotionTrack::CreateControls() {
 	auto top_row = new wxBoxSizer(wxHORIZONTAL);
 	range_label = new wxStaticText(this, -1, "");
 	current_label = new wxStaticText(this, -1, "");
+	cache_status_label = new wxStaticText(this, -1, "");
 	top_row->Add(range_label, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
-	top_row->Add(current_label, 0, wxALIGN_CENTER_VERTICAL);
+	top_row->Add(current_label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+	top_row->Add(cache_status_label, 0, wxALIGN_CENTER_VERTICAL);
 	main_sizer->Add(top_row, 0, wxEXPAND | wxALL, 6);
 
 	frame_bar = new MotionTrackFrameBar(this, this);
@@ -660,14 +969,17 @@ void DialogMotionTrack::CreateControls() {
 
 	auto controls = new wxBoxSizer(wxVERTICAL);
 	auto track_buttons = new wxBoxSizer(wxHORIZONTAL);
+	play_button = new wxButton(this, -1, _("Play"));
 	track_to_start = new wxButton(this, -1, _("Track to Start"));
 	track_previous = new wxButton(this, -1, _("Track Previous"));
 	track_next = new wxButton(this, -1, _("Track Next"));
 	track_to_end = new wxButton(this, -1, _("Track to End"));
+	play_button->SetToolTip(_("Play the selected frame range inside this dialog"));
 	track_to_start->SetToolTip(_("Track backward to start frame"));
 	track_previous->SetToolTip(_("Track previous frame"));
 	track_next->SetToolTip(_("Track next frame"));
 	track_to_end->SetToolTip(_("Track forward to end frame"));
+	track_buttons->Add(play_button, 0, wxRIGHT, 10);
 	track_buttons->Add(track_to_start, 0, wxRIGHT, 4);
 	track_buttons->Add(track_previous, 0, wxRIGHT, 4);
 	track_buttons->Add(track_next, 0, wxRIGHT, 4);
@@ -723,6 +1035,19 @@ void DialogMotionTrack::CreateControls() {
 	preserve_endpoints_check->SetToolTip(_("Keep first and last tracked frame fixed while smoothing the frames between them."));
 	mode_row->Add(preserve_endpoints_check, 0, wxALIGN_CENTER_VERTICAL);
 	controls->Add(mode_row, 0, wxBOTTOM, 2);
+
+	auto trail_row = new wxBoxSizer(wxHORIZONTAL);
+	trail_check = new wxCheckBox(this, -1, _("Show track trail"));
+	trail_check->SetValue(show_track_trail);
+	trail_check->SetToolTip(_("Show nearby tracked marker positions in the preview."));
+	trail_row->Add(trail_check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+	trail_row->Add(new wxStaticText(this, -1, _("Past:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+	trail_past_ctrl = new wxSpinCtrl(this, -1, "", wxDefaultPosition, wxSize(62, -1), wxSP_ARROW_KEYS, 0, 100, track_trail_past);
+	trail_row->Add(trail_past_ctrl, 0, wxRIGHT, 8);
+	trail_row->Add(new wxStaticText(this, -1, _("Future:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+	trail_future_ctrl = new wxSpinCtrl(this, -1, "", wxDefaultPosition, wxSize(62, -1), wxSP_ARROW_KEYS, 0, 100, track_trail_future);
+	trail_row->Add(trail_future_ctrl, 0);
+	controls->Add(trail_row, 0, wxBOTTOM, 2);
 	main_sizer->Add(controls, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
 	preview = new MotionTrackPreviewPanel(this, this);
@@ -751,6 +1076,7 @@ void DialogMotionTrack::CreateControls() {
 	SetSizer(main_sizer);
 	UpdatePrepassControls();
 	UpdateLabels();
+	UpdatePlaybackButton();
 }
 
 void DialogMotionTrack::BindControls() {
@@ -771,11 +1097,41 @@ void DialogMotionTrack::BindControls() {
 	});
 	smoothing_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
 	preserve_endpoints_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { update_settings(); });
+	trail_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { UpdateTrailControls(); });
+	trail_past_ctrl->Bind(wxEVT_SPINCTRL, [=](wxSpinEvent &) { UpdateTrailControls(); });
+	trail_future_ctrl->Bind(wxEVT_SPINCTRL, [=](wxSpinEvent &) { UpdateTrailControls(); });
 
+	play_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TogglePlayback(); });
 	track_to_start->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackRange(settings.start_frame); });
 	track_previous->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackOne(current_frame - 1); });
 	track_next->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackOne(current_frame + 1); });
 	track_to_end->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackRange(settings.end_frame); });
+
+	Bind(wxEVT_CHAR_HOOK, &DialogMotionTrack::OnCharHook, this);
+	cache_timer.Bind(wxEVT_TIMER, &DialogMotionTrack::OnCacheTimer, this);
+	playback_timer.Bind(wxEVT_TIMER, &DialogMotionTrack::OnPlaybackTimer, this);
+}
+
+void DialogMotionTrack::StartFrameCache() {
+	if (!frame_cache)
+		return;
+
+	frame_cache->Start(
+		settings.start_frame,
+		settings.end_frame,
+		result.source_width,
+		result.source_height,
+		current_frame);
+	UpdateCacheStatus();
+	cache_timer.Start(100);
+}
+
+void DialogMotionTrack::StopFrameCache() {
+	cache_timer.Stop();
+	if (frame_cache) {
+		frame_cache->Stop();
+		frame_cache->Clear();
+	}
 }
 
 void DialogMotionTrack::UpdateSettingsFromControls() {
@@ -808,6 +1164,13 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 		graph->Refresh(false);
 }
 
+void DialogMotionTrack::UpdateTrailControls() {
+	show_track_trail = trail_check && trail_check->IsChecked();
+	track_trail_past = trail_past_ctrl ? trail_past_ctrl->GetValue() : 10;
+	track_trail_future = trail_future_ctrl ? trail_future_ctrl->GetValue() : 10;
+	RefreshPreview();
+}
+
 void DialogMotionTrack::UpdatePrepassControls() {
 	if (!prepass_check)
 		return;
@@ -819,6 +1182,24 @@ void DialogMotionTrack::UpdatePrepassControls() {
 void DialogMotionTrack::UpdateLabels() {
 	range_label->SetLabel(fmt_wx("Selected line frames: %d - %d", settings.start_frame, settings.end_frame));
 	current_label->SetLabel(fmt_wx("Current: %d", current_frame));
+	UpdateCacheStatus();
+}
+
+void DialogMotionTrack::UpdateCacheStatus() {
+	if (!cache_status_label || !frame_cache)
+		return;
+
+	int cached = frame_cache->CachedCount();
+	int total = frame_cache->TargetCount();
+	if (!frame_cache->BackgroundEnabled()) {
+		cache_status_label->SetLabel(fmt_wx("Frame cache: lazy (%d frames)", total));
+		return;
+	}
+
+	cache_status_label->SetLabel(fmt_wx("%s: %d / %d",
+		frame_cache->Complete() ? "Cached frames" : "Caching frames",
+		cached,
+		total));
 }
 
 void DialogMotionTrack::UpdatePanels() {
@@ -836,6 +1217,12 @@ void DialogMotionTrack::RefreshPreview() {
 		preview->Refresh(false);
 }
 
+std::shared_ptr<VideoFrame> DialogMotionTrack::GetCachedFrame(int frame) const {
+	if (frame_cache)
+		return frame_cache->GetFrameBlockingOrLoad(frame);
+	return context->videoController->GetFrame(frame, true);
+}
+
 void DialogMotionTrack::LoadCurrentFrame() {
 	if (preview_frame == current_frame) {
 		UpdatePanels();
@@ -843,9 +1230,15 @@ void DialogMotionTrack::LoadCurrentFrame() {
 	}
 
 	try {
-		auto frame = context->videoController->GetFrame(current_frame, true);
-		preview_image = GetImage(*frame);
-		preview_frame = current_frame;
+		auto frame = GetCachedFrame(current_frame);
+		if (frame) {
+			preview_image = GetImage(*frame);
+			preview_frame = current_frame;
+		}
+		else {
+			preview_image = wxImage();
+			preview_frame = -1;
+		}
 	}
 	catch (...) {
 		preview_image = wxImage();
@@ -855,8 +1248,113 @@ void DialogMotionTrack::LoadCurrentFrame() {
 }
 
 void DialogMotionTrack::OnSeek(int frame) {
-	current_frame = mid(0, frame, std::max(0, context->project->VideoProvider()->GetFrameCount() - 1));
+	current_frame = mid(settings.start_frame, frame, settings.end_frame);
 	LoadCurrentFrame();
+}
+
+void DialogMotionTrack::OnCacheTimer(wxTimerEvent &) {
+	UpdateCacheStatus();
+	if (!frame_cache || !frame_cache->BackgroundEnabled() || frame_cache->Complete())
+		cache_timer.Stop();
+}
+
+void DialogMotionTrack::OnPlaybackTimer(wxTimerEvent &) {
+	if (!playing)
+		return;
+
+	using namespace std::chrono;
+	auto elapsed_ms = duration_cast<milliseconds>(steady_clock::now() - playback_start_time).count();
+	int target_ms = playback_start_ms + static_cast<int>(elapsed_ms);
+	int frame = context->videoController->FrameAtTime(target_ms);
+	frame = mid(settings.start_frame, frame, settings.end_frame);
+
+	if (frame >= settings.end_frame) {
+		ShowFrame(settings.end_frame);
+		StopPlayback();
+		return;
+	}
+
+	if (frame != current_frame)
+		ShowFrame(frame);
+}
+
+bool DialogMotionTrack::FocusIsTextInput() const {
+	wxWindow *focus = wxWindow::FindFocus();
+	while (focus && focus != this) {
+		if (focus == square_ctrl || focus == search_ctrl || focus == threshold_ctrl ||
+			focus == trail_past_ctrl || focus == trail_future_ctrl ||
+			dynamic_cast<wxTextCtrl *>(focus))
+			return true;
+		focus = focus->GetParent();
+	}
+	return false;
+}
+
+void DialogMotionTrack::OnCharHook(wxKeyEvent &evt) {
+	if (!FocusIsTextInput() && HandleNavigationKey(evt.GetKeyCode()))
+		return;
+	evt.Skip();
+}
+
+bool DialogMotionTrack::HandleNavigationKey(int key_code) {
+	if (key_code == WXK_LEFT) {
+		StepFrame(-1);
+		return true;
+	}
+	if (key_code == WXK_RIGHT) {
+		StepFrame(1);
+		return true;
+	}
+	if (key_code == WXK_SPACE) {
+		TogglePlayback();
+		return true;
+	}
+	return false;
+}
+
+void DialogMotionTrack::ShowFrame(int frame) {
+	current_frame = mid(settings.start_frame, frame, settings.end_frame);
+	LoadCurrentFrame();
+}
+
+void DialogMotionTrack::StepFrame(int delta) {
+	StopPlayback();
+	ShowFrame(current_frame + delta);
+}
+
+void DialogMotionTrack::TogglePlayback() {
+	if (playing) {
+		StopPlayback();
+		return;
+	}
+	StartPlayback();
+}
+
+void DialogMotionTrack::StartPlayback() {
+	if (current_frame >= settings.end_frame)
+		return;
+
+	playing = true;
+	playback_start_frame = current_frame;
+	playback_start_ms = context->videoController->TimeAtFrame(playback_start_frame);
+	playback_start_time = std::chrono::steady_clock::now();
+	playback_timer.Start(10);
+	UpdatePlaybackButton();
+}
+
+void DialogMotionTrack::StopPlayback() {
+	if (playback_timer.IsRunning())
+		playback_timer.Stop();
+	if (!playing)
+		return;
+
+	playing = false;
+	UpdatePlaybackButton();
+}
+
+void DialogMotionTrack::UpdatePlaybackButton() {
+	if (play_button)
+		play_button->SetLabel(playing ? _("Stop") : _("Play"));
 }
 
 bool DialogMotionTrack::HasCurrentMarker() const {
@@ -872,6 +1370,45 @@ motion_tracking::MotionTrackMarker DialogMotionTrack::MarkerForFrame(int frame) 
 	if (it != markers.end())
 		return it->second;
 	return {};
+}
+
+std::vector<MotionTrackTrailMarker> DialogMotionTrack::GetTrackTrailMarkers() const {
+	std::vector<MotionTrackTrailMarker> trail;
+	if (!show_track_trail)
+		return trail;
+
+	auto add_frame = [&](int frame) {
+		if (frame < settings.start_frame || frame > settings.end_frame || frame == current_frame)
+			return;
+
+		auto result_it = std::find_if(result.frames.begin(), result.frames.end(), [=](auto const& tracked) {
+			return tracked.frame == frame;
+		});
+		if (result_it == result.frames.end() || result_it->state == motion_tracking::MotionTrackState::Lost)
+			return;
+
+		motion_tracking::MotionTrackMarker marker;
+		auto marker_it = markers.find(frame);
+		if (marker_it != markers.end()) {
+			marker = marker_it->second;
+		}
+		else {
+			marker.cx = result_it->x;
+			marker.cy = result_it->y;
+			double frame_scale = std::max(result_it->scale_x, result_it->scale_y);
+			marker.size = std::max(4.0, initial_marker_size * frame_scale);
+			marker.search_size = std::max<double>(settings.search_size, marker.size);
+			marker.rotation_deg = result_it->rotation_deg;
+		}
+
+		trail.push_back({frame, marker, result_it->state});
+	};
+
+	for (int frame = current_frame - track_trail_past; frame < current_frame; ++frame)
+		add_frame(frame);
+	for (int frame = current_frame + 1; frame <= current_frame + track_trail_future; ++frame)
+		add_frame(frame);
+	return trail;
 }
 
 void DialogMotionTrack::SetCurrentMarker(motion_tracking::MotionTrackMarker marker) {
@@ -909,10 +1446,8 @@ void DialogMotionTrack::DeleteCurrentMarker() {
 }
 
 void DialogMotionTrack::JumpToFrame(int frame) {
-	frame = mid(settings.start_frame, frame, settings.end_frame);
-	current_frame = frame;
-	context->videoController->JumpToFrame(frame);
-	LoadCurrentFrame();
+	StopPlayback();
+	ShowFrame(frame);
 }
 
 motion_tracking::MotionTrackFrame DialogMotionTrack::MakeFrame(
@@ -948,8 +1483,11 @@ void DialogMotionTrack::StoreFrame(int frame, motion_tracking::MotionTrackMarker
 }
 
 motion_tracking::MotionTrackImage DialogMotionTrack::GetTrackImage(int frame_number) const {
-	auto frame = context->videoController->GetFrame(frame_number, true);
+	auto frame = GetCachedFrame(frame_number);
 	motion_tracking::MotionTrackImage image;
+	if (!frame)
+		return image;
+
 	image.width = static_cast<int>(frame->width);
 	image.height = static_cast<int>(frame->height);
 	image.pitch = static_cast<int>(frame->pitch);
@@ -959,6 +1497,7 @@ motion_tracking::MotionTrackImage DialogMotionTrack::GetTrackImage(int frame_num
 }
 
 void DialogMotionTrack::TrackOne(int target_frame) {
+	StopPlayback();
 	UpdateSettingsFromControls();
 	if (!motion_tracking::MotionTrackEngine::IsAvailable()) {
 		wxMessageBox(_("Motion Track requires OpenCV, but this build was configured without OpenCV."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
