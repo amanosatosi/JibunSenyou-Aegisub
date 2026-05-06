@@ -109,6 +109,7 @@ aegisub_src = files(
     'matroska_audio_metadata.cpp',
     'motion_tracking/motion_track_engine.cpp',
     'motion_tracking/motion_track_export_ae.cpp',
+    'motion_tracking/motion_track_segments.cpp',
     'pen.cpp',
     'persist_location.cpp',
     'preferences.cpp',

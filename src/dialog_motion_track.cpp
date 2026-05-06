@@ -489,6 +489,11 @@ class MotionTrackPreviewPanel final : public wxPanel {
 			return;
 
 		auto marker = dialog->GetCurrentMarker();
+		int segment_state = dialog->GetCurrentSegmentVisualState();
+		wxColour marker_colour = segment_state == 1 ? wxColour(65, 145, 220) :
+			segment_state == 2 ? wxColour(230, 120, 20) : wxColour(150, 150, 150);
+		wxColour search_colour = segment_state == 1 ? wxColour(255, 170, 60) :
+			segment_state == 2 ? wxColour(220, 90, 50) : wxColour(120, 120, 120);
 		double angle = DegToRad(marker.rotation_deg);
 		double half = marker.size / 2.0;
 		double search_half = std::max(marker.search_size, marker.size) / 2.0;
@@ -509,8 +514,8 @@ class MotionTrackPreviewPanel final : public wxPanel {
 			dc.DrawPolygon(4, corners);
 		};
 
-		draw_square(search_half, wxPen(wxColour(255, 170, 60), 1, wxPENSTYLE_SHORT_DASH));
-		draw_square(half, wxPen(wxColour(65, 145, 220), 2));
+		draw_square(search_half, wxPen(search_colour, 1, wxPENSTYLE_SHORT_DASH));
+		draw_square(half, wxPen(marker_colour, 2));
 
 		wxPoint handle_rel = RotatePoint(half * scale, 0.0, angle);
 		wxPoint c(static_cast<int>(std::lround(center.m_x)), static_cast<int>(std::lround(center.m_y)));
@@ -518,7 +523,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 
 		dc.SetPen(wxPen(wxColour(230, 120, 20), 2));
 		dc.DrawLine(c, handle);
-		dc.SetBrush(wxBrush(wxColour(65, 145, 220)));
+		dc.SetBrush(wxBrush(marker_colour));
 		dc.SetPen(wxPen(*wxWHITE, 1));
 		dc.DrawCircle(c, 4);
 		dc.SetBrush(wxBrush(wxColour(230, 120, 20)));
@@ -958,9 +963,11 @@ void DialogMotionTrack::CreateControls() {
 	auto top_row = new wxBoxSizer(wxHORIZONTAL);
 	range_label = new wxStaticText(this, -1, "");
 	current_label = new wxStaticText(this, -1, "");
+	segment_label = new wxStaticText(this, -1, "");
 	cache_status_label = new wxStaticText(this, -1, "");
 	top_row->Add(range_label, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
 	top_row->Add(current_label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+	top_row->Add(segment_label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
 	top_row->Add(cache_status_label, 0, wxALIGN_CENTER_VERTICAL);
 	main_sizer->Add(top_row, 0, wxEXPAND | wxALL, 6);
 
@@ -985,6 +992,27 @@ void DialogMotionTrack::CreateControls() {
 	track_buttons->Add(track_next, 0, wxRIGHT, 4);
 	track_buttons->Add(track_to_end, 0);
 	controls->Add(track_buttons, 0, wxBOTTOM, 4);
+
+	auto segment_buttons = new wxBoxSizer(wxHORIZONTAL);
+	add_segment_button = new wxButton(this, -1, _("Add Track Segment"));
+	start_segment_button = new wxButton(this, -1, _("Start Track Here"));
+	end_segment_button = new wxButton(this, -1, _("End Segment Here"));
+	continue_segment_button = new wxButton(this, -1, _("Continue From Here"));
+	delete_segment_button = new wxButton(this, -1, _("Delete Segment"));
+	recalculate_motion_button = new wxButton(this, -1, _("Recalculate Motion"));
+	add_segment_button->SetToolTip(_("Create a new manual tracking segment from the current tracker marker."));
+	start_segment_button->SetToolTip(_("Start a tracking segment at the current frame."));
+	end_segment_button->SetToolTip(_("Stop the active segment at the current frame."));
+	continue_segment_button->SetToolTip(_("Start a new segment here and inherit the previous segment's accumulated motion."));
+	delete_segment_button->SetToolTip(_("Delete the segment on the current frame."));
+	recalculate_motion_button->SetToolTip(_("Rebuild the stitched motion path from all enabled segments."));
+	segment_buttons->Add(add_segment_button, 0, wxRIGHT, 4);
+	segment_buttons->Add(start_segment_button, 0, wxRIGHT, 4);
+	segment_buttons->Add(end_segment_button, 0, wxRIGHT, 4);
+	segment_buttons->Add(continue_segment_button, 0, wxRIGHT, 4);
+	segment_buttons->Add(delete_segment_button, 0, wxRIGHT, 4);
+	segment_buttons->Add(recalculate_motion_button, 0);
+	controls->Add(segment_buttons, 0, wxBOTTOM, 4);
 
 	auto settings_row = new wxBoxSizer(wxHORIZONTAL);
 	settings_row->Add(new wxStaticText(this, -1, _("Square:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
@@ -1058,7 +1086,7 @@ void DialogMotionTrack::CreateControls() {
 
 	main_sizer->Add(new wxStaticLine(this), 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
 	auto bottom = new wxBoxSizer(wxHORIZONTAL);
-	auto copy = new wxButton(this, -1, _("Copy Data"));
+	auto copy = new wxButton(this, -1, _("Copy Motion Data"));
 	auto save = new wxButton(this, -1, _("Save Data"));
 	auto clear = new wxButton(this, -1, _("Clear"));
 	auto close = new wxButton(this, wxID_CANCEL, _("Close"));
@@ -1106,6 +1134,12 @@ void DialogMotionTrack::BindControls() {
 	track_previous->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackOne(current_frame - 1); });
 	track_next->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackOne(current_frame + 1); });
 	track_to_end->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { TrackRange(settings.end_frame); });
+	add_segment_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { AddTrackSegment(); });
+	start_segment_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { StartTrackHere(); });
+	end_segment_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { EndSegmentHere(); });
+	continue_segment_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { ContinueFromHere(); });
+	delete_segment_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { DeleteCurrentSegment(); });
+	recalculate_motion_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent &) { RecalculateMotion(); });
 
 	Bind(wxEVT_CHAR_HOOK, &DialogMotionTrack::OnCharHook, this);
 	cache_timer.Bind(wxEVT_TIMER, &DialogMotionTrack::OnCacheTimer, this);
@@ -1182,6 +1216,17 @@ void DialogMotionTrack::UpdatePrepassControls() {
 void DialogMotionTrack::UpdateLabels() {
 	range_label->SetLabel(fmt_wx("Selected line frames: %d - %d", settings.start_frame, settings.end_frame));
 	current_label->SetLabel(fmt_wx("Current: %d", current_frame));
+	if (segment_label) {
+		int segment_index = FindSegmentForFrame(current_frame);
+		if (segment_index < 0) {
+			segment_label->SetLabel(_("Segment: none"));
+		}
+		else {
+			auto const& segment = segments[segment_index];
+			char const *state = segment_index == active_segment ? "active" : "ended";
+			segment_label->SetLabel(fmt_wx("Segment: %s %d-%d", state, segment.start_frame, segment.end_frame));
+		}
+	}
 	UpdateCacheStatus();
 }
 
@@ -1361,6 +1406,13 @@ bool DialogMotionTrack::HasCurrentMarker() const {
 	return markers.find(current_frame) != markers.end();
 }
 
+int DialogMotionTrack::GetCurrentSegmentVisualState() const {
+	int segment_index = FindSegmentForFrame(current_frame);
+	if (segment_index < 0)
+		return 0;
+	return segment_index == active_segment ? 1 : 2;
+}
+
 motion_tracking::MotionTrackMarker DialogMotionTrack::GetCurrentMarker() const {
 	return MarkerForFrame(current_frame);
 }
@@ -1414,11 +1466,21 @@ std::vector<MotionTrackTrailMarker> DialogMotionTrack::GetTrackTrailMarkers() co
 void DialogMotionTrack::SetCurrentMarker(motion_tracking::MotionTrackMarker marker) {
 	marker.search_size = std::max(marker.search_size, marker.size);
 	markers[current_frame] = marker;
+	if (active_segment >= 0 && active_segment < static_cast<int>(segments.size())) {
+		auto& segment = segments[active_segment];
+		if (segment.enabled && current_frame >= segment.start_frame && current_frame <= segment.end_frame) {
+			if (current_frame == segment.start_frame)
+				segment.tracker_box_at_start = marker;
+			StoreSegmentFrame(active_segment, current_frame, marker, 1.0, motion_tracking::MotionTrackState::Untracked);
+			motion_tracking::RecalculateSegmentAccumulatedOffsets(segments);
+			result = motion_tracking::BuildStitchedMotionResult(result, segments);
+		}
+	}
 	if (base_frame < 0) {
 		base_frame = current_frame;
 		initial_marker_size = marker.size;
 	}
-	RefreshPreview();
+	UpdatePanels();
 }
 
 void DialogMotionTrack::PlaceCurrentMarker(double x, double y) {
@@ -1434,9 +1496,19 @@ void DialogMotionTrack::PlaceCurrentMarker(double x, double y) {
 
 void DialogMotionTrack::DeleteCurrentMarker() {
 	markers.erase(current_frame);
+	int segment_index = FindSegmentForFrame(current_frame);
+	if (segment_index >= 0 && segment_index < static_cast<int>(segments.size())) {
+		auto& segment = segments[segment_index];
+		segment.tracked_center_by_frame.erase(
+			std::remove_if(segment.tracked_center_by_frame.begin(), segment.tracked_center_by_frame.end(), [=](auto const& sample) {
+				return sample.frame == current_frame;
+			}),
+			segment.tracked_center_by_frame.end());
+	}
 	result.frames.erase(std::remove_if(result.frames.begin(), result.frames.end(), [=](auto const& frame) {
 		return frame.frame == current_frame;
 	}), result.frames.end());
+	RecalculateMotion();
 	if (base_frame == current_frame) {
 		base_frame = markers.empty() ? -1 : markers.begin()->first;
 		if (base_frame >= 0)
@@ -1496,6 +1568,156 @@ motion_tracking::MotionTrackImage DialogMotionTrack::GetTrackImage(int frame_num
 	return image;
 }
 
+int DialogMotionTrack::FindSegmentForFrame(int frame) const {
+	if (active_segment >= 0 && active_segment < static_cast<int>(segments.size())) {
+		auto const& segment = segments[active_segment];
+		if (segment.enabled && frame >= segment.start_frame && frame <= segment.end_frame)
+			return active_segment;
+	}
+
+	int found = -1;
+	for (int i = 0; i < static_cast<int>(segments.size()); ++i) {
+		auto const& segment = segments[i];
+		if (!segment.enabled || frame < segment.start_frame || frame > segment.end_frame)
+			continue;
+		if (found < 0 ||
+			segment.start_frame > segments[found].start_frame ||
+			(segment.start_frame == segments[found].start_frame && i > found))
+			found = i;
+	}
+	return found;
+}
+
+void DialogMotionTrack::StoreSegmentFrame(
+	int segment_index,
+	int frame,
+	motion_tracking::MotionTrackMarker const& marker,
+	double confidence,
+	motion_tracking::MotionTrackState state) {
+
+	if (segment_index < 0 || segment_index >= static_cast<int>(segments.size()))
+		return;
+
+	auto& segment = segments[segment_index];
+	motion_tracking::UpsertSegmentSample(segment, motion_tracking::MotionTrackSegmentSample{frame, marker, confidence, state});
+}
+
+void DialogMotionTrack::RebuildMarkersFromSegments() {
+	markers.clear();
+	for (auto const& segment : segments) {
+		if (!segment.enabled)
+			continue;
+		for (auto const& sample : segment.tracked_center_by_frame) {
+			if (sample.state == motion_tracking::MotionTrackState::Lost)
+				continue;
+			if (sample.frame < segment.start_frame || sample.frame > segment.end_frame)
+				continue;
+			markers[sample.frame] = sample.marker;
+		}
+	}
+}
+
+void DialogMotionTrack::RecalculateMotion() {
+	motion_tracking::RecalculateSegmentAccumulatedOffsets(segments);
+	result = motion_tracking::BuildStitchedMotionResult(result, segments);
+	RebuildMarkersFromSegments();
+	UpdatePanels();
+}
+
+void DialogMotionTrack::AddTrackSegment() {
+	StartTrackHere();
+}
+
+void DialogMotionTrack::StartTrackHere() {
+	if (!HasCurrentMarker()) {
+		wxMessageBox(_("Place a tracker marker before starting a segment."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
+		return;
+	}
+
+	auto marker = GetCurrentMarker();
+	motion_tracking::MotionTrackSegment segment;
+	segment.start_frame = current_frame;
+	segment.end_frame = settings.end_frame;
+	segment.tracker_box_at_start = marker;
+	segment.name = agi::format("Segment %d", static_cast<int>(segments.size()) + 1);
+	segment.tracked_center_by_frame.push_back(motion_tracking::MotionTrackSegmentSample{
+		current_frame,
+		marker,
+		1.0,
+		motion_tracking::MotionTrackState::Untracked
+	});
+	segments.push_back(segment);
+	active_segment = static_cast<int>(segments.size()) - 1;
+	base_frame = current_frame;
+	initial_marker_size = marker.size;
+	RecalculateMotion();
+}
+
+void DialogMotionTrack::ContinueFromHere() {
+	if (active_segment >= 0 && active_segment < static_cast<int>(segments.size())) {
+		auto& segment = segments[active_segment];
+		if (segment.enabled && current_frame > segment.start_frame && current_frame <= segment.end_frame) {
+			segment.end_frame = current_frame;
+			segment.end_frame_manual = true;
+			motion_tracking::TrimSegmentToEnd(segment);
+		}
+	}
+	StartTrackHere();
+}
+
+void DialogMotionTrack::EndSegmentHere() {
+	int segment_index = FindSegmentForFrame(current_frame);
+	if (segment_index < 0 || segment_index >= static_cast<int>(segments.size())) {
+		wxMessageBox(_("No segment is active on this frame."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
+		return;
+	}
+
+	auto& segment = segments[segment_index];
+	if (current_frame < segment.start_frame) {
+		wxMessageBox(_("The current frame is before the segment start."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
+		return;
+	}
+
+	segment.end_frame = std::min(current_frame, settings.end_frame);
+	segment.end_frame_manual = true;
+	motion_tracking::TrimSegmentToEnd(segment);
+	active_segment = -1;
+	RecalculateMotion();
+}
+
+void DialogMotionTrack::DeleteCurrentSegment() {
+	int segment_index = FindSegmentForFrame(current_frame);
+	if (segment_index < 0 || segment_index >= static_cast<int>(segments.size())) {
+		wxMessageBox(_("No segment is active on this frame."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
+		return;
+	}
+
+	segments.erase(segments.begin() + segment_index);
+	if (active_segment == segment_index)
+		active_segment = -1;
+	else if (active_segment > segment_index)
+		--active_segment;
+	RecalculateMotion();
+}
+
+int DialogMotionTrack::FindSegmentForTracking(int target_frame) {
+	if (active_segment >= 0 && active_segment < static_cast<int>(segments.size())) {
+		auto const& segment = segments[active_segment];
+		if (segment.enabled && current_frame >= segment.start_frame && current_frame <= segment.end_frame) {
+			if (target_frame <= segment.end_frame || !segment.end_frame_manual)
+				return active_segment;
+		}
+	}
+
+	if (!HasCurrentMarker()) {
+		wxMessageBox(_("Place a tracker marker before tracking."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
+		return -1;
+	}
+
+	StartTrackHere();
+	return active_segment;
+}
+
 void DialogMotionTrack::TrackOne(int target_frame) {
 	StopPlayback();
 	UpdateSettingsFromControls();
@@ -1506,25 +1728,23 @@ void DialogMotionTrack::TrackOne(int target_frame) {
 
 	if (target_frame < settings.start_frame || target_frame > settings.end_frame)
 		return;
-	if (!HasCurrentMarker()) {
-		wxMessageBox(_("Place a tracker marker before tracking."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
+	int segment_index = FindSegmentForTracking(target_frame);
+	if (segment_index < 0)
+		return;
+	auto& segment = segments[segment_index];
+	if (target_frame > segment.end_frame && segment.end_frame_manual) {
+		wxMessageBox(_("This segment has ended. Add or continue a segment before tracking farther."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
 		return;
 	}
 
 	int source_frame = current_frame;
 	auto search_marker = GetCurrentMarker();
 	auto source_marker = search_marker;
-	if (settings.base == motion_tracking::MotionTrackBase::FirstFrame && base_frame >= 0 && markers.count(base_frame)) {
-		source_frame = base_frame;
-		source_marker = markers[base_frame];
+	if (settings.base == motion_tracking::MotionTrackBase::FirstFrame && target_frame > current_frame && markers.count(segment.start_frame)) {
+		source_frame = segment.start_frame;
+		source_marker = markers[segment.start_frame];
 	}
-	auto source_output = std::find_if(result.frames.begin(), result.frames.end(), [=](auto const& frame) {
-		return frame.frame == source_frame;
-	});
-	if (source_output == result.frames.end())
-		StoreFrame(source_frame, source_marker, 1.0, motion_tracking::MotionTrackState::Untracked);
-	else
-		StoreFrame(source_frame, source_marker, source_output->confidence, source_output->state);
+	StoreSegmentFrame(segment_index, source_frame, source_marker, 1.0, motion_tracking::MotionTrackState::Untracked);
 
 	try {
 		motion_tracking::MotionTrackEngine engine;
@@ -1536,8 +1756,21 @@ void DialogMotionTrack::TrackOne(int target_frame) {
 			step.marker.rotation_deg = search_marker.rotation_deg;
 		step.marker.search_size = std::max(step.marker.search_size, step.marker.size);
 
+		if (step.frame.state == motion_tracking::MotionTrackState::Lost) {
+			auto& failed_segment = segments[segment_index];
+			failed_segment.tracked_center_by_frame.erase(
+				std::remove_if(failed_segment.tracked_center_by_frame.begin(), failed_segment.tracked_center_by_frame.end(), [=](auto const& sample) {
+					return target_frame > current_frame ? sample.frame >= target_frame : sample.frame <= target_frame;
+				}),
+				failed_segment.tracked_center_by_frame.end());
+			wxMessageBox(_("Tracking was lost before the segment end. Motion data was preserved up to the last valid frame."), _("Motion Track"), wxOK | wxICON_WARNING, this);
+			RecalculateMotion();
+			return;
+		}
+
 		markers[target_frame] = step.marker;
-		StoreFrame(target_frame, step.marker, step.frame.confidence, step.frame.state);
+		StoreSegmentFrame(segment_index, target_frame, step.marker, step.frame.confidence, step.frame.state);
+		RecalculateMotion();
 		JumpToFrame(target_frame);
 	}
 	catch (...) {
@@ -1553,6 +1786,12 @@ void DialogMotionTrack::TrackRange(int target_frame) {
 		return;
 	}
 
+	int segment_index = FindSegmentForTracking(target_frame);
+	if (segment_index < 0)
+		return;
+	if (target_frame > current_frame && segments[segment_index].end_frame_manual)
+		target_frame = std::min(target_frame, segments[segment_index].end_frame);
+
 	wxBeginBusyCursor();
 	int step = target_frame > current_frame ? 1 : -1;
 	while (current_frame != target_frame) {
@@ -1566,6 +1805,7 @@ void DialogMotionTrack::TrackRange(int target_frame) {
 }
 
 void DialogMotionTrack::CopyData() {
+	RecalculateMotion();
 	if (result.frames.empty()) {
 		wxMessageBox(_("No motion data to copy."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
 		return;
@@ -1577,6 +1817,7 @@ void DialogMotionTrack::CopyData() {
 }
 
 void DialogMotionTrack::SaveData() {
+	RecalculateMotion();
 	if (result.frames.empty()) {
 		wxMessageBox(_("No motion data to save."), _("Motion Track"), wxOK | wxICON_INFORMATION, this);
 		return;
@@ -1606,8 +1847,10 @@ void DialogMotionTrack::SaveData() {
 
 void DialogMotionTrack::ClearData() {
 	markers.clear();
+	segments.clear();
 	result.frames.clear();
 	base_frame = -1;
+	active_segment = -1;
 	initial_marker_size = settings.square_size;
 	UpdatePanels();
 }

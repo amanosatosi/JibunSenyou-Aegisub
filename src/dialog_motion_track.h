@@ -1,6 +1,6 @@
 #pragma once
 
-#include "motion_tracking/motion_track_types.h"
+#include "motion_tracking/motion_track_segments.h"
 
 #include <libaegisub/signal.h>
 
@@ -40,11 +40,13 @@ class DialogMotionTrack final : public wxDialog {
 
 	motion_tracking::MotionTrackSettings settings;
 	motion_tracking::MotionTrackResult result;
+	std::vector<motion_tracking::MotionTrackSegment> segments;
 	std::map<int, motion_tracking::MotionTrackMarker> markers;
 
 	int current_frame = 0;
 	int preview_frame = -1;
 	int base_frame = -1;
+	int active_segment = -1;
 	double initial_marker_size = 80.0;
 	bool prepass_user_set = false;
 	bool show_track_trail = true;
@@ -60,6 +62,7 @@ class DialogMotionTrack final : public wxDialog {
 
 	wxStaticText *range_label = nullptr;
 	wxStaticText *current_label = nullptr;
+	wxStaticText *segment_label = nullptr;
 	wxStaticText *cache_status_label = nullptr;
 	wxSpinCtrl *square_ctrl = nullptr;
 	wxSpinCtrl *search_ctrl = nullptr;
@@ -78,6 +81,12 @@ class DialogMotionTrack final : public wxDialog {
 	wxButton *track_previous = nullptr;
 	wxButton *track_next = nullptr;
 	wxButton *track_to_end = nullptr;
+	wxButton *add_segment_button = nullptr;
+	wxButton *start_segment_button = nullptr;
+	wxButton *end_segment_button = nullptr;
+	wxButton *continue_segment_button = nullptr;
+	wxButton *delete_segment_button = nullptr;
+	wxButton *recalculate_motion_button = nullptr;
 	MotionTrackFrameBar *frame_bar = nullptr;
 	MotionTrackPreviewPanel *preview = nullptr;
 	MotionTrackGraphPanel *graph = nullptr;
@@ -114,6 +123,16 @@ class DialogMotionTrack final : public wxDialog {
 	std::shared_ptr<VideoFrame> GetCachedFrame(int frame) const;
 	void TrackOne(int target_frame);
 	void TrackRange(int target_frame);
+	int FindSegmentForFrame(int frame) const;
+	int FindSegmentForTracking(int target_frame);
+	void AddTrackSegment();
+	void StartTrackHere();
+	void EndSegmentHere();
+	void ContinueFromHere();
+	void DeleteCurrentSegment();
+	void RecalculateMotion();
+	void RebuildMarkersFromSegments();
+	void StoreSegmentFrame(int segment_index, int frame, motion_tracking::MotionTrackMarker const& marker, double confidence, motion_tracking::MotionTrackState state);
 	void CopyData();
 	void SaveData();
 	void ClearData();
@@ -140,6 +159,7 @@ public:
 	motion_tracking::MotionTrackSmoothing GetSmoothing() const { return settings.smoothing; }
 	bool GetPreserveEndpoints() const { return settings.preserve_endpoints; }
 	bool HasCurrentMarker() const;
+	int GetCurrentSegmentVisualState() const;
 	motion_tracking::MotionTrackMarker GetCurrentMarker() const;
 	void SetCurrentMarker(motion_tracking::MotionTrackMarker marker);
 	void PlaceCurrentMarker(double x, double y);

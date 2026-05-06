@@ -27,6 +27,7 @@ all_test_sources += [
     '../src/ass_dialogue.cpp',
     '../src/ass_override.cpp',
     '../src/ass_karaoke.cpp',
+    '../src/motion_tracking/motion_track_segments.cpp',
 
     'tests/access.cpp',
     'tests/audio.cpp',
@@ -47,6 +48,7 @@ all_test_sources += [
     'tests/line_iterator.cpp',
     'tests/line_wrap.cpp',
     'tests/mru.cpp',
+    'tests/motion_track_segments.cpp',
     'tests/option.cpp',
     'tests/path.cpp',
     'tests/signals.cpp',
