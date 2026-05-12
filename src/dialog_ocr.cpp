@@ -291,7 +291,7 @@ agi::fs::path DialogOCR::Impl::PrepareImage() {
 		if (path.empty())
 			throw agi::InvalidInputException("Choose an image file before running OCR.");
 		if (!agi::fs::FileExists(path))
-			throw agi::FileNotFound("Image file not found: " + path.string());
+			throw agi::fs::FileNotFound("Image file not found: " + path.string());
 		return path;
 	}
 
