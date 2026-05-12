@@ -61,7 +61,7 @@ struct OCRThreadResult {
 	agi::fs::path temporary_image;
 };
 
-AGI_DEFINE_EVENT(EVT_OCR_COMPLETE, OCRThreadResult)
+wxDEFINE_EVENT(EVT_OCR_COMPLETE, ValueEvent<OCRThreadResult>);
 
 struct LanguageChoice {
 	wxString label;
