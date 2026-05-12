@@ -521,6 +521,17 @@
 			},
 			"Maximized" : false
 		},
+		"OCR" : {
+			"Copy After OCR" : true,
+			"Insert After OCR" : false,
+			"Keep Line Breaks" : true,
+			"Language" : "japanese",
+			"Last" : {
+				"X" : -1,
+				"Y" : -1
+			},
+			"Maximized" : false
+		},
 		"Paste Lines Over" : {
 			"Fields" : [
 				{"bool" : false},

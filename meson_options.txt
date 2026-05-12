@@ -12,6 +12,7 @@ option('avisynth', type: 'feature', description: 'AviSynth video source')
 option('bestsource', type: 'feature', description: 'BestSource video source')
 option('vapoursynth', type: 'feature', description: 'VapourSynth video source')
 option('opencv', type: 'feature', value: 'auto', description: 'Enable OpenCV motion tracking')
+option('paddleocr', type: 'feature', value: 'auto', description: 'Enable bundled PaddleOCR image-to-text support')
 
 option('fftw3', type: 'feature', description: 'FFTW3 support')
 option('hunspell', type: 'feature', description: 'Hunspell spell checker')

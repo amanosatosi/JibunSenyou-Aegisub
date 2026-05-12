@@ -121,6 +121,10 @@ If you want an Actor-name workflow without writing scripts, check out **[Irodori
 
 ### Utilities / Scripts
 
+- **Image to Text OCR**: Windows release zips/installers bundle an offline
+  PaddleOCR runtime and models. Use `Video > Image to Text (OCR)...` to OCR the
+  current frame or an image file. Details: [docs/ocr.md](docs/ocr.md)
+
 - **Compatibility fix for Aegisub 3.2.2 KFX templates**
 * **[Dependency control configure script](https://github.com/garret1317/aegisub-scripts/blob/master/garret.depctrl_config.lua)** (from [garret1317](https://github.com/garret1317)様)
 

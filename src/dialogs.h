@@ -78,3 +78,4 @@ void ShowStyleManagerDialog(agi::Context *c);
 void ShowTimingProcessorDialog(agi::Context *c);
 void ShowVideoDetailsDialog(agi::Context *c);
 void ShowAlignToVideoDialog(agi::Context* c);
+void ShowOCRDialog(agi::Context *c);

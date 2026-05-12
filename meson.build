@@ -334,6 +334,15 @@ if not opencv_opt.disabled()
     endif
 endif
 
+paddleocr_opt = get_option('paddleocr')
+if not paddleocr_opt.disabled()
+    if host_machine.system() == 'windows'
+        conf.set('WITH_PADDLEOCR', 1)
+    elif paddleocr_opt.enabled()
+        error('Bundled PaddleOCR support is currently Windows-only')
+    endif
+endif
+
 if host_machine.system() == 'windows'
     if not get_option('directsound').disabled()
         dsound_dep = cc.find_library('dsound', required: get_option('directsound'))

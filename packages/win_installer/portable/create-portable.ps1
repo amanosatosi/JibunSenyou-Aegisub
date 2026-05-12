@@ -76,6 +76,8 @@ Copy-New-Item $InstallerDepsDir\VC_redist\VC_redist.x64.exe $PortableOutputDir\M
 Write-Output 'Copying - redist\XAudio2_9'
 Copy-New-Item $InstallerDepsDir\XAudio2_redist\build\native\release\bin\x64\xaudio2_9redist.dll $PortableOutputDir\Redist
 Rename-Item $PortableOutputDir\Redist\xaudio2_9redist.dll $PortableOutputDir\Redist\XAudio2_9.dll
+Write-Output 'Copying - OCR runtime'
+Copy-New-Items "$InstallerDepsDir\ocr\*" "$PortableOutputDir\ocr" -Recurse
 
 Write-Output 'Copying - automation'
 Copy-New-Items "$InstallerDir\share\aegisub\automation\*"  "$PortableOutputDir\automation\"  -Recurse

@@ -155,6 +155,7 @@
         { "recent" : "Video" },
         { "command" : "video/open/dummy" },
         { "command" : "video/details" },
+        { "command" : "tool/ocr/image_to_text" },
         {},
         { "command" : "timecode/open" },
         { "command" : "timecode/save" },
@@ -253,6 +254,8 @@
         {},
         { "command" : "video/frame/save/subs" },
         { "command" : "video/frame/copy/subs" },
+        {},
+        { "command" : "tool/ocr/image_to_text" },
         {},
         { "command" : "video/copy_coordinates" },
         { "command" : "video/pan_reset" }

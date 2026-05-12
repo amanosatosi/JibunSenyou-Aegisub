@@ -41,6 +41,7 @@ jobs:
               -Davisynth=enabled
               -Dbestsource=enabled
               -Dvapoursynth=enabled
+              -Dpaddleocr=enabled
               -Dopencv=enabled
           - name: Windows MSVC Release (wx master)
             os: windows-latest
@@ -64,6 +65,7 @@ jobs:
               -Davisynth=enabled
               -Dbestsource=enabled
               -Dvapoursynth=enabled
+              -Dpaddleocr=enabled
               -Dwx_version='3.3.1'
               -Dopencv=enabled
           #- {
@@ -152,7 +154,16 @@ jobs:
           Get-Location | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           popd
 
+      - name: Cache OCR runtime (Windows)
+        if: matrix.config.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: build/installer-deps/ocr
+          key: paddleocr-json-v1.4.1-windows-x64-c0912a70
 
+      - name: Download OCR runtime (Windows)
+        if: matrix.config.os == 'windows-latest'
+        run: .\tools\ocr\download_paddleocr_windows.ps1 -DestinationDir "build\installer-deps\ocr"
 
       - name: Install dependencies (Linux)
         if: startsWith(matrix.config.os, 'ubuntu-')

@@ -101,6 +101,17 @@ struct tool_line_select final : public Command {
 	}
 };
 
+struct tool_ocr_image_to_text final : public Command {
+	CMD_NAME("tool/ocr/image_to_text")
+	STR_MENU("Image to Text (OCR)...")
+	STR_DISP("Image to Text (OCR)")
+	STR_HELP("Recognize text from the current video frame or an image file")
+
+	void operator()(agi::Context *c) override {
+		ShowOCRDialog(c);
+	}
+};
+
 struct tool_resampleres final : public Command {
 	CMD_NAME("tool/resampleres")
 	CMD_ICON(resample_toolbutton)
@@ -281,6 +292,7 @@ namespace cmd {
 		reg(agi::make_unique<tool_export>());
 		reg(agi::make_unique<tool_font_collector>());
 		reg(agi::make_unique<tool_line_select>());
+		reg(agi::make_unique<tool_ocr_image_to_text>());
 		reg(agi::make_unique<tool_resampleres>());
 		reg(agi::make_unique<tool_style_assistant>());
 		reg(agi::make_unique<tool_styling_assistant_commit>());

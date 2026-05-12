@@ -178,6 +178,11 @@ if (!(Test-Path dictionaries)) {
 	Invoke-WebRequestWithRetry -Uri "https://raw.githubusercontent.com/TypesettingTools/Aegisub-dictionaries/master/dicts/en_US.dic" -OutFile dictionaries/en_US.dic
 }
 
+# PaddleOCR runtime and bundled models
+$OcrRuntimeSetup = Join-Path $SourceRoot "tools\ocr\download_paddleocr_windows.ps1"
+& $OcrRuntimeSetup -DestinationDir (Join-Path $DepsDir "ocr")
+if(!$?) { Exit $LASTEXITCODE }
+
 # localization
 Set-Location $BuildRoot
 meson compile aegisub-gmo

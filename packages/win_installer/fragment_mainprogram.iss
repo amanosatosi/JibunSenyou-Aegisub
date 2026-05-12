@@ -12,6 +12,7 @@ Name: "macros\modules\luajson"; Description: "LuaJSON"; Types: full
 #endif
 Name: "dictionaries"; Description: "Spellcheck Dictionaries"; Types: full
 Name: "dictionaries\en_US"; Description: "English (US)"; Types: full
+Name: "ocr"; Description: "Bundled Image to Text OCR"; Types: full compact custom
 Name: "translations"; Description: "Aegisub Translations"; Types: full
 
 [Tasks]
@@ -23,6 +24,7 @@ Name: "checkforupdates"; Description: "{cm:CheckForUpdates}"; GroupDescription: 
 DestDir: {app}; Source: "{#BUILD_ROOT}\aegisub.exe"; Flags: ignoreversion; Components: main
 DestDir: {app}; Source: "{#BUILD_ROOT}\ass.dll"; Flags: ignoreversion; Components: main
 DestDir: {app}; Source: "{#BUILD_ROOT}\opencv-runtime\*.dll"; Flags: ignoreversion skipifsourcedoesntexist; Components: main
+DestDir: {app}\ocr; Source: "{#DEPS_DIR}\ocr\*"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: ocr
 DestDir: {app}; Source: "{#INSTALLER_DIR}\license.txt"; Flags: ignoreversion; Components: main
 
 [Icons]
@@ -39,3 +41,7 @@ Filename: {app}\aegisub.exe; Description: {cm:LaunchProgram,Aegisub}; Flags: now
 [InstallDelete]
 Type: files; Name: "{app}\ffms2_64.dll"
 Type: files; Name: "{app}\ffms2_32.dll"
+Type: filesandordirs; Name: "{app}\ocr"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\ocr"
