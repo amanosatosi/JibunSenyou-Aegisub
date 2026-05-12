@@ -20,7 +20,9 @@
 
 #include <libaegisub/cajun/elements.h>
 #include <libaegisub/cajun/reader.h>
+#include <libaegisub/format_path.h>
 #include <libaegisub/fs.h>
+#include <libaegisub/path.h>
 
 #include <algorithm>
 #include <cctype>
