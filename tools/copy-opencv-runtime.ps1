@@ -42,7 +42,11 @@ $patterns = @(
     "opencv_*.dll",
     "ade.dll",
     "ittnotify.dll",
+
+    # vcpkg/OpenCV may depend on zlib as z.dll, not zlib*.dll.
+    "z.dll",
     "zlib*.dll",
+
     "libpng*.dll",
     "jpeg*.dll",
     "libjpeg*.dll",
