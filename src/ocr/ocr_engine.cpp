@@ -263,7 +263,7 @@ OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions 
 	command += " -image_path=" + QuoteArg(PathString(image_path));
 	command += " -models_path=" + QuoteArg(PathString(models_dir));
 	command += " -config_path=" + QuoteArg(PathString(ConfigPath(options.language)));
-	command += " -ensure_ascii=true";
+	command += " -ensure_ascii=false";
 
 	wxArrayString output;
 	wxArrayString errors;
