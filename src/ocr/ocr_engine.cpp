@@ -459,13 +459,7 @@ OCREngine::OCREngine()
 agi::fs::path OCREngine::ConfigPath(std::string const& language) const {
 	if (language == "korean")
 		return models_dir / "config_korean.txt";
-	if (language == "english")
-		return models_dir / "config_en.txt";
-	if (language == "chinese_simplified")
-		return models_dir / "config_chinese.txt";
-	if (language == "chinese_traditional")
-		return models_dir / "config_chinese_cht.txt";
-	return models_dir / "config_japan.txt";
+	return models_dir / "config_ppocrv5.txt";
 }
 
 bool OCREngine::IsAvailable(OCROptions const& options) const {

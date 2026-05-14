@@ -9,16 +9,22 @@ $ErrorActionPreference = "Stop"
 
 $ReleaseTag = "v1.4.1-dev"
 $RuntimeVersion = "v1.4.1-dev.1"
-$BundleVersion = "$RuntimeVersion-compatible-models-v2"
+$BundleVersion = "$RuntimeVersion-ppocrv5-mobile-det-server-rec-v3"
 $ArchiveName = "PaddleOCR-json_v1.4.1_dev.1_windows_x86-64_cpu_mkl.7z"
 $ArchiveUrl = "https://github.com/hiroi-sora/PaddleOCR-json/releases/download/$ReleaseTag/$ArchiveName"
 $ArchiveSha256 = "46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f"
 
-$CompatibleConfigNames = @(
-    "config_japan.txt",
-    "config_en.txt",
-    "config_chinese.txt",
-    "config_chinese_cht.txt",
+$PPOcrV5DetArchiveName = "PP-OCRv5_mobile_det_infer.tar"
+$PPOcrV5RecArchiveName = "PP-OCRv5_server_rec_infer.tar"
+$PPOcrV5ModelBaseUrl = "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0"
+$PPOcrV5DetArchiveUrl = "$PPOcrV5ModelBaseUrl/$PPOcrV5DetArchiveName"
+$PPOcrV5RecArchiveUrl = "$PPOcrV5ModelBaseUrl/$PPOcrV5RecArchiveName"
+$PPOcrV5DetArchiveSha256 = "50446e5d01ac2a73d5319c89513281f6578414c888c602f9af13f93feefffc58"
+$PPOcrV5RecArchiveSha256 = "d99be2ffd348943ab52876179168be4fb5b14f5f0812f2ae4c76d89ec2ea750a"
+$PPOcrV5DictUrl = "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/eaede685bcaf22f287edf8865f4dd8d374acb75e/ppocr/utils/dict/ppocrv5_dict.txt"
+
+$RequiredConfigNames = @(
+    "config_ppocrv5.txt",
     "config_korean.txt"
 )
 
@@ -323,7 +329,7 @@ function Test-OcrRuntimeComplete {
     }
 
     try {
-        foreach ($configName in $CompatibleConfigNames) {
+        foreach ($configName in $RequiredConfigNames) {
             Assert-OcrModelConfig -ConfigPath (Join-Path $ModelsDir $configName) -ModelsDir $ModelsDir
         }
     }
@@ -402,6 +408,28 @@ if (Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR_json.exe")) {
 
 Copy-DirectoryContents -Source $ArchiveModelsDir -Destination $ModelsDir
 
+$DetArchivePath = Join-Path $WorkDir $PPOcrV5DetArchiveName
+$RecArchivePath = Join-Path $WorkDir $PPOcrV5RecArchiveName
+Download-File -Uri $PPOcrV5DetArchiveUrl -OutFile $DetArchivePath -ExpectedSha256 $PPOcrV5DetArchiveSha256
+Download-File -Uri $PPOcrV5RecArchiveUrl -OutFile $RecArchivePath -ExpectedSha256 $PPOcrV5RecArchiveSha256
+
+tar -xf $DetArchivePath -C $ModelsDir
+if (!$?) { Exit $LASTEXITCODE }
+tar -xf $RecArchivePath -C $ModelsDir
+if (!$?) { Exit $LASTEXITCODE }
+
+Download-File -Uri $PPOcrV5DictUrl -OutFile (Join-Path $ModelsDir "ppocrv5_dict.txt")
+
+@(
+    "# Aegisub default OCR model combo:",
+    "# PP-OCRv5_mobile_det + PP-OCRv5_server_rec",
+    "",
+    "det_model_dir models/PP-OCRv5_mobile_det_infer",
+    "cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer",
+    "rec_model_dir models/PP-OCRv5_server_rec_infer",
+    "rec_char_dict_path models/ppocrv5_dict.txt"
+) | Set-Content -LiteralPath (Join-Path $ModelsDir "config_ppocrv5.txt") -Encoding ASCII
+
 Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
     Where-Object { $_.Name -match "^(LICENSE|NOTICE|COPYING|README)" } |
     ForEach-Object {
@@ -416,19 +444,18 @@ Component: PaddleOCR-json $RuntimeVersion for Windows x86-64 CPU MKL
 Source: $ArchiveUrl
 SHA256: $ArchiveSha256
 
-PaddleOCR-json is built from PaddleOCR C++/Paddle Inference. Aegisub uses the
-model presets bundled by PaddleOCR-json v1.4.1-dev.1:
+PaddleOCR-json is built from PaddleOCR C++/Paddle Inference. Aegisub targets
+this default model combo:
 
-  config_japan.txt
-  config_en.txt
-  config_chinese.txt
-  config_chinese_cht.txt
-  config_korean.txt
+  Detection:   PP-OCRv5_mobile_det
+  Recognition: PP-OCRv5_server_rec
+  Dictionary:  ppocrv5_dict.txt
 
-The bundled runtime supports PP-OCR V2 through V4 model folders that include
-inference.pdmodel and inference.pdiparams. PP-OCRv5 HuggingFace model folders
-currently provide inference.json, inference.yml, and inference.pdiparams, but
-not inference.pdmodel, so Aegisub does not package PP-OCRv5 with this runtime.
+The current PaddleOCR-json executable still tries to load inference.pdmodel from
+each configured model directory. The official PP-OCRv5 archives hosted by
+Paddle currently contain inference.json, inference.yml, and inference.pdiparams.
+Packaging validation therefore fails unless the selected PP-OCRv5 folders also
+contain inference.pdmodel.
 
 The Aegisub build stores the runtime under:
   ocr/bin
@@ -443,7 +470,7 @@ $RequiredFiles = @(
     (Join-Path $BinDir "PaddleOCR-json.exe")
 )
 
-foreach ($configName in $CompatibleConfigNames) {
+foreach ($configName in $RequiredConfigNames) {
     $RequiredFiles += (Join-Path $ModelsDir $configName)
 }
 
@@ -453,7 +480,7 @@ foreach ($file in $RequiredFiles) {
     }
 }
 
-foreach ($configName in $CompatibleConfigNames) {
+foreach ($configName in $RequiredConfigNames) {
     Assert-OcrModelConfig -ConfigPath (Join-Path $ModelsDir $configName) -ModelsDir $ModelsDir
 }
 
