@@ -41,13 +41,35 @@ function Invoke-WebRequestWithRetry {
     }
 }
 
+function Get-Sha256Hash {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $resolved = (Resolve-Path -LiteralPath $Path).ProviderPath
+    $stream = [System.IO.File]::OpenRead($resolved)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = $sha256.ComputeHash($stream)
+            return [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+        }
+        finally {
+            $sha256.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 function Assert-FileHash {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$ExpectedSha256
     )
 
-    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hash -Path $Path
     if ($actual -ne $ExpectedSha256.ToLowerInvariant()) {
         throw "SHA256 mismatch for $Path. Expected $ExpectedSha256, got $actual."
     }
