@@ -53,6 +53,18 @@ function Invoke-WebRequestWithRetry {
 	}
 }
 
+function Assert-FileHash {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path,
+		[Parameter(Mandatory = $true)][string]$ExpectedSha256
+	)
+
+	$actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+	if ($actual -ne $ExpectedSha256.ToLowerInvariant()) {
+		throw "SHA256 mismatch for $Path. Expected $ExpectedSha256, got $actual."
+	}
+}
+
 # DepCtrl
 if (!(Test-Path DependencyControl)) {
 	git clone https://github.com/TypesettingTools/DependencyControl.git
@@ -105,14 +117,23 @@ if (!(Test-Path L-SMASH-Works)) {
 }
 
 # BestSource
-if (!(Test-Path BestSource)) {
-	$bsDir = New-Item -ItemType Directory BestSource
+$BestSourceVersion = "R17"
+$BestSourceArchive = "BestSource-$BestSourceVersion.7z"
+$BestSourceUrl = "https://github.com/vapoursynth/bestsource/releases/download/$BestSourceVersion/$BestSourceArchive"
+$BestSourceSha256 = "562014b7875941f4638489a20412ed20eed40d9179a9230def61a1245713da21"
+$BestSourceDll = Join-Path $DepsDir "BestSource\BestSource.dll"
+if (!(Test-Path $BestSourceDll)) {
+	$bsDir = Join-Path $DepsDir "BestSource"
+	New-Item -ItemType Directory -Path $bsDir -Force | Out-Null
 	Set-Location $bsDir
-	$basReleases = Invoke-WebRequest "https://api.github.com/repos/vapoursynth/bestsource/releases/latest" -Headers $GitHeaders -UseBasicParsing | ConvertFrom-Json
-	$bsUrl = $basReleases.assets[0].browser_download_url
-	Invoke-WebRequestWithRetry -Uri $bsUrl -OutFile bestsource.7z
-	7z x bestsource.7z
-	Remove-Item bestsource.7z
+	Invoke-WebRequestWithRetry -Uri $BestSourceUrl -OutFile $BestSourceArchive
+	Assert-FileHash -Path $BestSourceArchive -ExpectedSha256 $BestSourceSha256
+	7z x $BestSourceArchive -y
+	if(!$?) { Exit $LASTEXITCODE }
+	Remove-Item $BestSourceArchive
+	if (!(Test-Path "BestSource.dll")) {
+		throw "BestSource archive $BestSourceArchive did not contain BestSource.dll."
+	}
 	Set-Location $DepsDir
 }
 
