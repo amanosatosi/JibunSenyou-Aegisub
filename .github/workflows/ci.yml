@@ -107,7 +107,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
       - name: Setup Meson
         run: |
@@ -159,7 +159,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/installer-deps/ocr
-          key: paddleocr-json-v1.4.1-dev.1-ppocrv5-mobile-det-server-rec-v3
+          key: paddleocr-json-v1.4.1-dev.1-paddleocr-v3.0.0-ppocrv5-mobile-det-server-rec-legacy-export-v4
 
       - name: Download OCR runtime (Windows)
         if: matrix.config.os == 'windows-latest'

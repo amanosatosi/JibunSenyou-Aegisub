@@ -30,7 +30,13 @@ ocr/
     config_ppocrv5.txt
     config_korean.txt
     PP-OCRv5_mobile_det_infer/
+      inference.pdmodel
+      inference.pdiparams
+      inference.yml
     PP-OCRv5_server_rec_infer/
+      inference.pdmodel
+      inference.pdiparams
+      inference.yml
     ppocrv5_dict.txt
     bundled PaddleOCR-json Korean model folders
   licenses/
@@ -39,7 +45,8 @@ ocr/
 ```
 
 The OCR dialog uses this folder next to `aegisub.exe`. If any required file is
-deleted, Aegisub reports the exact missing path.
+deleted, Aegisub reports the exact missing path and the files present in that
+folder.
 
 ## Bundled runtime
 
@@ -51,28 +58,65 @@ The current Windows bundle uses:
 - SHA256:
   `46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f`
 
-PaddleOCR-json is a native PaddleOCR C++/Paddle Inference runtime. Aegisub uses
-this default model combo for Japanese, English, Simplified Chinese, and
-Traditional Chinese:
+PaddleOCR-json remains the only OCR runtime. Aegisub calls the external
+sidecar, captures stdout and stderr separately, and parses the same Image2Text
+JSON result contract.
+
+The default model combo is:
 
 - Detection: `PP-OCRv5_mobile_det`
 - Recognition: `PP-OCRv5_server_rec`
 - Dictionary: `ppocrv5_dict.txt`
+- Config: `models/config_ppocrv5.txt`
 
-The generated config is `models/config_ppocrv5.txt`. Korean remains exposed
-through the Korean config bundled by PaddleOCR-json.
+Korean remains exposed through the Korean config bundled by PaddleOCR-json.
 
-The current PaddleOCR-json executable still attempts to open
-`inference.pdmodel` from every configured detection, classification, and
-recognition model folder. The official PP-OCRv5 archives currently hosted by
-Paddle contain `inference.json`, `inference.yml`, and `inference.pdiparams`, but
-do not contain `inference.pdmodel`. Packaging validation therefore fails unless
-the selected PP-OCRv5 model folders also contain `inference.pdmodel`.
+## PP-OCRv5 model format
 
-This approach was chosen over linking Paddle Inference directly into Aegisub
-because it keeps the Aegisub build small and avoids adding Paddle's C++ ABI,
-DLL, and model-loading surface to the main application. The runtime remains
-offline and bundled in the release artifacts.
+The official PP-OCRv5 inference archives used as source inputs are:
+
+- `PP-OCRv5_mobile_det_infer.tar`
+- `PP-OCRv5_server_rec_infer.tar`
+
+Those archives contain:
+
+- `inference.json`
+- `inference.yml`
+- `inference.pdiparams`
+
+They do not contain `inference.pdmodel`. That is expected for the official
+Paddle 3/PIR PP-OCRv5 archives.
+
+PaddleOCR-json `v1.4.1-dev.1` does not load those JSON/PIR folders directly. It
+still expects legacy Paddle Inference model folders with `inference.pdmodel`
+and `inference.pdiparams`. The Windows packaging script therefore keeps the
+selected PP-OCRv5 combo, downloads the official PP-OCRv5 source archives for
+validation, then exports the official PP-OCRv5 pretrained weights with
+PaddleOCR `v3.0.0` using:
+
+```text
+Global.export_with_pir=False
+FLAGS_enable_pir_api=0
+```
+
+The packaged folders are the legacy-exported PP-OCRv5 folders that
+PaddleOCR-json can load. This is a packaging/export step only; it does not make
+Python PaddleOCR the runtime backend.
+
+## Config
+
+`models/config_ppocrv5.txt` is generated with one setting per line:
+
+```text
+det_model_dir models/PP-OCRv5_mobile_det_infer
+cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer
+rec_model_dir models/PP-OCRv5_server_rec_infer
+rec_char_dict_path models/ppocrv5_dict.txt
+```
+
+The detection and recognition paths point to the legacy-exported PP-OCRv5 model
+directories. The classifier remains the bundled PaddleOCR-json compatible
+classifier.
 
 ## Build and packaging
 
@@ -82,44 +126,54 @@ Windows CI explicitly passes:
 -Dpaddleocr=enabled
 ```
 
-The Meson option is:
-
-```text
-option('paddleocr', type: 'feature', value: 'auto')
-```
-
-On Windows, `auto` and `enabled` compile the OCR UI/runtime checks. On
-non-Windows, `enabled` fails during configure because the bundled runtime is
-currently Windows-only; `auto` leaves bundled OCR disabled while keeping normal
-Linux builds intact.
-
-The pinned runtime is downloaded by:
+The pinned runtime and models are prepared by:
 
 ```powershell
 tools\ocr\download_paddleocr_windows.ps1 -DestinationDir build\installer-deps\ocr
 ```
 
+The script validates the official PP-OCRv5 source archives as JSON/PIR model
+folders, exports legacy runtime folders, validates the final config paths, and
+runs a PaddleOCR-json smoke check against `models/config_ppocrv5.txt`. Packaging
+fails clearly if the issue is missing files, unsupported model format, a bad
+config path, or runtime executable failure.
+
 The installer and portable packaging scripts copy `build\installer-deps\ocr`
 into the artifact as `ocr` next to `aegisub.exe`.
+
+## Verifying PP-OCRv5 in an artifact
+
+Check these files in the portable zip or installer output:
+
+```text
+ocr/OCR_RUNTIME_VERSION.txt
+ocr/bin/PaddleOCR-json.exe
+ocr/models/config_ppocrv5.txt
+ocr/models/PP-OCRv5_mobile_det_infer/inference.pdmodel
+ocr/models/PP-OCRv5_mobile_det_infer/inference.pdiparams
+ocr/models/PP-OCRv5_server_rec_infer/inference.pdmodel
+ocr/models/PP-OCRv5_server_rec_infer/inference.pdiparams
+ocr/models/ppocrv5_dict.txt
+```
+
+`OCR_RUNTIME_VERSION.txt` should include
+`ppocrv5-mobile-det-server-rec-legacy-export`. The config should reference
+`PP-OCRv5_mobile_det_infer`, `PP-OCRv5_server_rec_infer`, and
+`ppocrv5_dict.txt`.
+
+If model loading fails at runtime, Aegisub reports a model/runtime error instead
+of a JSON parse error. The debug details include the full PaddleOCR-json stdout
+and stderr so missing model files, bad config paths, and runtime loader errors
+can be diagnosed.
 
 ## Updating OCR runtime versions
 
 1. Update `$ReleaseTag`, `$RuntimeVersion`, `$ArchiveName`, `$ArchiveUrl`, and
    `$ArchiveSha256` in `tools/ocr/download_paddleocr_windows.ps1`.
-2. If changing PP-OCRv5 model archives, use PaddleOCR-json-compatible Paddle
-   Inference folders that contain `inference.pdmodel` and
-   `inference.pdiparams`.
-3. Update the cache key in `.github/workflows/ci.yml`.
-4. Verify the prepared OCR folder contains `OCR_RUNTIME_VERSION.txt`,
-   `PaddleOCR-json.exe`,
-   `models/config_ppocrv5.txt`,
-   `models/config_korean.txt`,
-   `models/PP-OCRv5_mobile_det_infer/inference.pdmodel`,
-   `models/PP-OCRv5_mobile_det_infer/inference.pdiparams`,
-   `models/PP-OCRv5_server_rec_infer/inference.pdmodel`,
-   `models/PP-OCRv5_server_rec_infer/inference.pdiparams`, and
-   `models/ppocrv5_dict.txt`.
-   The downloader validates the model directories and dictionaries referenced
-   by each config.
-5. Update this document with the new versions and hashes.
-6. Let GitHub Actions build the Windows installer and portable artifacts.
+2. If changing the PP-OCRv5 source model combo, update the official inference
+   archive URLs, pretrained weight URLs, PaddleOCR export config paths, and
+   validation expectations in the same script.
+3. Keep `PaddleOCR-json.exe` as the runtime backend unless the OCR architecture
+   is intentionally redesigned.
+4. Update the cache key in `.github/workflows/ci.yml`.
+5. Let GitHub Actions build the Windows installer and portable artifacts.

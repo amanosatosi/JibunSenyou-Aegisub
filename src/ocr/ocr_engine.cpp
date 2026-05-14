@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <map>
 #include <sstream>
 #include <string>
@@ -200,6 +201,15 @@ double GetNumber(json::Object const& object, char const *key) {
 	}
 }
 
+double GetElementNumber(json::UnknownElement const& element) {
+	try {
+		return static_cast<json::Double const&>(element);
+	}
+	catch (json::Exception const&) {
+		return static_cast<double>(static_cast<json::Integer const&>(element));
+	}
+}
+
 std::string GetDataAsString(json::UnknownElement const& data) {
 	try {
 		return static_cast<json::String const&>(data);
@@ -315,12 +325,14 @@ std::string ModelValidationDiagnostic(std::string const& message, agi::fs::path 
 std::string ValidateModelDirectory(std::string const& role, agi::fs::path const& folder, ModelConfig const& config) {
 	for (auto const& file_name : {"inference.pdmodel", "inference.pdiparams"}) {
 		auto file_path = folder / file_name;
-		if (!agi::fs::FileExists(file_path))
-			return ModelValidationDiagnostic(
-				"OCR model file is missing:\n" + file_path.string() +
-				"\n\nPaddleOCR-json requires " + role + " model folders to contain inference.pdmodel and inference.pdiparams.",
-				folder,
-				config);
+		if (!agi::fs::FileExists(file_path)) {
+			std::string message = "OCR model file is missing:\n" + file_path.string() +
+				"\n\nPaddleOCR-json requires " + role + " model folders to contain inference.pdmodel and inference.pdiparams.";
+			if (agi::fs::FileExists(folder / "inference.json"))
+				message += "\n\nThis folder contains the official PP-OCRv5 Paddle 3/PIR files. The bundled PaddleOCR-json runtime cannot load that model format directly; the Windows packaging step must export the PP-OCRv5 model to the legacy Paddle Inference format first.";
+
+			return ModelValidationDiagnostic(message, folder, config);
+		}
 	}
 
 	return {};
@@ -371,6 +383,60 @@ std::string NormalizeText(std::vector<OCRLine> const& lines, bool keep_line_brea
 	return out;
 }
 
+void ParsePolygon(json::UnknownElement const& polygon_element, OCRLine& line) {
+	auto const& polygon = static_cast<json::Array const&>(polygon_element);
+	for (auto const& point_element : polygon) {
+		auto const& point = static_cast<json::Array const&>(point_element);
+		if (point.size() >= 2) {
+			int x = static_cast<int>(std::round(GetElementNumber(point[0])));
+			int y = static_cast<int>(std::round(GetElementNumber(point[1])));
+			line.box.emplace_back(x, y);
+		}
+	}
+}
+
+OCRResult ParseImage2TextContract(json::Object const& root, OCROptions const& options) {
+	OCRResult result;
+	result.code = 100;
+
+	auto backend = GetString(root, "backend");
+	if (!backend.empty() && backend != "paddleocr-json") {
+		result.diagnostic = "OCR runtime returned an unexpected backend: " + backend;
+		return result;
+	}
+
+	auto error = GetString(root, "error");
+	if (!error.empty()) {
+		result.diagnostic = error;
+		return result;
+	}
+
+	auto regions_it = root.find("regions");
+	if (regions_it == root.end()) {
+		result.diagnostic = "OCR runtime returned Image2Text JSON without a regions field.";
+		return result;
+	}
+
+	auto const& regions = static_cast<json::Array const&>(regions_it->second);
+	for (auto const& region : regions) {
+		auto const& region_object = static_cast<json::Object const&>(region);
+
+		OCRLine line;
+		line.text = GetString(region_object, "text");
+		line.confidence = GetNumber(region_object, "confidence");
+
+		auto polygon_it = region_object.find("polygon");
+		if (polygon_it != region_object.end())
+			ParsePolygon(polygon_it->second, line);
+
+		result.lines.push_back(std::move(line));
+	}
+
+	result.text = NormalizeText(result.lines, options.keep_line_breaks);
+	result.ok = true;
+	return result;
+}
+
 OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& options) {
 	OCRResult result;
 
@@ -390,6 +456,8 @@ OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& opt
 		}
 
 		auto const& root = static_cast<json::Object const&>(root_element);
+		if (root.find("regions") != root.end())
+			return ParseImage2TextContract(root, options);
 
 		result.code = GetInteger(root, "code");
 		auto data_it = root.find("data");
@@ -408,17 +476,8 @@ OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& opt
 				line.confidence = GetNumber(item_object, "score");
 
 				auto box_it = item_object.find("box");
-				if (box_it != item_object.end()) {
-					auto const& box = static_cast<json::Array const&>(box_it->second);
-					for (auto const& point_element : box) {
-						auto const& point = static_cast<json::Array const&>(point_element);
-						if (point.size() >= 2) {
-							int x = static_cast<int>(static_cast<json::Integer const&>(point[0]));
-							int y = static_cast<int>(static_cast<json::Integer const&>(point[1]));
-							line.box.emplace_back(x, y);
-						}
-					}
-				}
+				if (box_it != item_object.end())
+					ParsePolygon(box_it->second, line);
 
 				result.lines.push_back(std::move(line));
 			}
