@@ -22,6 +22,7 @@ Windows portable zips and installers contain:
 
 ```text
 ocr/
+  OCR_RUNTIME_VERSION.txt
   bin/
     PaddleOCR-json.exe
     runtime DLLs
@@ -44,16 +45,19 @@ deleted, Aegisub reports the exact missing path.
 
 The current Windows bundle uses:
 
-- PaddleOCR-json `v1.4.1`
+- PaddleOCR-json `v1.4.1-dev.1`
 - Download:
-  `https://github.com/hiroi-sora/PaddleOCR-json/releases/download/v1.4.1/PaddleOCR-json_v1.4.1_windows_x64.7z`
+  `https://github.com/hiroi-sora/PaddleOCR-json/releases/download/v1.4.1-dev/PaddleOCR-json_v1.4.1_dev.1_windows_x86-64_cpu_mkl.7z`
 - SHA256:
-  `c0912a70acb1f8f18fafe1f438a2935292a6ec7e2859156fa48a33e91358d71d`
+  `46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f`
 
-PaddleOCR-json is a native PaddleOCR C++/Paddle Inference runtime. The upstream
-release includes several legacy model configs. Aegisub adds official PP-OCRv5
-model files and uses this default combo for Japanese, English, Simplified
-Chinese, and Traditional Chinese:
+PaddleOCR-json is a native PaddleOCR C++/Paddle Inference runtime. Aegisub uses
+the `v1.4.1-dev.1` sidecar because its upstream release notes state that the
+inference backend was updated to Paddle Inference `3.0.0 beta-1`. That runtime
+can load the `inference.json` model format used by PP-OCRv5.
+
+Aegisub adds official PP-OCRv5 model files and uses this default combo for
+Japanese, English, Simplified Chinese, and Traditional Chinese:
 
 - Detection: `PP-OCRv5_mobile_det`
 - Recognition: `PP-OCRv5_server_rec`
@@ -106,11 +110,12 @@ into the artifact as `ocr` next to `aegisub.exe`.
 
 ## Updating OCR runtime versions
 
-1. Update `$Version`, `$ArchiveName`, `$ArchiveUrl`, and `$ArchiveSha256` in
-   `tools/ocr/download_paddleocr_windows.ps1`.
+1. Update `$ReleaseTag`, `$RuntimeVersion`, `$ArchiveName`, `$ArchiveUrl`, and
+   `$ArchiveSha256` in `tools/ocr/download_paddleocr_windows.ps1`.
 2. Update the PP-OCRv5 model URLs and hashes if changing the default models.
 3. Update the cache key in `.github/workflows/ci.yml`.
-4. Verify the prepared OCR folder contains `PaddleOCR-json.exe`,
+4. Verify the prepared OCR folder contains `OCR_RUNTIME_VERSION.txt`,
+   `PaddleOCR-json.exe`,
    `models/config_ppocrv5.txt`,
    `models/PP-OCRv5_mobile_det_infer/inference.json`,
    `models/PP-OCRv5_mobile_det_infer/inference.pdiparams`,

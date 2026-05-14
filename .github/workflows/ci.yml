@@ -159,7 +159,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/installer-deps/ocr
-          key: paddleocr-json-v1.4.1-ppocrv5-mobile-det-server-rec-v1
+          key: paddleocr-json-v1.4.1-dev.1-ppocrv5-mobile-det-server-rec-v1
 
       - name: Download OCR runtime (Windows)
         if: matrix.config.os == 'windows-latest'

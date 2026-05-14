@@ -7,10 +7,11 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-$Version = "v1.4.1"
-$ArchiveName = "PaddleOCR-json_v1.4.1_windows_x64.7z"
-$ArchiveUrl = "https://github.com/hiroi-sora/PaddleOCR-json/releases/download/$Version/$ArchiveName"
-$ArchiveSha256 = "c0912a70acb1f8f18fafe1f438a2935292a6ec7e2859156fa48a33e91358d71d"
+$ReleaseTag = "v1.4.1-dev"
+$RuntimeVersion = "v1.4.1-dev.1"
+$ArchiveName = "PaddleOCR-json_v1.4.1_dev.1_windows_x86-64_cpu_mkl.7z"
+$ArchiveUrl = "https://github.com/hiroi-sora/PaddleOCR-json/releases/download/$ReleaseTag/$ArchiveName"
+$ArchiveSha256 = "46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f"
 
 $PPOcrV5DetRepo = "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/74393d9baa66aca476e8c9e5dbdd71930cc534a8"
 $PPOcrV5RecRepo = "https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec/resolve/6ba04e6e502b95b7ff3f7ced26476d1be0f3ba62"
@@ -87,8 +88,11 @@ $DestinationDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathF
 $BinDir = Join-Path $DestinationDir "bin"
 $ModelsDir = Join-Path $DestinationDir "models"
 $LicensesDir = Join-Path $DestinationDir "licenses"
+$RuntimeMarker = Join-Path $DestinationDir "OCR_RUNTIME_VERSION.txt"
 
 if ((Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR-json.exe")) -and
+    (Test-Path -LiteralPath $RuntimeMarker) -and
+    ((Get-Content -LiteralPath $RuntimeMarker -Raw).Trim() -eq $RuntimeVersion) -and
     (Test-Path -LiteralPath (Join-Path $ModelsDir "config_ppocrv5.txt")) -and
     (Test-Path -LiteralPath (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.pdiparams")) -and
     (Test-Path -LiteralPath (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.pdiparams")) -and
@@ -187,12 +191,13 @@ Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
 Aegisub bundled OCR runtime
 ===========================
 
-Component: PaddleOCR-json $Version for Windows x64
+Component: PaddleOCR-json $RuntimeVersion for Windows x86-64 CPU MKL
 Source: $ArchiveUrl
 SHA256: $ArchiveSha256
 
-PaddleOCR-json is built from PaddleOCR C++/Paddle Inference and bundles
-PaddleOCR model files for offline recognition. Aegisub adds the official
+PaddleOCR-json is built from PaddleOCR C++/Paddle Inference. This dev runtime
+uses Paddle Inference 3.0.0 beta-1, which can load the inference.json model
+format used by the official PP-OCRv5 model files. Aegisub adds the official
 PP-OCRv5_mobile_det and PP-OCRv5_server_rec inference files and uses that
 combination by default for Chinese, English, Traditional Chinese, and Japanese.
 Korean remains available through the PaddleOCR-json bundled Korean config.
@@ -212,7 +217,10 @@ Third-party licenses copied from the upstream archive are stored in this folder
 when present.
 "@ | Set-Content -LiteralPath (Join-Path $LicensesDir "THIRD_PARTY_OCR.txt") -Encoding UTF8
 
+$RuntimeVersion | Set-Content -LiteralPath $RuntimeMarker -Encoding ASCII
+
 $RequiredFiles = @(
+    $RuntimeMarker,
     (Join-Path $BinDir "PaddleOCR-json.exe"),
     (Join-Path $ModelsDir "config_ppocrv5.txt"),
     (Join-Path $ModelsDir "config_korean.txt"),
