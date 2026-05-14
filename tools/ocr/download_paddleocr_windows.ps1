@@ -12,6 +12,10 @@ $ArchiveName = "PaddleOCR-json_v1.4.1_windows_x64.7z"
 $ArchiveUrl = "https://github.com/hiroi-sora/PaddleOCR-json/releases/download/$Version/$ArchiveName"
 $ArchiveSha256 = "c0912a70acb1f8f18fafe1f438a2935292a6ec7e2859156fa48a33e91358d71d"
 
+$PPOcrV5DetRepo = "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/74393d9baa66aca476e8c9e5dbdd71930cc534a8"
+$PPOcrV5RecRepo = "https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec/resolve/6ba04e6e502b95b7ff3f7ced26476d1be0f3ba62"
+$PPOcrV5DictUrl = "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/eaede685bcaf22f287edf8865f4dd8d374acb75e/ppocr/utils/dict/ppocrv5_dict.txt"
+
 function Invoke-WebRequestWithRetry {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
@@ -48,6 +52,22 @@ function Assert-FileHash {
     }
 }
 
+function Download-File {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [string]$ExpectedSha256 = ""
+    )
+
+    if (!(Test-Path -LiteralPath $OutFile)) {
+        Invoke-WebRequestWithRetry -Uri $Uri -OutFile $OutFile
+    }
+
+    if ($ExpectedSha256) {
+        Assert-FileHash -Path $OutFile -ExpectedSha256 $ExpectedSha256
+    }
+}
+
 function Copy-DirectoryContents {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
@@ -69,9 +89,10 @@ $ModelsDir = Join-Path $DestinationDir "models"
 $LicensesDir = Join-Path $DestinationDir "licenses"
 
 if ((Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR-json.exe")) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "config_en.txt")) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "config_japan.txt")) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "config_chinese.txt"))) {
+    (Test-Path -LiteralPath (Join-Path $ModelsDir "config_ppocrv5.txt")) -and
+    (Test-Path -LiteralPath (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.pdiparams")) -and
+    (Test-Path -LiteralPath (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.pdiparams")) -and
+    (Test-Path -LiteralPath (Join-Path $ModelsDir "ppocrv5_dict.txt"))) {
     Write-Host "PaddleOCR runtime already exists at $DestinationDir"
     exit 0
 }
@@ -131,6 +152,31 @@ if (Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR_json.exe")) {
 
 Copy-DirectoryContents -Source $ArchiveModelsDir -Destination $ModelsDir
 
+$DetDir = Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer"
+$RecDir = Join-Path $ModelsDir "PP-OCRv5_server_rec_infer"
+New-Item -ItemType Directory -Path $DetDir -Force | Out-Null
+New-Item -ItemType Directory -Path $RecDir -Force | Out-Null
+
+Download-File -Uri "$PPOcrV5DetRepo/inference.json?download=true" -OutFile (Join-Path $DetDir "inference.json")
+Download-File -Uri "$PPOcrV5DetRepo/inference.yml?download=true" -OutFile (Join-Path $DetDir "inference.yml")
+Download-File -Uri "$PPOcrV5DetRepo/inference.pdiparams?download=true" -OutFile (Join-Path $DetDir "inference.pdiparams") -ExpectedSha256 "afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b"
+
+Download-File -Uri "$PPOcrV5RecRepo/inference.json?download=true" -OutFile (Join-Path $RecDir "inference.json")
+Download-File -Uri "$PPOcrV5RecRepo/inference.yml?download=true" -OutFile (Join-Path $RecDir "inference.yml")
+Download-File -Uri "$PPOcrV5RecRepo/inference.pdiparams?download=true" -OutFile (Join-Path $RecDir "inference.pdiparams") -ExpectedSha256 "63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77"
+
+Download-File -Uri $PPOcrV5DictUrl -OutFile (Join-Path $ModelsDir "ppocrv5_dict.txt")
+
+@"
+# Aegisub default OCR model combo:
+# PP-OCRv5_mobile_det + PP-OCRv5_server_rec
+
+det_model_dir models/PP-OCRv5_mobile_det_infer
+cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer
+rec_model_dir models/PP-OCRv5_server_rec_infer
+rec_char_dict_path models/ppocrv5_dict.txt
+"@ | Set-Content -LiteralPath (Join-Path $ModelsDir "config_ppocrv5.txt") -Encoding ASCII
+
 Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
     Where-Object { $_.Name -match "^(LICENSE|NOTICE|COPYING|README)" } |
     ForEach-Object {
@@ -146,9 +192,16 @@ Source: $ArchiveUrl
 SHA256: $ArchiveSha256
 
 PaddleOCR-json is built from PaddleOCR C++/Paddle Inference and bundles
-PaddleOCR model files for offline recognition. The upstream release notes for
-$Version state that the Windows package includes Simplified Chinese,
-Traditional Chinese, English, Japanese, Korean, and Russian OCR model sets.
+PaddleOCR model files for offline recognition. Aegisub adds the official
+PP-OCRv5_mobile_det and PP-OCRv5_server_rec inference files and uses that
+combination by default for Chinese, English, Traditional Chinese, and Japanese.
+Korean remains available through the PaddleOCR-json bundled Korean config.
+
+PP-OCRv5_mobile_det inference.pdiparams SHA256:
+afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b
+
+PP-OCRv5_server_rec inference.pdiparams SHA256:
+63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77
 
 The Aegisub build stores the runtime under:
   ocr/bin
@@ -161,9 +214,13 @@ when present.
 
 $RequiredFiles = @(
     (Join-Path $BinDir "PaddleOCR-json.exe"),
-    (Join-Path $ModelsDir "config_en.txt"),
-    (Join-Path $ModelsDir "config_japan.txt"),
-    (Join-Path $ModelsDir "config_chinese.txt")
+    (Join-Path $ModelsDir "config_ppocrv5.txt"),
+    (Join-Path $ModelsDir "config_korean.txt"),
+    (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.json"),
+    (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.pdiparams"),
+    (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.json"),
+    (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.pdiparams"),
+    (Join-Path $ModelsDir "ppocrv5_dict.txt")
 )
 
 foreach ($file in $RequiredFiles) {

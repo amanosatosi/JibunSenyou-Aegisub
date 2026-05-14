@@ -117,6 +117,10 @@ std::string GetDataAsString(json::UnknownElement const& data) {
 	}
 }
 
+bool UsesPPOcrV5Config(std::string const& language) {
+	return language != "korean";
+}
+
 } // namespace
 
 namespace ocr {
@@ -210,15 +214,9 @@ OCREngine::OCREngine()
 }
 
 agi::fs::path OCREngine::ConfigPath(std::string const& language) const {
-	if (language == "english")
-		return models_dir / "config_en.txt";
-	if (language == "chinese_simplified")
-		return models_dir / "config_chinese.txt";
-	if (language == "chinese_traditional")
-		return models_dir / "config_chinese_cht.txt";
 	if (language == "korean")
 		return models_dir / "config_korean.txt";
-	return models_dir / "config_japan.txt";
+	return models_dir / "config_ppocrv5.txt";
 }
 
 bool OCREngine::IsAvailable(OCROptions const& options) const {
@@ -242,6 +240,21 @@ wxString OCREngine::GetDiagnostic(OCROptions const& options) const {
 	auto config_path = ConfigPath(options.language);
 	if (!agi::fs::FileExists(config_path))
 		return fmt_tl("OCR model configuration is missing:\n%s\n\nThe bundled ocr\\models folder is incomplete.", config_path);
+
+	if (UsesPPOcrV5Config(options.language)) {
+		agi::fs::path required_files[] = {
+			models_dir / "PP-OCRv5_mobile_det_infer" / "inference.json",
+			models_dir / "PP-OCRv5_mobile_det_infer" / "inference.pdiparams",
+			models_dir / "PP-OCRv5_server_rec_infer" / "inference.json",
+			models_dir / "PP-OCRv5_server_rec_infer" / "inference.pdiparams",
+			models_dir / "ppocrv5_dict.txt"
+		};
+
+		for (auto const& path : required_files) {
+			if (!agi::fs::FileExists(path))
+				return fmt_tl("OCR model file is missing:\n%s\n\nThe bundled ocr\\models folder is incomplete.", path);
+		}
+	}
 
 	return "";
 }

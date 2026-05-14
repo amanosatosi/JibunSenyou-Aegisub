@@ -26,8 +26,12 @@ ocr/
     PaddleOCR-json.exe
     runtime DLLs
   models/
-    config_*.txt
-    PaddleOCR model folders
+    config_ppocrv5.txt
+    config_korean.txt
+    PP-OCRv5_mobile_det_infer/
+    PP-OCRv5_server_rec_infer/
+    ppocrv5_dict.txt
+    bundled PaddleOCR-json model folders
   licenses/
     THIRD_PARTY_OCR.txt
     copied upstream license/readme files when present
@@ -47,9 +51,25 @@ The current Windows bundle uses:
   `c0912a70acb1f8f18fafe1f438a2935292a6ec7e2859156fa48a33e91358d71d`
 
 PaddleOCR-json is a native PaddleOCR C++/Paddle Inference runtime. The upstream
-release notes state that this package includes Simplified Chinese, Traditional
-Chinese, English, Japanese, Korean, and Russian model sets. Aegisub exposes the
-Japanese, English, Simplified Chinese, Traditional Chinese, and Korean configs.
+release includes several legacy model configs. Aegisub adds official PP-OCRv5
+model files and uses this default combo for Japanese, English, Simplified
+Chinese, and Traditional Chinese:
+
+- Detection: `PP-OCRv5_mobile_det`
+- Recognition: `PP-OCRv5_server_rec`
+- Dictionary: `ppocrv5_dict.txt`
+
+The downloader pins the PP-OCRv5 model repositories by commit and verifies the
+large parameter files:
+
+- `PP-OCRv5_mobile_det/inference.pdiparams` SHA256:
+  `afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b`
+- `PP-OCRv5_server_rec/inference.pdiparams` SHA256:
+  `63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77`
+
+Korean remains exposed through the Korean config bundled by PaddleOCR-json.
+The v5 detection model keeps frame OCR startup and detection size small, while
+the v5 server recognition model improves multilingual text recognition quality.
 
 This approach was chosen over linking Paddle Inference directly into Aegisub
 because it keeps the Aegisub build small and avoids adding Paddle's C++ ABI,
@@ -88,9 +108,14 @@ into the artifact as `ocr` next to `aegisub.exe`.
 
 1. Update `$Version`, `$ArchiveName`, `$ArchiveUrl`, and `$ArchiveSha256` in
    `tools/ocr/download_paddleocr_windows.ps1`.
-2. Update the cache key in `.github/workflows/ci.yml`.
-3. Verify the extracted archive still contains `PaddleOCR-json.exe`,
-   `models/config_en.txt`, `models/config_japan.txt`, and
-   `models/config_chinese.txt`.
-4. Update this document with the new version and hash.
-5. Let GitHub Actions build the Windows installer and portable artifacts.
+2. Update the PP-OCRv5 model URLs and hashes if changing the default models.
+3. Update the cache key in `.github/workflows/ci.yml`.
+4. Verify the prepared OCR folder contains `PaddleOCR-json.exe`,
+   `models/config_ppocrv5.txt`,
+   `models/PP-OCRv5_mobile_det_infer/inference.json`,
+   `models/PP-OCRv5_mobile_det_infer/inference.pdiparams`,
+   `models/PP-OCRv5_server_rec_infer/inference.json`,
+   `models/PP-OCRv5_server_rec_infer/inference.pdiparams`, and
+   `models/ppocrv5_dict.txt`.
+5. Update this document with the new versions and hashes.
+6. Let GitHub Actions build the Windows installer and portable artifacts.
