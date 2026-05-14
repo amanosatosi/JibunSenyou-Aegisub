@@ -9,13 +9,18 @@ $ErrorActionPreference = "Stop"
 
 $ReleaseTag = "v1.4.1-dev"
 $RuntimeVersion = "v1.4.1-dev.1"
+$BundleVersion = "$RuntimeVersion-compatible-models-v2"
 $ArchiveName = "PaddleOCR-json_v1.4.1_dev.1_windows_x86-64_cpu_mkl.7z"
 $ArchiveUrl = "https://github.com/hiroi-sora/PaddleOCR-json/releases/download/$ReleaseTag/$ArchiveName"
 $ArchiveSha256 = "46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f"
 
-$PPOcrV5DetRepo = "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det/resolve/74393d9baa66aca476e8c9e5dbdd71930cc534a8"
-$PPOcrV5RecRepo = "https://huggingface.co/PaddlePaddle/PP-OCRv5_server_rec/resolve/6ba04e6e502b95b7ff3f7ced26476d1be0f3ba62"
-$PPOcrV5DictUrl = "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/eaede685bcaf22f287edf8865f4dd8d374acb75e/ppocr/utils/dict/ppocrv5_dict.txt"
+$CompatibleConfigNames = @(
+    "config_japan.txt",
+    "config_en.txt",
+    "config_chinese.txt",
+    "config_chinese_cht.txt",
+    "config_korean.txt"
+)
 
 function Invoke-WebRequestWithRetry {
     param(
@@ -106,19 +111,238 @@ function Copy-DirectoryContents {
     }
 }
 
+function Get-OcrConfigSettings {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath
+    )
+
+    $settings = @{}
+    foreach ($line in Get-Content -LiteralPath $ConfigPath) {
+        $trimmed = $line.Trim()
+        if (!$trimmed -or $trimmed.StartsWith("#")) {
+            continue
+        }
+
+        $parts = $trimmed -split "\s+", 2
+        if ($parts.Count -eq 2) {
+            $settings[$parts[0]] = $parts[1].Trim()
+        }
+    }
+    return $settings
+}
+
+function Resolve-OcrConfigPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfiguredPath,
+        [Parameter(Mandatory = $true)][string]$ModelsDir
+    )
+
+    $separator = [string][System.IO.Path]::DirectorySeparatorChar
+    $normalized = $ConfiguredPath.Replace("/", $separator).Replace("\", $separator)
+    if ([System.IO.Path]::IsPathRooted($normalized)) {
+        return $normalized
+    }
+
+    if ($normalized -match "^models[\\/](.+)$") {
+        return Join-Path $ModelsDir $Matches[1]
+    }
+
+    return Join-Path $ModelsDir $normalized
+}
+
+function Get-FolderFileList {
+    param(
+        [Parameter(Mandatory = $true)][string]$FolderPath
+    )
+
+    if (!(Test-Path -LiteralPath $FolderPath -PathType Container)) {
+        return "<folder does not exist>"
+    }
+
+    $files = Get-ChildItem -LiteralPath $FolderPath -Force |
+        Sort-Object Name |
+        ForEach-Object {
+            if ($_.PSIsContainer) {
+                "$($_.Name)/"
+            }
+            else {
+                $_.Name
+            }
+        }
+
+    if (!$files) {
+        return "<empty>"
+    }
+
+    return ($files -join ", ")
+}
+
+function New-OcrValidationError {
+    param(
+        [Parameter(Mandatory = $true)][string]$Message,
+        [Parameter(Mandatory = $true)][string]$FolderPath,
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$DetModelDir,
+        [Parameter(Mandatory = $true)][string]$ClsModelDir,
+        [Parameter(Mandatory = $true)][string]$RecModelDir,
+        [Parameter(Mandatory = $true)][string]$DictionaryPath
+    )
+
+    $filesPresent = Get-FolderFileList -FolderPath $FolderPath
+    return @"
+OCR model validation failed.
+$Message
+
+Folder path:
+$FolderPath
+Files present:
+$filesPresent
+
+Active config file path:
+$ConfigPath
+Selected det_model_dir:
+$DetModelDir
+Selected cls_model_dir:
+$ClsModelDir
+Selected rec_model_dir:
+$RecModelDir
+Selected dictionary path:
+$DictionaryPath
+"@
+}
+
+function Assert-OcrModelDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Role,
+        [Parameter(Mandatory = $true)][string]$ModelDir,
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$DetModelDir,
+        [Parameter(Mandatory = $true)][string]$ClsModelDir,
+        [Parameter(Mandatory = $true)][string]$RecModelDir,
+        [Parameter(Mandatory = $true)][string]$DictionaryPath
+    )
+
+    foreach ($fileName in @("inference.pdmodel", "inference.pdiparams")) {
+        $filePath = Join-Path $ModelDir $fileName
+        if (!(Test-Path -LiteralPath $filePath -PathType Leaf)) {
+            throw (New-OcrValidationError `
+                -Message "$Role model directory is missing required file: $filePath" `
+                -FolderPath $ModelDir `
+                -ConfigPath $ConfigPath `
+                -DetModelDir $DetModelDir `
+                -ClsModelDir $ClsModelDir `
+                -RecModelDir $RecModelDir `
+                -DictionaryPath $DictionaryPath)
+        }
+    }
+}
+
+function Assert-OcrModelConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$ModelsDir
+    )
+
+    if (!(Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+        throw "OCR model configuration is missing: $ConfigPath"
+    }
+
+    $settings = Get-OcrConfigSettings -ConfigPath $ConfigPath
+    foreach ($key in @("det_model_dir", "rec_model_dir", "rec_char_dict_path")) {
+        if (!$settings.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($settings[$key])) {
+            throw "OCR model configuration is incomplete: $ConfigPath`nMissing required setting: $key"
+        }
+    }
+
+    $detModelDir = Resolve-OcrConfigPath -ConfiguredPath $settings["det_model_dir"] -ModelsDir $ModelsDir
+    $clsModelDir = ""
+    if ($settings.ContainsKey("cls_model_dir") -and ![string]::IsNullOrWhiteSpace($settings["cls_model_dir"])) {
+        $clsModelDir = Resolve-OcrConfigPath -ConfiguredPath $settings["cls_model_dir"] -ModelsDir $ModelsDir
+    }
+    $recModelDir = Resolve-OcrConfigPath -ConfiguredPath $settings["rec_model_dir"] -ModelsDir $ModelsDir
+    $dictionaryPath = Resolve-OcrConfigPath -ConfiguredPath $settings["rec_char_dict_path"] -ModelsDir $ModelsDir
+
+    Assert-OcrModelDirectory `
+        -Role "Detection" `
+        -ModelDir $detModelDir `
+        -ConfigPath $ConfigPath `
+        -DetModelDir $detModelDir `
+        -ClsModelDir $clsModelDir `
+        -RecModelDir $recModelDir `
+        -DictionaryPath $dictionaryPath
+
+    if ($clsModelDir) {
+        Assert-OcrModelDirectory `
+            -Role "Classification" `
+            -ModelDir $clsModelDir `
+            -ConfigPath $ConfigPath `
+            -DetModelDir $detModelDir `
+            -ClsModelDir $clsModelDir `
+            -RecModelDir $recModelDir `
+            -DictionaryPath $dictionaryPath
+    }
+
+    Assert-OcrModelDirectory `
+        -Role "Recognition" `
+        -ModelDir $recModelDir `
+        -ConfigPath $ConfigPath `
+        -DetModelDir $detModelDir `
+        -ClsModelDir $clsModelDir `
+        -RecModelDir $recModelDir `
+        -DictionaryPath $dictionaryPath
+
+    if (!(Test-Path -LiteralPath $dictionaryPath -PathType Leaf)) {
+        $dictionaryFolder = Split-Path -Parent $dictionaryPath
+        throw (New-OcrValidationError `
+            -Message "Recognition dictionary is missing: $dictionaryPath" `
+            -FolderPath $dictionaryFolder `
+            -ConfigPath $ConfigPath `
+            -DetModelDir $detModelDir `
+            -ClsModelDir $clsModelDir `
+            -RecModelDir $recModelDir `
+            -DictionaryPath $dictionaryPath)
+    }
+}
+
+function Test-OcrRuntimeComplete {
+    param(
+        [Parameter(Mandatory = $true)][string]$BinDir,
+        [Parameter(Mandatory = $true)][string]$ModelsDir,
+        [Parameter(Mandatory = $true)][string]$RuntimeMarker,
+        [Parameter(Mandatory = $true)][string]$BundleVersion
+    )
+
+    if (!(Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR-json.exe") -PathType Leaf)) {
+        return $false
+    }
+    if (!(Test-Path -LiteralPath $RuntimeMarker -PathType Leaf)) {
+        return $false
+    }
+    if ((Get-Content -LiteralPath $RuntimeMarker -Raw).Trim() -ne $BundleVersion) {
+        return $false
+    }
+
+    try {
+        foreach ($configName in $CompatibleConfigNames) {
+            Assert-OcrModelConfig -ConfigPath (Join-Path $ModelsDir $configName) -ModelsDir $ModelsDir
+        }
+    }
+    catch {
+        Write-Host "Existing PaddleOCR runtime at $DestinationDir is incomplete and will be rebuilt."
+        Write-Host $_.Exception.Message
+        return $false
+    }
+
+    return $true
+}
+
 $DestinationDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DestinationDir)
 $BinDir = Join-Path $DestinationDir "bin"
 $ModelsDir = Join-Path $DestinationDir "models"
 $LicensesDir = Join-Path $DestinationDir "licenses"
 $RuntimeMarker = Join-Path $DestinationDir "OCR_RUNTIME_VERSION.txt"
 
-if ((Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR-json.exe")) -and
-    (Test-Path -LiteralPath $RuntimeMarker) -and
-    ((Get-Content -LiteralPath $RuntimeMarker -Raw).Trim() -eq $RuntimeVersion) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "config_ppocrv5.txt")) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.pdiparams")) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.pdiparams")) -and
-    (Test-Path -LiteralPath (Join-Path $ModelsDir "ppocrv5_dict.txt"))) {
+if (Test-OcrRuntimeComplete -BinDir $BinDir -ModelsDir $ModelsDir -RuntimeMarker $RuntimeMarker -BundleVersion $BundleVersion) {
     Write-Host "PaddleOCR runtime already exists at $DestinationDir"
     exit 0
 }
@@ -178,31 +402,6 @@ if (Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR_json.exe")) {
 
 Copy-DirectoryContents -Source $ArchiveModelsDir -Destination $ModelsDir
 
-$DetDir = Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer"
-$RecDir = Join-Path $ModelsDir "PP-OCRv5_server_rec_infer"
-New-Item -ItemType Directory -Path $DetDir -Force | Out-Null
-New-Item -ItemType Directory -Path $RecDir -Force | Out-Null
-
-Download-File -Uri "$PPOcrV5DetRepo/inference.json?download=true" -OutFile (Join-Path $DetDir "inference.json")
-Download-File -Uri "$PPOcrV5DetRepo/inference.yml?download=true" -OutFile (Join-Path $DetDir "inference.yml")
-Download-File -Uri "$PPOcrV5DetRepo/inference.pdiparams?download=true" -OutFile (Join-Path $DetDir "inference.pdiparams") -ExpectedSha256 "afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b"
-
-Download-File -Uri "$PPOcrV5RecRepo/inference.json?download=true" -OutFile (Join-Path $RecDir "inference.json")
-Download-File -Uri "$PPOcrV5RecRepo/inference.yml?download=true" -OutFile (Join-Path $RecDir "inference.yml")
-Download-File -Uri "$PPOcrV5RecRepo/inference.pdiparams?download=true" -OutFile (Join-Path $RecDir "inference.pdiparams") -ExpectedSha256 "63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77"
-
-Download-File -Uri $PPOcrV5DictUrl -OutFile (Join-Path $ModelsDir "ppocrv5_dict.txt")
-
-@"
-# Aegisub default OCR model combo:
-# PP-OCRv5_mobile_det + PP-OCRv5_server_rec
-
-det_model_dir models/PP-OCRv5_mobile_det_infer
-cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer
-rec_model_dir models/PP-OCRv5_server_rec_infer
-rec_char_dict_path models/ppocrv5_dict.txt
-"@ | Set-Content -LiteralPath (Join-Path $ModelsDir "config_ppocrv5.txt") -Encoding ASCII
-
 Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -File |
     Where-Object { $_.Name -match "^(LICENSE|NOTICE|COPYING|README)" } |
     ForEach-Object {
@@ -217,18 +416,19 @@ Component: PaddleOCR-json $RuntimeVersion for Windows x86-64 CPU MKL
 Source: $ArchiveUrl
 SHA256: $ArchiveSha256
 
-PaddleOCR-json is built from PaddleOCR C++/Paddle Inference. This dev runtime
-uses Paddle Inference 3.0.0 beta-1, which can load the inference.json model
-format used by the official PP-OCRv5 model files. Aegisub adds the official
-PP-OCRv5_mobile_det and PP-OCRv5_server_rec inference files and uses that
-combination by default for Chinese, English, Traditional Chinese, and Japanese.
-Korean remains available through the PaddleOCR-json bundled Korean config.
+PaddleOCR-json is built from PaddleOCR C++/Paddle Inference. Aegisub uses the
+model presets bundled by PaddleOCR-json v1.4.1-dev.1:
 
-PP-OCRv5_mobile_det inference.pdiparams SHA256:
-afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b
+  config_japan.txt
+  config_en.txt
+  config_chinese.txt
+  config_chinese_cht.txt
+  config_korean.txt
 
-PP-OCRv5_server_rec inference.pdiparams SHA256:
-63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77
+The bundled runtime supports PP-OCR V2 through V4 model folders that include
+inference.pdmodel and inference.pdiparams. PP-OCRv5 HuggingFace model folders
+currently provide inference.json, inference.yml, and inference.pdiparams, but
+not inference.pdmodel, so Aegisub does not package PP-OCRv5 with this runtime.
 
 The Aegisub build stores the runtime under:
   ocr/bin
@@ -239,24 +439,24 @@ Third-party licenses copied from the upstream archive are stored in this folder
 when present.
 "@ | Set-Content -LiteralPath (Join-Path $LicensesDir "THIRD_PARTY_OCR.txt") -Encoding UTF8
 
-$RuntimeVersion | Set-Content -LiteralPath $RuntimeMarker -Encoding ASCII
-
 $RequiredFiles = @(
-    $RuntimeMarker,
-    (Join-Path $BinDir "PaddleOCR-json.exe"),
-    (Join-Path $ModelsDir "config_ppocrv5.txt"),
-    (Join-Path $ModelsDir "config_korean.txt"),
-    (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.json"),
-    (Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer\inference.pdiparams"),
-    (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.json"),
-    (Join-Path $ModelsDir "PP-OCRv5_server_rec_infer\inference.pdiparams"),
-    (Join-Path $ModelsDir "ppocrv5_dict.txt")
+    (Join-Path $BinDir "PaddleOCR-json.exe")
 )
+
+foreach ($configName in $CompatibleConfigNames) {
+    $RequiredFiles += (Join-Path $ModelsDir $configName)
+}
 
 foreach ($file in $RequiredFiles) {
     if (!(Test-Path -LiteralPath $file)) {
         throw "Required OCR file missing after extraction: $file"
     }
 }
+
+foreach ($configName in $CompatibleConfigNames) {
+    Assert-OcrModelConfig -ConfigPath (Join-Path $ModelsDir $configName) -ModelsDir $ModelsDir
+}
+
+$BundleVersion | Set-Content -LiteralPath $RuntimeMarker -Encoding ASCII
 
 Write-Host "PaddleOCR runtime prepared at $DestinationDir"

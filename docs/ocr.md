@@ -27,12 +27,12 @@ ocr/
     PaddleOCR-json.exe
     runtime DLLs
   models/
-    config_ppocrv5.txt
+    config_japan.txt
+    config_en.txt
+    config_chinese.txt
+    config_chinese_cht.txt
     config_korean.txt
-    PP-OCRv5_mobile_det_infer/
-    PP-OCRv5_server_rec_infer/
-    ppocrv5_dict.txt
-    bundled PaddleOCR-json model folders
+    bundled PaddleOCR-json model folders and dictionaries
   licenses/
     THIRD_PARTY_OCR.txt
     copied upstream license/readme files when present
@@ -52,28 +52,25 @@ The current Windows bundle uses:
   `46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f`
 
 PaddleOCR-json is a native PaddleOCR C++/Paddle Inference runtime. Aegisub uses
-the `v1.4.1-dev.1` sidecar because its upstream release notes state that the
-inference backend was updated to Paddle Inference `3.0.0 beta-1`. That runtime
-can load the `inference.json` model format used by PP-OCRv5.
+the model presets bundled in the `v1.4.1-dev.1` release because those presets
+match the runtime's expected Paddle Inference model layout:
 
-Aegisub adds official PP-OCRv5 model files and uses this default combo for
-Japanese, English, Simplified Chinese, and Traditional Chinese:
+- Japanese: `models/config_japan.txt`
+- English: `models/config_en.txt`
+- Simplified Chinese: `models/config_chinese.txt`
+- Traditional Chinese: `models/config_chinese_cht.txt`
+- Korean: `models/config_korean.txt`
 
-- Detection: `PP-OCRv5_mobile_det`
-- Recognition: `PP-OCRv5_server_rec`
-- Dictionary: `ppocrv5_dict.txt`
+Each selected detection, classification, and recognition model folder must
+contain both `inference.pdmodel` and `inference.pdiparams`, and the selected
+recognition dictionary must exist.
 
-The downloader pins the PP-OCRv5 model repositories by commit and verifies the
-large parameter files:
-
-- `PP-OCRv5_mobile_det/inference.pdiparams` SHA256:
-  `afa1820cb16c1fd0dad589d0f8b389139061c1ef6d68019685fd07be997dda5b`
-- `PP-OCRv5_server_rec/inference.pdiparams` SHA256:
-  `63853f062a5f4089befc16f565a68277618e0da5cb45468b49d11079de0ada77`
-
-Korean remains exposed through the Korean config bundled by PaddleOCR-json.
-The v5 detection model keeps frame OCR startup and detection size small, while
-the v5 server recognition model improves multilingual text recognition quality.
+PP-OCRv5 is not packaged with this PaddleOCR-json runtime. PaddleOCR-json
+`v1.4.1-dev.1` documents support for PP-OCR V2 through V4 model folders. The
+official PP-OCRv5 HuggingFace folders used by the previous downloader contain
+`inference.json`, `inference.yml`, and `inference.pdiparams`, but do not contain
+`inference.pdmodel`. PaddleOCR-json still attempts to open
+`inference.pdmodel`, so those PP-OCRv5 folders fail to load in this integration.
 
 This approach was chosen over linking Paddle Inference directly into Aegisub
 because it keeps the Aegisub build small and avoids adding Paddle's C++ ABI,
@@ -112,15 +109,17 @@ into the artifact as `ocr` next to `aegisub.exe`.
 
 1. Update `$ReleaseTag`, `$RuntimeVersion`, `$ArchiveName`, `$ArchiveUrl`, and
    `$ArchiveSha256` in `tools/ocr/download_paddleocr_windows.ps1`.
-2. Update the PP-OCRv5 model URLs and hashes if changing the default models.
+2. If changing models, use PaddleOCR-json-compatible Paddle Inference folders
+   that contain `inference.pdmodel` and `inference.pdiparams`.
 3. Update the cache key in `.github/workflows/ci.yml`.
 4. Verify the prepared OCR folder contains `OCR_RUNTIME_VERSION.txt`,
    `PaddleOCR-json.exe`,
-   `models/config_ppocrv5.txt`,
-   `models/PP-OCRv5_mobile_det_infer/inference.json`,
-   `models/PP-OCRv5_mobile_det_infer/inference.pdiparams`,
-   `models/PP-OCRv5_server_rec_infer/inference.json`,
-   `models/PP-OCRv5_server_rec_infer/inference.pdiparams`, and
-   `models/ppocrv5_dict.txt`.
+   `models/config_japan.txt`,
+   `models/config_en.txt`,
+   `models/config_chinese.txt`,
+   `models/config_chinese_cht.txt`, and
+   `models/config_korean.txt`.
+   The downloader validates the model directories and dictionaries referenced
+   by each config.
 5. Update this document with the new versions and hashes.
 6. Let GitHub Actions build the Windows installer and portable artifacts.

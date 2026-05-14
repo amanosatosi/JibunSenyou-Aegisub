@@ -22,12 +22,15 @@
 #include <libaegisub/cajun/reader.h>
 #include <libaegisub/format_path.h>
 #include <libaegisub/fs.h>
+#include <libaegisub/io.h>
 #include <libaegisub/path.h>
 
 #include <algorithm>
 #include <cctype>
+#include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <wx/arrstr.h>
 #include <wx/utils.h>
 
@@ -52,12 +55,11 @@ std::string JoinOutput(wxArrayString const& output) {
 	return joined;
 }
 
-std::string ExtractJsonObject(std::string const& output) {
-	auto begin = output.find('{');
-	auto end = output.rfind('}');
-	if (begin == std::string::npos || end == std::string::npos || begin > end)
-		return output;
-	return output.substr(begin, end - begin + 1);
+std::string Trim(std::string text) {
+	auto is_space = [](unsigned char c) { return std::isspace(c); };
+	text.erase(text.begin(), std::find_if(text.begin(), text.end(), [&](unsigned char c) { return !is_space(c); }));
+	text.erase(std::find_if(text.rbegin(), text.rend(), [&](unsigned char c) { return !is_space(c); }).base(), text.end());
+	return text;
 }
 
 std::string TrimAndCollapse(std::string text) {
@@ -79,6 +81,96 @@ std::string TrimAndCollapse(std::string text) {
 		}
 	}
 	return out;
+}
+
+bool StartsWithJson(std::string const& text) {
+	auto it = std::find_if(text.begin(), text.end(), [](unsigned char c) { return !std::isspace(c); });
+	return it != text.end() && (*it == '{' || *it == '[');
+}
+
+std::vector<std::string> SplitLines(std::string const& text) {
+	std::vector<std::string> lines;
+	std::istringstream stream(text);
+	std::string line;
+	while (std::getline(stream, line))
+		lines.push_back(Trim(line));
+	return lines;
+}
+
+std::string ParentFolderName(std::string path) {
+	std::replace(path.begin(), path.end(), '\\', '/');
+	if (!path.empty() && path.back() == '/')
+		path.pop_back();
+
+	auto file_separator = path.find_last_of('/');
+	if (file_separator == std::string::npos)
+		return path;
+	if (file_separator == 0)
+		return path.substr(0, 1);
+
+	auto parent_end = file_separator;
+	auto parent_begin = path.find_last_of('/', parent_end - 1);
+	if (parent_begin == std::string::npos)
+		return path.substr(0, parent_end);
+	return path.substr(parent_begin + 1, parent_end - parent_begin - 1);
+}
+
+std::string MissingModelFileMessage(std::string const& line) {
+	auto marker = std::string("Cannot open file ");
+	auto begin = line.find(marker);
+	if (begin == std::string::npos)
+		return {};
+
+	begin += marker.size();
+	auto end = line.find(',', begin);
+	auto path = Trim(line.substr(begin, end == std::string::npos ? std::string::npos : end - begin));
+	if (path.find("inference.pdmodel") == std::string::npos)
+		return {};
+
+	auto folder = ParentFolderName(path);
+	if (folder.empty())
+		return "PaddleOCR-json failed to load the OCR model. Missing inference.pdmodel.";
+	return "PaddleOCR-json failed to load the OCR model. Missing inference.pdmodel in " + folder + ".";
+}
+
+std::string FirstUsefulRuntimeError(std::string const& stdout_text, std::string const& stderr_text) {
+	std::vector<std::string> lines = SplitLines(stdout_text);
+	auto stderr_lines = SplitLines(stderr_text);
+	lines.insert(lines.end(), stderr_lines.begin(), stderr_lines.end());
+
+	for (auto const& line : lines) {
+		auto message = MissingModelFileMessage(line);
+		if (!message.empty())
+			return message;
+	}
+
+	for (auto const& line : lines) {
+		if (line.empty() ||
+			line.find("PaddleOCR-json") == 0 ||
+			line == "Error Message Summary:" ||
+			line.find("Load config from") == 0 ||
+			line.find("_model_dir set to") != std::string::npos ||
+			line.find("rec_char_dict_path set to") != std::string::npos)
+			continue;
+
+		if (line.find("Error") != std::string::npos ||
+			line.find("Exception") != std::string::npos ||
+			line.find("Cannot open file") != std::string::npos)
+			return "PaddleOCR-json failed: " + line;
+	}
+
+	return "PaddleOCR-json failed before returning OCR JSON.";
+}
+
+std::string RuntimeDebugDetails(std::string const& stdout_text, std::string const& stderr_text, long code) {
+	std::string details = "\n\nDebug details:\nExit code: " + std::to_string(code);
+	details += "\nRuntime stdout:\n" + (stdout_text.empty() ? std::string("<empty>") : stdout_text);
+	details += "\nRuntime stderr:\n" + (stderr_text.empty() ? std::string("<empty>") : stderr_text);
+	return details;
+}
+
+std::string RuntimeFailureDiagnostic(std::string const& stdout_text, std::string const& stderr_text, long code) {
+	return FirstUsefulRuntimeError(stdout_text, stderr_text) + RuntimeDebugDetails(stdout_text, stderr_text, code);
 }
 
 std::string GetString(json::Object const& object, char const *key) {
@@ -117,8 +209,148 @@ std::string GetDataAsString(json::UnknownElement const& data) {
 	}
 }
 
-bool UsesPPOcrV5Config(std::string const& language) {
-	return language != "korean";
+struct ModelConfig {
+	agi::fs::path config_path;
+	agi::fs::path det_model_dir;
+	agi::fs::path cls_model_dir;
+	agi::fs::path rec_model_dir;
+	agi::fs::path rec_char_dict_path;
+	std::string missing_setting;
+};
+
+agi::fs::path ResolveModelPath(std::string configured_path, agi::fs::path const& models_dir) {
+	std::replace(configured_path.begin(), configured_path.end(), '\\', '/');
+
+	agi::fs::path path(configured_path);
+	if (path.is_absolute())
+		return path;
+
+	if (configured_path == "models")
+		return models_dir;
+
+	if (configured_path.find("models/") == 0)
+		return models_dir / configured_path.substr(7);
+
+	return models_dir / configured_path;
+}
+
+std::map<std::string, std::string> ReadConfigSettings(agi::fs::path const& config_path) {
+	std::map<std::string, std::string> settings;
+	auto stream = agi::io::Open(config_path);
+
+	std::string line;
+	while (std::getline(*stream, line)) {
+		line = Trim(line);
+		if (line.empty() || line[0] == '#')
+			continue;
+
+		std::istringstream line_stream(line);
+		std::string key;
+		line_stream >> key;
+
+		std::string value;
+		std::getline(line_stream, value);
+		value = Trim(value);
+		if (!key.empty() && !value.empty())
+			settings[key] = value;
+	}
+
+	return settings;
+}
+
+ModelConfig ReadModelConfig(agi::fs::path const& config_path, agi::fs::path const& models_dir) {
+	ModelConfig config;
+	config.config_path = config_path;
+
+	auto settings = ReadConfigSettings(config_path);
+	for (auto const& key : {"det_model_dir", "rec_model_dir", "rec_char_dict_path"}) {
+		if (!settings.count(key)) {
+			config.missing_setting = key;
+			return config;
+		}
+	}
+
+	config.det_model_dir = ResolveModelPath(settings["det_model_dir"], models_dir);
+	if (settings.count("cls_model_dir"))
+		config.cls_model_dir = ResolveModelPath(settings["cls_model_dir"], models_dir);
+	config.rec_model_dir = ResolveModelPath(settings["rec_model_dir"], models_dir);
+	config.rec_char_dict_path = ResolveModelPath(settings["rec_char_dict_path"], models_dir);
+
+	return config;
+}
+
+std::string FilesPresent(agi::fs::path const& folder) {
+	if (!agi::fs::DirectoryExists(folder))
+		return "<folder does not exist>";
+
+	std::vector<std::string> files;
+	for (auto const& file : agi::fs::DirectoryIterator(folder, "*"))
+		files.push_back(file);
+
+	if (files.empty())
+		return "<empty>";
+
+	std::sort(files.begin(), files.end());
+	std::string joined;
+	for (auto const& file : files) {
+		if (!joined.empty())
+			joined += ", ";
+		joined += file;
+	}
+	return joined;
+}
+
+std::string ModelValidationDiagnostic(std::string const& message, agi::fs::path const& folder, ModelConfig const& config) {
+	std::string diagnostic = message;
+	diagnostic += "\n\nFolder path:\n" + folder.string();
+	diagnostic += "\nFiles present:\n" + FilesPresent(folder);
+	diagnostic += "\n\nActive config file path:\n" + config.config_path.string();
+	diagnostic += "\nSelected det_model_dir:\n" + config.det_model_dir.string();
+	diagnostic += "\nSelected cls_model_dir:\n" + config.cls_model_dir.string();
+	diagnostic += "\nSelected rec_model_dir:\n" + config.rec_model_dir.string();
+	diagnostic += "\nSelected dictionary path:\n" + config.rec_char_dict_path.string();
+	return diagnostic;
+}
+
+std::string ValidateModelDirectory(std::string const& role, agi::fs::path const& folder, ModelConfig const& config) {
+	for (auto const& file_name : {"inference.pdmodel", "inference.pdiparams"}) {
+		auto file_path = folder / file_name;
+		if (!agi::fs::FileExists(file_path))
+			return ModelValidationDiagnostic(
+				"OCR model file is missing:\n" + file_path.string() +
+				"\n\nPaddleOCR-json requires " + role + " model folders to contain inference.pdmodel and inference.pdiparams.",
+				folder,
+				config);
+	}
+
+	return {};
+}
+
+std::string ValidateModelConfig(ModelConfig const& config) {
+	if (!config.missing_setting.empty())
+		return "OCR model configuration is incomplete:\n" + config.config_path.string() + "\n\nMissing required setting: " + config.missing_setting;
+
+	auto diagnostic = ValidateModelDirectory("detection", config.det_model_dir, config);
+	if (!diagnostic.empty())
+		return diagnostic;
+
+	if (!config.cls_model_dir.empty()) {
+		diagnostic = ValidateModelDirectory("classification", config.cls_model_dir, config);
+		if (!diagnostic.empty())
+			return diagnostic;
+	}
+
+	diagnostic = ValidateModelDirectory("recognition", config.rec_model_dir, config);
+	if (!diagnostic.empty())
+		return diagnostic;
+
+	if (!agi::fs::FileExists(config.rec_char_dict_path))
+		return ModelValidationDiagnostic(
+			"OCR recognition dictionary is missing:\n" + config.rec_char_dict_path.string(),
+			config.rec_char_dict_path.parent_path(),
+			config);
+
+	return {};
 }
 
 } // namespace
@@ -142,10 +374,21 @@ std::string NormalizeText(std::vector<OCRLine> const& lines, bool keep_line_brea
 OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& options) {
 	OCRResult result;
 
+	if (!StartsWithJson(json_text)) {
+		result.diagnostic = "OCR runtime did not return JSON.\n\nOutput:\n" + json_text;
+		return result;
+	}
+
 	try {
-		std::istringstream stream(ExtractJsonObject(json_text));
+		std::istringstream stream(json_text);
 		json::UnknownElement root_element;
 		json::Reader::Read(root_element, stream);
+		stream >> std::ws;
+		if (!stream.eof()) {
+			result.diagnostic = "OCR runtime returned extra non-JSON text around the OCR result.\n\nOutput:\n" + json_text;
+			return result;
+		}
+
 		auto const& root = static_cast<json::Object const&>(root_element);
 
 		result.code = GetInteger(root, "code");
@@ -196,11 +439,11 @@ OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& opt
 		if (result.diagnostic.empty())
 			result.diagnostic = "OCR runtime returned an error without a readable message.";
 	}
-	catch (json::Exception const& e) {
-		result.diagnostic = "Failed to parse OCR runtime JSON: " + std::string(e.what()) + "\n\nOutput:\n" + json_text;
+	catch (json::Exception const&) {
+		result.diagnostic = "OCR runtime returned malformed JSON instead of a clean Image2Text result.\n\nOutput:\n" + json_text;
 	}
-	catch (std::exception const& e) {
-		result.diagnostic = "Failed to parse OCR runtime output: " + std::string(e.what()) + "\n\nOutput:\n" + json_text;
+	catch (std::exception const&) {
+		result.diagnostic = "OCR runtime returned an invalid Image2Text result.\n\nOutput:\n" + json_text;
 	}
 
 	return result;
@@ -216,7 +459,13 @@ OCREngine::OCREngine()
 agi::fs::path OCREngine::ConfigPath(std::string const& language) const {
 	if (language == "korean")
 		return models_dir / "config_korean.txt";
-	return models_dir / "config_ppocrv5.txt";
+	if (language == "english")
+		return models_dir / "config_en.txt";
+	if (language == "chinese_simplified")
+		return models_dir / "config_chinese.txt";
+	if (language == "chinese_traditional")
+		return models_dir / "config_chinese_cht.txt";
+	return models_dir / "config_japan.txt";
 }
 
 bool OCREngine::IsAvailable(OCROptions const& options) const {
@@ -241,19 +490,17 @@ wxString OCREngine::GetDiagnostic(OCROptions const& options) const {
 	if (!agi::fs::FileExists(config_path))
 		return fmt_tl("OCR model configuration is missing:\n%s\n\nThe bundled ocr\\models folder is incomplete.", config_path);
 
-	if (UsesPPOcrV5Config(options.language)) {
-		agi::fs::path required_files[] = {
-			models_dir / "PP-OCRv5_mobile_det_infer" / "inference.json",
-			models_dir / "PP-OCRv5_mobile_det_infer" / "inference.pdiparams",
-			models_dir / "PP-OCRv5_server_rec_infer" / "inference.json",
-			models_dir / "PP-OCRv5_server_rec_infer" / "inference.pdiparams",
-			models_dir / "ppocrv5_dict.txt"
-		};
-
-		for (auto const& path : required_files) {
-			if (!agi::fs::FileExists(path))
-				return fmt_tl("OCR model file is missing:\n%s\n\nThe bundled ocr\\models folder is incomplete.", path);
-		}
+	try {
+		auto model_config = ReadModelConfig(config_path, models_dir);
+		auto model_diagnostic = ValidateModelConfig(model_config);
+		if (!model_diagnostic.empty())
+			return to_wx(model_diagnostic);
+	}
+	catch (agi::Exception const& e) {
+		return to_wx("OCR model configuration could not be read:\n" + config_path.string() + "\n\n" + e.GetMessage());
+	}
+	catch (std::exception const& e) {
+		return to_wx("OCR model configuration could not be read:\n" + config_path.string() + "\n\n" + std::string(e.what()));
 	}
 
 	return "";
@@ -284,16 +531,20 @@ OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions 
 
 	std::string stdout_text = JoinOutput(output);
 	std::string stderr_text = JoinOutput(errors);
-	if (stdout_text.empty() && !stderr_text.empty()) {
-		result.diagnostic = "OCR runtime failed:\n" + stderr_text;
+
+	if (code != 0) {
+		result.diagnostic = RuntimeFailureDiagnostic(stdout_text, stderr_text, code);
+		return result;
+	}
+
+	if (!StartsWithJson(stdout_text)) {
+		result.diagnostic = RuntimeFailureDiagnostic(stdout_text, stderr_text, code);
 		return result;
 	}
 
 	result = ParsePaddleOCRJson(stdout_text, options);
-	if (!result.ok && !stderr_text.empty())
-		result.diagnostic += "\n\nRuntime stderr:\n" + stderr_text;
-	if (!result.ok && code != 0 && result.diagnostic.empty())
-		result.diagnostic = "OCR runtime exited with code " + std::to_string(code) + ".";
+	if (!result.ok)
+		result.diagnostic += RuntimeDebugDetails(stdout_text, stderr_text, code);
 	return result;
 }
 
