@@ -638,12 +638,18 @@ function Export-PPOcrV5LegacyModel {
     }
 }
 
-function Test-StartsWithJson {
+function Get-JsonFromRuntimeOutput {
     param(
         [AllowEmptyString()][string]$Text
     )
 
-    return $Text.TrimStart().StartsWith("{") -or $Text.TrimStart().StartsWith("[")
+    $objectStart = $Text.IndexOf("{")
+    $objectEnd = $Text.LastIndexOf("}")
+    if ($objectStart -lt 0 -or $objectEnd -lt $objectStart) {
+        return ""
+    }
+
+    return $Text.Substring($objectStart, $objectEnd - $objectStart + 1)
 }
 
 function New-SmokeImage {
@@ -651,7 +657,7 @@ function New-SmokeImage {
         [Parameter(Mandatory = $true)][string]$Path
     )
 
-    $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHklEQVR42mNkYGD4z0AEYBxVSFUBCjAwMDAwGgAAjUAB8KiY2S8AAAAASUVORK5CYII="
+    $pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAIAAAAAwCAYAAADZ9HK+AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAIwSURBVHhe7ZhRcoUgDEVdngtyOe7FrbgTSqc+jAhCAm3Ve89Mft5gdMgh8BgcgYYCgEMBwKEA4FAAcCgAOBQAHAoADgUAhwKAQwHAoQDgUABwKAA4XQVYpsENQyLG2a3bGC25nONcyri6eUw/m4tyzvfRRYBs4eOoFqG+eNOyPXJCL8BPTC6b8oU0ChBPcnryjoKM7nqhLW4KY32kKrzObhRj0itXfFveksDhGxs61tNoEkBOWnmOZWFzq0wKVVqJcmxKKp0A36zzeJHvndgFWKZtsmqK/0FIkHhIX4CrfHoBZD6U84BRAMvkbgRx4iLbcu5dKO4Ylnz7MxTgCrEHa+ufXWVNOVOwA9RgEmBv1bYTc1i14rDVmvOMXgCeASpJFVBDmOiUAN1O4BoBxNiq8e/hfwUQq70155moqLXR7f3PgAKEwGn7ktsI8OdbwOEyqde543nc5hDof+xcjJozgLhHYAdQEFaPZdJ6/w385IvFqRHAA94JbALUTm6KzhdBezey59tz6N79BowCeH7hKjgvRw6R73R20AglxvpAcsAugCfs5VWTJvfbXKuVhSi141LRNAJ4hND9DqL3p0mAuAi5oklRyqtbiuIjVTxZLB/pa1ulAB75nbwKVnDYQ6+iemVFElxEvrZ6AY7vtRxwn0cXAT5kRTC31LwI5RVqEcADthV0FYA8DwoADgUAhwKAQwHAoQDgUABwKAA4FAAcCgAOBQCHAoBDAcChANA49wWZCZaaHAYU1QAAAABJRU5ErkJggg=="
     [System.IO.File]::WriteAllBytes($Path, [Convert]::FromBase64String($pngBase64))
 }
 
@@ -709,10 +715,11 @@ $($result.Stderr.Trim())
 "@
     }
 
-    if (!(Test-StartsWithJson -Text $result.Stdout)) {
+    $jsonText = Get-JsonFromRuntimeOutput -Text $result.Stdout
+    if (!$jsonText) {
         throw @"
 PaddleOCR-json PP-OCRv5 runtime load check failed: runtime executable failure.
-The process exited successfully but stdout did not begin with JSON.
+The process exited successfully but stdout did not contain JSON.
 Command:
 $($result.Command)
 stdout:
@@ -723,10 +730,7 @@ $($result.Stderr.Trim())
     }
 
     try {
-        $json = $result.Stdout | ConvertFrom-Json
-        if ($null -ne $json.code -and $json.code -notin @(100, 101)) {
-            throw "PaddleOCR-json returned code $($json.code)."
-        }
+        $json = $jsonText | ConvertFrom-Json
     }
     catch {
         throw @"
@@ -740,6 +744,19 @@ stderr:
 $($result.Stderr.Trim())
 JSON error:
 $($_.Exception.Message)
+"@
+    }
+
+    if ($null -ne $json.code -and $json.code -notin @(100, 101)) {
+        throw @"
+PaddleOCR-json PP-OCRv5 runtime load check failed: runtime executable failure.
+The runtime loaded the models but returned OCR code $($json.code).
+Command:
+$($result.Command)
+stdout:
+$($result.Stdout.Trim())
+stderr:
+$($result.Stderr.Trim())
 "@
     }
 
