@@ -89,6 +89,50 @@ bool StartsWithJson(std::string const& text) {
 	return it != text.end() && (*it == '{' || *it == '[');
 }
 
+std::string ExtractJsonFromRuntimeOutput(std::string const& text) {
+	for (size_t start = 0; start < text.size(); ++start) {
+		if (text[start] != '{' && text[start] != '[')
+			continue;
+
+		std::vector<char> expected_closers;
+		bool in_string = false;
+		bool escaped = false;
+
+		for (size_t pos = start; pos < text.size(); ++pos) {
+			char c = text[pos];
+			if (in_string) {
+				if (escaped)
+					escaped = false;
+				else if (c == '\\')
+					escaped = true;
+				else if (c == '"')
+					in_string = false;
+				continue;
+			}
+
+			if (c == '"') {
+				in_string = true;
+				continue;
+			}
+
+			if (c == '{')
+				expected_closers.push_back('}');
+			else if (c == '[')
+				expected_closers.push_back(']');
+			else if (c == '}' || c == ']') {
+				if (expected_closers.empty() || expected_closers.back() != c)
+					break;
+
+				expected_closers.pop_back();
+				if (expected_closers.empty())
+					return text.substr(start, pos - start + 1);
+			}
+		}
+	}
+
+	return {};
+}
+
 std::vector<std::string> SplitLines(std::string const& text) {
 	std::vector<std::string> lines;
 	std::istringstream stream(text);
@@ -590,12 +634,13 @@ OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions 
 		return result;
 	}
 
-	if (!StartsWithJson(stdout_text)) {
+	auto json_text = ExtractJsonFromRuntimeOutput(stdout_text);
+	if (json_text.empty()) {
 		result.diagnostic = RuntimeFailureDiagnostic(stdout_text, stderr_text, code);
 		return result;
 	}
 
-	result = ParsePaddleOCRJson(stdout_text, options);
+	result = ParsePaddleOCRJson(json_text, options);
 	if (!result.ok)
 		result.diagnostic += RuntimeDebugDetails(stdout_text, stderr_text, code);
 	return result;
