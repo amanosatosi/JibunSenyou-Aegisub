@@ -1682,7 +1682,8 @@ void DialogMotionTrack::TrackOne(int target_frame) {
 
 	if (target_frame < settings.start_frame || target_frame > settings.end_frame)
 		return;
-	if (FindSegmentForTracking(target_frame) < 0)
+	int segment_index = FindSegmentForTracking(target_frame);
+	if (segment_index < 0)
 		return;
 	auto& segment = segments[segment_index];
 	if (target_frame < segment.start_frame || target_frame > segment.end_frame) {
