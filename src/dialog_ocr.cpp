@@ -38,15 +38,25 @@
 
 #include <boost/algorithm/string/replace.hpp>
 
+#include <algorithm>
+#include <cstdlib>
+#include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
+#include <wx/bitmap.h>
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
+#include <wx/dcbuffer.h>
 #include <wx/filepicker.h>
 #include <wx/filename.h>
 #include <wx/gauge.h>
+#include <wx/graphics.h>
+#include <wx/image.h>
+#include <wx/menu.h>
+#include <wx/panel.h>
 #include <wx/msgdlg.h>
 #include <wx/radiobut.h>
 #include <wx/sizer.h>
@@ -58,6 +68,7 @@ namespace {
 
 struct OCRThreadResult {
 	ocr::OCRResult result;
+	agi::fs::path image_path;
 	agi::fs::path temporary_image;
 };
 
@@ -98,6 +109,411 @@ wxImage GetCurrentFrameImage(agi::Context *c) {
 	return GetImage(*c->project->VideoProvider()->GetFrame(frame, c->project->Timecodes().TimeAtFrame(frame), true));
 }
 
+enum {
+	ID_OCR_MASK_AREA = wxID_HIGHEST + 350
+};
+
+class OCRPreviewPanel final : public wxPanel {
+	wxImage image;
+	std::vector<ocr::OCRLine> lines;
+	std::vector<bool> masked;
+	std::set<size_t> selected;
+	int hovered = -1;
+	bool dragging = false;
+	bool keep_line_breaks = true;
+	wxPoint drag_start;
+	wxPoint drag_current;
+	wxRect image_rect;
+	double image_scale = 1.0;
+
+	void OnPaint(wxPaintEvent&);
+	void OnMouse(wxMouseEvent& event);
+	void OnKeyDown(wxKeyEvent& event);
+	void OnCopy(wxCommandEvent&);
+	void OnMask(wxCommandEvent&);
+
+	void UpdateImageLayout(wxSize const& size);
+	wxPoint ImageToPanel(std::pair<int, int> const& point) const;
+	std::pair<double, double> PanelToImage(wxPoint const& point) const;
+	wxRect LineBounds(ocr::OCRLine const& line) const;
+	wxRect LinePanelBounds(ocr::OCRLine const& line) const;
+	std::vector<wxPoint> LinePanelPolygon(ocr::OCRLine const& line) const;
+	bool PointInLine(wxPoint const& point, ocr::OCRLine const& line) const;
+	bool DragRectIntersects(size_t index) const;
+	int HitTest(wxPoint const& point) const;
+	void SelectAt(wxPoint const& point);
+	void SelectDragIntersections();
+	void CopySelectedText();
+	void MaskSelected();
+	std::vector<ocr::OCRLine> VisibleLines() const;
+	std::vector<ocr::OCRLine> SelectedLines() const;
+
+public:
+	std::function<void(std::string const&)> on_visible_text_changed;
+
+	OCRPreviewPanel(wxWindow *parent);
+
+	void Clear();
+	void SetResult(ocr::OCRResult const& result, agi::fs::path const& image_path, bool force_png, bool keep_line_breaks);
+	std::string VisibleText() const;
+};
+
+OCRPreviewPanel::OCRPreviewPanel(wxWindow *parent)
+: wxPanel(parent, -1, wxDefaultPosition, wxSize(520, 280), wxBORDER_NONE)
+{
+	SetMinSize(wxSize(420, 220));
+	SetBackgroundStyle(wxBG_STYLE_PAINT);
+	SetCanFocus(true);
+	SetCursor(wxCursor(wxCURSOR_HAND));
+
+	Bind(wxEVT_PAINT, &OCRPreviewPanel::OnPaint, this);
+	Bind(wxEVT_LEFT_DOWN, &OCRPreviewPanel::OnMouse, this);
+	Bind(wxEVT_LEFT_UP, &OCRPreviewPanel::OnMouse, this);
+	Bind(wxEVT_MOTION, &OCRPreviewPanel::OnMouse, this);
+	Bind(wxEVT_LEAVE_WINDOW, &OCRPreviewPanel::OnMouse, this);
+	Bind(wxEVT_RIGHT_UP, &OCRPreviewPanel::OnMouse, this);
+	Bind(wxEVT_CHAR_HOOK, &OCRPreviewPanel::OnKeyDown, this);
+	Bind(wxEVT_MENU, &OCRPreviewPanel::OnCopy, this, wxID_COPY);
+	Bind(wxEVT_MENU, &OCRPreviewPanel::OnMask, this, ID_OCR_MASK_AREA);
+}
+
+void OCRPreviewPanel::Clear() {
+	image = wxImage();
+	lines.clear();
+	masked.clear();
+	selected.clear();
+	hovered = -1;
+	dragging = false;
+	Refresh();
+}
+
+void OCRPreviewPanel::SetResult(ocr::OCRResult const& result, agi::fs::path const& image_path, bool force_png, bool keep_line_breaks_value) {
+	wxImage loaded;
+	wxString path(image_path.wstring());
+	if (!path.empty()) {
+		if (force_png)
+			loaded.LoadFile(path, wxBITMAP_TYPE_PNG);
+		else
+			loaded.LoadFile(path);
+	}
+
+	image = loaded;
+	lines = result.lines;
+	masked.assign(lines.size(), false);
+	selected.clear();
+	hovered = -1;
+	dragging = false;
+	keep_line_breaks = keep_line_breaks_value;
+	Refresh();
+}
+
+std::vector<ocr::OCRLine> OCRPreviewPanel::VisibleLines() const {
+	std::vector<ocr::OCRLine> visible;
+	for (size_t i = 0; i < lines.size(); ++i) {
+		if (i >= masked.size() || !masked[i])
+			visible.push_back(lines[i]);
+	}
+	return visible;
+}
+
+std::vector<ocr::OCRLine> OCRPreviewPanel::SelectedLines() const {
+	std::vector<ocr::OCRLine> picked;
+	for (size_t i = 0; i < lines.size(); ++i) {
+		if ((i >= masked.size() || !masked[i]) && selected.count(i))
+			picked.push_back(lines[i]);
+	}
+	return picked;
+}
+
+std::string OCRPreviewPanel::VisibleText() const {
+	return ocr::NormalizeText(VisibleLines(), keep_line_breaks);
+}
+
+void OCRPreviewPanel::UpdateImageLayout(wxSize const& size) {
+	image_rect = wxRect(0, 0, size.GetWidth(), size.GetHeight());
+	image_scale = 1.0;
+
+	if (!image.IsOk() || image.GetWidth() <= 0 || image.GetHeight() <= 0 || size.GetWidth() <= 0 || size.GetHeight() <= 0)
+		return;
+
+	image_scale = std::min(
+		static_cast<double>(size.GetWidth()) / image.GetWidth(),
+		static_cast<double>(size.GetHeight()) / image.GetHeight());
+	int width = std::max(1, static_cast<int>(image.GetWidth() * image_scale));
+	int height = std::max(1, static_cast<int>(image.GetHeight() * image_scale));
+	image_rect = wxRect((size.GetWidth() - width) / 2, (size.GetHeight() - height) / 2, width, height);
+}
+
+wxPoint OCRPreviewPanel::ImageToPanel(std::pair<int, int> const& point) const {
+	return wxPoint(
+		image_rect.GetX() + static_cast<int>(point.first * image_scale + 0.5),
+		image_rect.GetY() + static_cast<int>(point.second * image_scale + 0.5));
+}
+
+std::pair<double, double> OCRPreviewPanel::PanelToImage(wxPoint const& point) const {
+	if (image_scale <= 0.0)
+		return {0.0, 0.0};
+
+	return {
+		(point.x - image_rect.GetX()) / image_scale,
+		(point.y - image_rect.GetY()) / image_scale
+	};
+}
+
+wxRect OCRPreviewPanel::LineBounds(ocr::OCRLine const& line) const {
+	if (line.box.empty())
+		return wxRect();
+
+	int min_x = line.box.front().first;
+	int max_x = line.box.front().first;
+	int min_y = line.box.front().second;
+	int max_y = line.box.front().second;
+	for (auto const& point : line.box) {
+		min_x = std::min(min_x, point.first);
+		max_x = std::max(max_x, point.first);
+		min_y = std::min(min_y, point.second);
+		max_y = std::max(max_y, point.second);
+	}
+
+	return wxRect(min_x, min_y, std::max(1, max_x - min_x), std::max(1, max_y - min_y));
+}
+
+wxRect OCRPreviewPanel::LinePanelBounds(ocr::OCRLine const& line) const {
+	auto bounds = LineBounds(line);
+	if (bounds.IsEmpty())
+		return wxRect();
+
+	int x = image_rect.GetX() + static_cast<int>(bounds.GetX() * image_scale + 0.5);
+	int y = image_rect.GetY() + static_cast<int>(bounds.GetY() * image_scale + 0.5);
+	int w = std::max(1, static_cast<int>(bounds.GetWidth() * image_scale + 0.5));
+	int h = std::max(1, static_cast<int>(bounds.GetHeight() * image_scale + 0.5));
+	return wxRect(x, y, w, h);
+}
+
+std::vector<wxPoint> OCRPreviewPanel::LinePanelPolygon(ocr::OCRLine const& line) const {
+	std::vector<wxPoint> points;
+	for (auto const& point : line.box)
+		points.push_back(ImageToPanel(point));
+	return points;
+}
+
+bool OCRPreviewPanel::PointInLine(wxPoint const& point, ocr::OCRLine const& line) const {
+	if (line.box.size() < 3)
+		return LinePanelBounds(line).Contains(point);
+
+	auto image_point = PanelToImage(point);
+	bool inside = false;
+	for (size_t i = 0, j = line.box.size() - 1; i < line.box.size(); j = i++) {
+		auto const& a = line.box[i];
+		auto const& b = line.box[j];
+		if (((a.second > image_point.second) != (b.second > image_point.second)) &&
+			(image_point.first < (b.first - a.first) * (image_point.second - a.second) / static_cast<double>(b.second - a.second) + a.first))
+			inside = !inside;
+	}
+	return inside;
+}
+
+bool OCRPreviewPanel::DragRectIntersects(size_t index) const {
+	if (index >= lines.size())
+		return false;
+
+	wxRect drag_rect(
+		std::min(drag_start.x, drag_current.x),
+		std::min(drag_start.y, drag_current.y),
+		std::abs(drag_start.x - drag_current.x) + 1,
+		std::abs(drag_start.y - drag_current.y) + 1);
+
+	auto bounds = LinePanelBounds(lines[index]);
+	return !bounds.IsEmpty() && drag_rect.Intersects(bounds);
+}
+
+int OCRPreviewPanel::HitTest(wxPoint const& point) const {
+	for (size_t i = lines.size(); i > 0; --i) {
+		size_t index = i - 1;
+		if (index < masked.size() && masked[index])
+			continue;
+		if (PointInLine(point, lines[index]))
+			return static_cast<int>(index);
+	}
+	return -1;
+}
+
+void OCRPreviewPanel::SelectAt(wxPoint const& point) {
+	int hit = HitTest(point);
+	if (hit >= 0)
+		selected.insert(static_cast<size_t>(hit));
+}
+
+void OCRPreviewPanel::SelectDragIntersections() {
+	for (size_t i = 0; i < lines.size(); ++i) {
+		if (i < masked.size() && masked[i])
+			continue;
+		if (DragRectIntersects(i))
+			selected.insert(i);
+	}
+}
+
+void OCRPreviewPanel::CopySelectedText() {
+	auto picked = SelectedLines();
+	if (picked.empty())
+		return;
+
+	SetClipboard(ocr::NormalizeText(picked, keep_line_breaks));
+}
+
+void OCRPreviewPanel::MaskSelected() {
+	if (selected.empty())
+		return;
+
+	for (auto index : selected) {
+		if (index < masked.size())
+			masked[index] = true;
+	}
+	selected.clear();
+	hovered = -1;
+
+	if (on_visible_text_changed)
+		on_visible_text_changed(VisibleText());
+	Refresh();
+}
+
+void OCRPreviewPanel::OnCopy(wxCommandEvent&) {
+	CopySelectedText();
+}
+
+void OCRPreviewPanel::OnMask(wxCommandEvent&) {
+	MaskSelected();
+}
+
+void OCRPreviewPanel::OnKeyDown(wxKeyEvent& event) {
+	if (event.ControlDown() && (event.GetKeyCode() == 'C' || event.GetKeyCode() == 'c')) {
+		CopySelectedText();
+		return;
+	}
+	event.Skip();
+}
+
+void OCRPreviewPanel::OnMouse(wxMouseEvent& event) {
+	SetFocus();
+
+	if (event.Leaving()) {
+		if (hovered != -1) {
+			hovered = -1;
+			Refresh();
+		}
+		event.Skip();
+		return;
+	}
+
+	wxPoint pos = event.GetPosition();
+	int previous_hovered = hovered;
+	hovered = HitTest(pos);
+
+	if (event.LeftDown()) {
+		dragging = true;
+		drag_start = pos;
+		drag_current = pos;
+		selected.clear();
+		SelectAt(pos);
+		if (!HasCapture())
+			CaptureMouse();
+		Refresh();
+		return;
+	}
+
+	if (event.Dragging() && dragging) {
+		drag_current = pos;
+		SelectAt(pos);
+		SelectDragIntersections();
+		Refresh();
+		return;
+	}
+
+	if (event.LeftUp() && dragging) {
+		dragging = false;
+		if (HasCapture())
+			ReleaseMouse();
+		Refresh();
+		return;
+	}
+
+	if (event.RightUp()) {
+		int hit = HitTest(pos);
+		if (hit >= 0 && !selected.count(static_cast<size_t>(hit))) {
+			selected.clear();
+			selected.insert(static_cast<size_t>(hit));
+			Refresh();
+		}
+
+		if (!selected.empty()) {
+			wxMenu menu;
+			menu.Append(wxID_COPY, _("Copy text"));
+			menu.Append(ID_OCR_MASK_AREA, _("Mask this area"));
+			PopupMenu(&menu, pos);
+		}
+		return;
+	}
+
+	if (hovered != previous_hovered)
+		Refresh();
+
+	event.Skip();
+}
+
+void OCRPreviewPanel::OnPaint(wxPaintEvent&) {
+	wxAutoBufferedPaintDC dc(this);
+	auto size = GetClientSize();
+	UpdateImageLayout(size);
+
+	dc.SetBackground(wxBrush(wxColour(18, 18, 18)));
+	dc.Clear();
+
+	if (!image.IsOk())
+		return;
+	if (image_rect.GetWidth() <= 0 || image_rect.GetHeight() <= 0)
+		return;
+
+	wxImage scaled = image.Scale(image_rect.GetWidth(), image_rect.GetHeight(), wxIMAGE_QUALITY_HIGH);
+	dc.DrawBitmap(wxBitmap(scaled), image_rect.GetX(), image_rect.GetY(), false);
+
+	std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::Create(dc));
+	if (!gc)
+		return;
+
+	for (size_t i = 0; i < lines.size(); ++i) {
+		if (i < masked.size() && masked[i])
+			continue;
+
+		bool is_selected = selected.count(i) > 0;
+		bool is_hovered = hovered == static_cast<int>(i);
+		unsigned char fill_alpha = is_selected ? 150 : (is_hovered ? 110 : 64);
+		unsigned char outline_alpha = is_selected ? 220 : (is_hovered ? 150 : 0);
+		wxColour fill(255, 255, 255, fill_alpha);
+		wxColour outline = is_selected ?
+			wxColour(82, 168, 255, outline_alpha) :
+			wxColour(255, 255, 255, outline_alpha);
+		double outline_width = is_selected ? 2.0 : 1.0;
+
+		gc->SetBrush(wxBrush(fill));
+		gc->SetPen(wxPen(outline, outline_alpha ? outline_width : 0.0));
+
+		auto points = LinePanelPolygon(lines[i]);
+		if (points.size() >= 3) {
+			wxGraphicsPath path = gc->CreatePath();
+			path.MoveToPoint(points[0].x, points[0].y);
+			for (size_t point_index = 1; point_index < points.size(); ++point_index)
+				path.AddLineToPoint(points[point_index].x, points[point_index].y);
+			path.CloseSubpath();
+			gc->DrawPath(path);
+		}
+		else {
+			auto bounds = LinePanelBounds(lines[i]);
+			if (!bounds.IsEmpty())
+				gc->DrawRoundedRectangle(bounds.GetX(), bounds.GetY(), bounds.GetWidth(), bounds.GetHeight(), 5.0);
+		}
+	}
+}
+
 } // namespace
 
 struct DialogOCR::Impl {
@@ -113,6 +529,7 @@ struct DialogOCR::Impl {
 	wxCheckBox *keep_line_breaks = nullptr;
 	wxCheckBox *copy_after = nullptr;
 	wxCheckBox *insert_after = nullptr;
+	OCRPreviewPanel *preview = nullptr;
 	wxTextCtrl *result_text = nullptr;
 	wxStaticText *status = nullptr;
 	wxGauge *gauge = nullptr;
@@ -179,10 +596,15 @@ DialogOCR::Impl::Impl(DialogOCR *dialog, agi::Context *c)
 	options_box->Add(insert_after, 0, wxLEFT | wxRIGHT | wxBOTTOM, 4);
 	main_sizer->Add(options_box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
 
+	auto preview_box = new wxStaticBoxSizer(wxVERTICAL, dialog, _("Preview"));
+	preview = new OCRPreviewPanel(dialog);
+	preview_box->Add(preview, 1, wxEXPAND | wxALL, 4);
+	main_sizer->Add(preview_box, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+
 	auto result_box = new wxStaticBoxSizer(wxVERTICAL, dialog, _("Result"));
-	result_text = new wxTextCtrl(dialog, -1, "", wxDefaultPosition, wxSize(520, 180), wxTE_MULTILINE | wxTE_RICH2);
+	result_text = new wxTextCtrl(dialog, -1, "", wxDefaultPosition, wxSize(520, 140), wxTE_MULTILINE | wxTE_RICH2);
 	result_box->Add(result_text, 1, wxEXPAND | wxALL, 4);
-	main_sizer->Add(result_box, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
+	main_sizer->Add(result_box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5);
 
 	auto progress_sizer = new wxBoxSizer(wxHORIZONTAL);
 	status = new wxStaticText(dialog, -1, _("Ready"));
@@ -220,6 +642,10 @@ DialogOCR::Impl::Impl(DialogOCR *dialog, agi::Context *c)
 		}
 	}
 	language->SetSelection(language_index);
+	preview->on_visible_text_changed = [=](std::string const& text) {
+		result_text->SetValue(to_wx(text));
+		UpdateControls();
+	};
 
 	dialog->SetSizerAndFit(main_sizer);
 	dialog->CenterOnParent();
@@ -334,12 +760,15 @@ void DialogOCR::Impl::OnRecognize(wxCommandEvent&) {
 	if (source_frame->GetValue())
 		temporary_image = image_path;
 
+	preview->Clear();
+	result_text->Clear();
 	SetRunning(true);
 
 	auto engine_copy = engine;
 	auto handler = dialog;
 	agi::dispatch::Background().Async([handler, engine_copy, image_path, options, temporary_image]{
 		OCRThreadResult thread_result;
+		thread_result.image_path = image_path;
 		thread_result.temporary_image = temporary_image;
 		thread_result.result = engine_copy.RecognizeImage(image_path, options);
 		handler->AddPendingEvent(ValueEvent<OCRThreadResult>(EVT_OCR_COMPLETE, -1, std::move(thread_result)));
@@ -348,6 +777,29 @@ void DialogOCR::Impl::OnRecognize(wxCommandEvent&) {
 
 void DialogOCR::Impl::OnComplete(ValueEvent<OCRThreadResult>& event) {
 	auto const& thread_result = event.Get();
+
+	SetRunning(false);
+
+	auto const& result = thread_result.result;
+	if (!result.ok) {
+		preview->Clear();
+		if (!thread_result.temporary_image.empty()) {
+			try {
+				agi::fs::Remove(thread_result.temporary_image);
+			}
+			catch (agi::Exception const&) {
+			}
+		}
+
+		status->SetLabelText(_("OCR failed"));
+		wxMessageBox(to_wx(result.diagnostic), _("OCR failed"), wxOK | wxICON_ERROR | wxCENTER, dialog);
+		UpdateControls();
+		return;
+	}
+
+	preview->SetResult(result, thread_result.image_path, !thread_result.temporary_image.empty(), keep_line_breaks->GetValue());
+	result_text->SetValue(to_wx(preview->VisibleText()));
+
 	if (!thread_result.temporary_image.empty()) {
 		try {
 			agi::fs::Remove(thread_result.temporary_image);
@@ -356,17 +808,6 @@ void DialogOCR::Impl::OnComplete(ValueEvent<OCRThreadResult>& event) {
 		}
 	}
 
-	SetRunning(false);
-
-	auto const& result = thread_result.result;
-	if (!result.ok) {
-		status->SetLabelText(_("OCR failed"));
-		wxMessageBox(to_wx(result.diagnostic), _("OCR failed"), wxOK | wxICON_ERROR | wxCENTER, dialog);
-		UpdateControls();
-		return;
-	}
-
-	result_text->SetValue(to_wx(result.text));
 	if (result.text.empty())
 		status->SetLabelText(to_wx(result.diagnostic.empty() ? "No text found." : result.diagnostic));
 	else
