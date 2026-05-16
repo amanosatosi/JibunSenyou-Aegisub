@@ -1135,7 +1135,7 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 		case 1: settings.cleanup = motion_tracking::MotionTrackCleanup::RemoveTinyJitter; break;
 		case 2: settings.cleanup = motion_tracking::MotionTrackCleanup::RemoveSpikes; break;
 		case 3: settings.cleanup = motion_tracking::MotionTrackCleanup::LinearPerRun; break;
-		default: settings.cleanup = motion_tracking::MotionTrackCleanup::None; break;
+		default: settings.cleanup = motion_tracking::MotionTrackCleanup::Off; break;
 	}
 	settings.cleanup_threshold = std::max(0.0, cleanup_threshold_ctrl->GetValue());
 	if (graph)

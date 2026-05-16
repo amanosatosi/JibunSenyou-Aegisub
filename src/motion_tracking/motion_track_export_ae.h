@@ -9,7 +9,7 @@
 namespace motion_tracking {
 
 struct MotionTrackExportSettings {
-	MotionTrackCleanup cleanup = MotionTrackCleanup::None;
+	MotionTrackCleanup cleanup = MotionTrackCleanup::Off;
 	double cleanup_threshold = 0.5;
 	std::vector<std::pair<int, int>> locked_ranges;
 };

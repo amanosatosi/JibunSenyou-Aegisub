@@ -25,7 +25,7 @@ enum class MotionTrackBase {
 };
 
 enum class MotionTrackCleanup {
-	None,
+	Off,
 	RemoveTinyJitter,
 	RemoveSpikes,
 	LinearPerRun
@@ -62,7 +62,7 @@ struct MotionTrackSettings {
 	bool brightness_normalize = true;
 	bool prepass = true;
 	double correlation_threshold = 0.75;
-	MotionTrackCleanup cleanup = MotionTrackCleanup::None;
+	MotionTrackCleanup cleanup = MotionTrackCleanup::Off;
 	double cleanup_threshold = 0.5;
 };
 
