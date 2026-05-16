@@ -36,14 +36,20 @@
 
 #include "vector2d.h"
 #include "visual_tool_vector_clip.h"
+#include "ocr/ocr_result.h"
+#include "value_event.h"
 
 #include <memory>
+#include <set>
+#include <string>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 #include <wx/glcanvas.h>
 
 // Prototypes
 class RetinaHelper;
+class OpenGLText;
 class VideoController;
 class VideoOutGL;
 class VisualToolBase;
@@ -52,6 +58,18 @@ class wxTextCtrl;
 class wxToolBar;
 struct FrameReadyEvent;
 struct VideoFrame;
+
+struct Image2TextThreadResult {
+	ocr::OCRResult result;
+	int frame_number = -1;
+};
+
+enum class Image2TextState {
+	Off,
+	Loading,
+	Ready,
+	Error
+};
 
 namespace agi {
 	struct Context;
@@ -120,16 +138,31 @@ class VideoDisplay final : public wxGLCanvas {
 	std::shared_ptr<VideoFrame> pending_frame;
 
 	std::unique_ptr<RetinaHelper> retina_helper;
+	std::unique_ptr<OpenGLText> image2text_text;
 	int scale_factor;
 	agi::signal::Connection scale_factor_connection;
+
+	Image2TextState image2text_state = Image2TextState::Off;
+	std::vector<ocr::OCRLine> image2text_regions;
+	std::vector<bool> image2text_masked;
+	std::set<size_t> image2text_selected;
+	int image2text_hovered = -1;
+	bool image2text_dragging = false;
+	Vector2D image2text_drag_start;
+	Vector2D image2text_drag_current;
+	std::string image2text_error;
 
 	/// @brief Draw an overscan mask
 	/// @param horizontal_percent The percent of the video reserved horizontally
 	/// @param vertical_percent The percent of the video reserved vertically
 	void DrawOverscanMask(float horizontal_percent, float vertical_percent) const;
+	void DrawImage2TextOverlay();
+	void DrawImage2TextMessage(std::string const& message, bool error);
+	void DrawImage2TextRegion(size_t index);
 
 	/// Upload the image for the current frame to the video card
 	void UploadFrameData(FrameReadyEvent&);
+	void OnImage2TextComplete(ValueEvent<Image2TextThreadResult>& event);
 
 	/// @brief Initialize the gl context and set the active context to this one
 	/// @return Could the context be set?
@@ -152,6 +185,24 @@ class VideoDisplay final : public wxGLCanvas {
 	/// @brief Recalculate video positioning and scaling when the available area or zoom changes
 	void OnSizeEvent(wxSizeEvent &event);
 	void OnContextMenu(wxContextMenuEvent&);
+	bool HandleImage2TextMouse(wxMouseEvent& event);
+	bool HandleImage2TextKey(wxKeyEvent& event);
+	void OpenImage2TextMenu(wxPoint const& point);
+	void CopyImage2TextSelection(bool line_breaks);
+	void MaskImage2TextSelection();
+	void ClearImage2TextSelection();
+	void ExitImage2Text();
+	void SelectAllImage2TextRegions();
+	void SelectImage2TextRegionAt(Vector2D const& point, bool clear_first);
+	void SelectImage2TextDragIntersections();
+	int HitTestImage2Text(Vector2D const& point) const;
+	bool Image2TextPointInRegion(Vector2D const& point, ocr::OCRLine const& line) const;
+	bool Image2TextDragIntersects(size_t index) const;
+	Vector2D Image2TextToFrame(Vector2D const& point) const;
+	Vector2D Image2TextToDisplay(std::pair<int, int> const& point) const;
+	std::pair<Vector2D, Vector2D> Image2TextBounds(ocr::OCRLine const& line) const;
+	std::vector<ocr::OCRLine> SelectedImage2TextLines() const;
+	std::string Image2TextSelectionText(bool line_breaks) const;
 
 public:
 	/// @brief Constructor
@@ -189,4 +240,6 @@ public:
 
 	/// Discard all OpenGL state
 	void Unload();
+
+	void StartImage2TextOCR();
 };

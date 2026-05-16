@@ -41,6 +41,7 @@
 #include "../options.h"
 #include "../resolution_resampler.h"
 #include "../video_controller.h"
+#include "../video_display.h"
 
 #include <libaegisub/fs.h>
 #include <libaegisub/path.h>
@@ -103,12 +104,15 @@ struct tool_line_select final : public Command {
 
 struct tool_ocr_image_to_text final : public Command {
 	CMD_NAME("tool/ocr/image_to_text")
-	STR_MENU("Image to Text (OCR)...")
+	STR_MENU("Image to Text (OCR)")
 	STR_DISP("Image to Text (OCR)")
-	STR_HELP("Recognize text from the current video frame or an image file")
+	STR_HELP("Recognize selectable text from the current video frame")
 
 	void operator()(agi::Context *c) override {
-		ShowOCRDialog(c);
+		if (c->videoDisplay) {
+			c->videoController->Stop();
+			c->videoDisplay->StartImage2TextOCR();
+		}
 	}
 };
 
