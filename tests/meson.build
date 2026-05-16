@@ -27,6 +27,7 @@ all_test_sources += [
     '../src/ass_dialogue.cpp',
     '../src/ass_override.cpp',
     '../src/ass_karaoke.cpp',
+    '../src/motion_tracking/motion_track_export_ae.cpp',
     '../src/motion_tracking/motion_track_segments.cpp',
 
     'tests/access.cpp',

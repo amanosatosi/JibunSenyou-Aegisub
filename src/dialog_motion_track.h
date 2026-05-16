@@ -1,5 +1,6 @@
 #pragma once
 
+#include "motion_tracking/motion_track_export_ae.h"
 #include "motion_tracking/motion_track_segments.h"
 
 #include <libaegisub/signal.h>
@@ -7,6 +8,7 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <set>
 #include <vector>
 
 #include <wx/dialog.h>
@@ -42,13 +44,13 @@ class DialogMotionTrack final : public wxDialog {
 	motion_tracking::MotionTrackResult result;
 	std::vector<motion_tracking::MotionTrackSegment> segments;
 	std::map<int, motion_tracking::MotionTrackMarker> markers;
+	std::set<int> handoff_marks;
 
 	int current_frame = 0;
 	int preview_frame = -1;
 	int base_frame = -1;
 	int active_segment = -1;
 	double initial_marker_size = 80.0;
-	bool prepass_user_set = false;
 	bool show_track_trail = true;
 	int track_trail_past = 10;
 	int track_trail_future = 10;
@@ -66,27 +68,18 @@ class DialogMotionTrack final : public wxDialog {
 	wxStaticText *cache_status_label = nullptr;
 	wxSpinCtrl *square_ctrl = nullptr;
 	wxSpinCtrl *search_ctrl = nullptr;
-	wxSpinCtrl *trail_past_ctrl = nullptr;
-	wxSpinCtrl *trail_future_ctrl = nullptr;
 	wxSpinCtrlDouble *threshold_ctrl = nullptr;
+	wxSpinCtrlDouble *cleanup_threshold_ctrl = nullptr;
 	wxCheckBox *normalize_check = nullptr;
-	wxCheckBox *prepass_check = nullptr;
-	wxCheckBox *preserve_endpoints_check = nullptr;
 	wxCheckBox *trail_check = nullptr;
-	wxChoice *base_choice = nullptr;
-	wxChoice *mode_choice = nullptr;
-	wxChoice *smoothing_choice = nullptr;
+	wxChoice *cleanup_choice = nullptr;
 	wxButton *play_button = nullptr;
 	wxButton *track_to_start = nullptr;
 	wxButton *track_previous = nullptr;
 	wxButton *track_next = nullptr;
 	wxButton *track_to_end = nullptr;
-	wxButton *add_segment_button = nullptr;
-	wxButton *start_segment_button = nullptr;
-	wxButton *end_segment_button = nullptr;
-	wxButton *continue_segment_button = nullptr;
-	wxButton *delete_segment_button = nullptr;
-	wxButton *recalculate_motion_button = nullptr;
+	wxButton *mark_handoff_button = nullptr;
+	wxButton *clear_handoff_button = nullptr;
 	MotionTrackFrameBar *frame_bar = nullptr;
 	MotionTrackPreviewPanel *preview = nullptr;
 	MotionTrackGraphPanel *graph = nullptr;
@@ -103,7 +96,6 @@ class DialogMotionTrack final : public wxDialog {
 	void StopFrameCache();
 	void UpdateSettingsFromControls();
 	void UpdateTrailControls();
-	void UpdatePrepassControls();
 	void UpdateLabels();
 	void UpdateCacheStatus();
 	void UpdatePanels();
@@ -123,13 +115,12 @@ class DialogMotionTrack final : public wxDialog {
 	std::shared_ptr<VideoFrame> GetCachedFrame(int frame) const;
 	void TrackOne(int target_frame);
 	void TrackRange(int target_frame);
+	int ResolveHandoffTarget(int requested_target) const;
 	int FindSegmentForFrame(int frame) const;
 	int FindSegmentForTracking(int target_frame);
-	void AddTrackSegment();
-	void StartTrackHere();
-	void EndSegmentHere();
-	void ContinueFromHere();
-	void DeleteCurrentSegment();
+	int StartTrackRunHere(int target_frame);
+	void MarkHandoffFrame();
+	void ClearHandoffMark();
 	void RecalculateMotion();
 	void RebuildMarkersFromSegments();
 	void StoreSegmentFrame(int segment_index, int frame, motion_tracking::MotionTrackMarker const& marker, double confidence, motion_tracking::MotionTrackState state);
@@ -151,13 +142,13 @@ public:
 	int GetPreviewFrame() const { return preview_frame; }
 	wxImage const& GetPreviewImage() const { return preview_image; }
 	motion_tracking::MotionTrackResult const& GetResult() const { return result; }
+	motion_tracking::MotionTrackExportSettings GetExportSettings() const;
 	std::vector<MotionTrackTrailMarker> GetTrackTrailMarkers() const;
+	std::vector<int> GetHandoffMarks() const;
 	bool GetShowTrackTrail() const { return show_track_trail; }
 	int GetTrackTrailPast() const { return track_trail_past; }
 	int GetTrackTrailFuture() const { return track_trail_future; }
 	bool HandleNavigationKey(int key_code);
-	motion_tracking::MotionTrackSmoothing GetSmoothing() const { return settings.smoothing; }
-	bool GetPreserveEndpoints() const { return settings.preserve_endpoints; }
 	bool HasCurrentMarker() const;
 	int GetCurrentSegmentVisualState() const;
 	motion_tracking::MotionTrackMarker GetCurrentMarker() const;

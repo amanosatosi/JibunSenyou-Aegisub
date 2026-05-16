@@ -3,16 +3,15 @@
 #include "motion_track_types.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace motion_tracking {
 
 struct MotionTrackExportSettings {
-	MotionTrackSmoothing smoothing = MotionTrackSmoothing::Medium;
-	bool preserve_endpoints = true;
-	double position_deadzone = 0.25;
-	double scale_deadzone = 0.0015;
-	double rotation_deadzone = 0.10;
+	MotionTrackCleanup cleanup = MotionTrackCleanup::None;
+	double cleanup_threshold = 0.5;
+	std::vector<std::pair<int, int>> locked_ranges;
 };
 
 std::vector<MotionTrackFrame> StabilizeMotionTrackFrames(

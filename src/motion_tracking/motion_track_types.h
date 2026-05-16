@@ -24,11 +24,11 @@ enum class MotionTrackBase {
 	FirstFrame
 };
 
-enum class MotionTrackSmoothing {
-	Off,
-	Light,
-	Medium,
-	Heavy
+enum class MotionTrackCleanup {
+	None,
+	RemoveTinyJitter,
+	RemoveSpikes,
+	LinearPerRun
 };
 
 enum class MotionTrackState {
@@ -57,13 +57,13 @@ struct MotionTrackSettings {
 	int end_frame = 0;
 	int square_size = 80;
 	int search_size = 200;
-	MotionTrackMode mode = MotionTrackMode::PositionSizeRotation;
+	MotionTrackMode mode = MotionTrackMode::PositionOnly;
 	MotionTrackBase base = MotionTrackBase::PreviousFrame;
 	bool brightness_normalize = true;
 	bool prepass = true;
 	double correlation_threshold = 0.75;
-	MotionTrackSmoothing smoothing = MotionTrackSmoothing::Medium;
-	bool preserve_endpoints = true;
+	MotionTrackCleanup cleanup = MotionTrackCleanup::None;
+	double cleanup_threshold = 0.5;
 };
 
 struct MotionTrackResult {

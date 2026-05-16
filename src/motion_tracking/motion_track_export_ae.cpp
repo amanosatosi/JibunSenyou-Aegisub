@@ -3,8 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <map>
+#include <set>
 #include <sstream>
-#include <utility>
 #include <vector>
 
 namespace motion_tracking {
@@ -22,188 +23,133 @@ int RelativeFrame(int frame, int first_frame) {
 	return frame - first_frame + 1;
 }
 
-double Median(std::vector<double> values) {
-	if (values.empty())
-		return 0.0;
-	auto mid = values.begin() + values.size() / 2;
-	std::nth_element(values.begin(), mid, values.end());
-	return *mid;
+double Distance(double ax, double ay, double bx, double by) {
+	double dx = ax - bx;
+	double dy = ay - by;
+	return std::sqrt(dx * dx + dy * dy);
 }
 
-double RotationDelta(double current, double previous) {
-	double delta = current - previous;
-	while (delta > 180.0)
-		delta -= 360.0;
-	while (delta < -180.0)
-		delta += 360.0;
-	return delta;
-}
-
-int SmoothingRadius(MotionTrackSmoothing smoothing) {
-	switch (smoothing) {
-		case MotionTrackSmoothing::Light: return 1;
-		case MotionTrackSmoothing::Medium: return 2;
-		case MotionTrackSmoothing::Heavy: return 3;
-		default: return 0;
+std::set<int> LockedFrames(std::vector<MotionTrackFrame> const& frames, MotionTrackExportSettings const& settings) {
+	std::set<int> locked;
+	if (!frames.empty()) {
+		locked.insert(frames.front().frame);
+		locked.insert(frames.back().frame);
 	}
-}
-
-std::vector<double> SmoothingKernel(MotionTrackSmoothing smoothing) {
-	switch (smoothing) {
-		case MotionTrackSmoothing::Light: return {0.25, 0.50, 0.25};
-		case MotionTrackSmoothing::Medium: return {0.10, 0.20, 0.40, 0.20, 0.10};
-		case MotionTrackSmoothing::Heavy: return {0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05};
-		default: return {1.0};
+	for (auto const& range : settings.locked_ranges) {
+		locked.insert(range.first);
+		locked.insert(range.second);
 	}
+	return locked;
 }
 
-std::vector<double> MedianSmooth(std::vector<double> const& values, int radius) {
-	if (radius <= 0 || values.size() < 3)
-		return values;
-
-	std::vector<double> out(values.size());
-	for (size_t i = 0; i < values.size(); ++i) {
-		size_t first = i > static_cast<size_t>(radius) ? i - radius : 0;
-		size_t last = std::min(values.size() - 1, i + static_cast<size_t>(radius));
-		std::vector<double> window;
-		window.reserve(last - first + 1);
-		for (size_t j = first; j <= last; ++j)
-			window.push_back(values[j]);
-		out[i] = Median(std::move(window));
-	}
-	return out;
-}
-
-std::vector<double> CenteredWeightedSmooth(std::vector<double> const& values, std::vector<double> const& kernel) {
-	if (kernel.size() < 3 || values.size() < 3)
-		return values;
-
-	std::vector<double> out(values.size());
-	int radius = static_cast<int>(kernel.size() / 2);
-	for (size_t i = 0; i < values.size(); ++i) {
-		double total = 0.0;
-		double weight_sum = 0.0;
-		for (size_t k = 0; k < kernel.size(); ++k) {
-			int sample = static_cast<int>(i) + static_cast<int>(k) - radius;
-			if (sample < 0 || sample >= static_cast<int>(values.size()))
-				continue;
-			total += values[sample] * kernel[k];
-			weight_sum += kernel[k];
-		}
-		out[i] = weight_sum > 0.0 ? total / weight_sum : values[i];
-	}
-	return out;
-}
-
-void ApplyDeadzones(
-	std::vector<double>& x,
-	std::vector<double>& y,
-	std::vector<double>& scale_x,
-	std::vector<double>& scale_y,
-	std::vector<double>& rotation,
-	MotionTrackExportSettings const& settings) {
-
-	for (size_t i = 1; i < x.size(); ++i) {
-		double dx = x[i] - x[i - 1];
-		double dy = y[i] - y[i - 1];
-		if (std::sqrt(dx * dx + dy * dy) < settings.position_deadzone) {
-			x[i] = x[i - 1];
-			y[i] = y[i - 1];
-		}
-
-		if (std::abs(scale_x[i] - scale_x[i - 1]) < settings.scale_deadzone)
-			scale_x[i] = scale_x[i - 1];
-		if (std::abs(scale_y[i] - scale_y[i - 1]) < settings.scale_deadzone)
-			scale_y[i] = scale_y[i - 1];
-
-		if (std::abs(rotation[i] - rotation[i - 1]) < settings.rotation_deadzone)
-			rotation[i] = rotation[i - 1];
-	}
-}
-
-void RestoreEndpoints(
-	std::vector<double>& x,
-	std::vector<double>& y,
-	std::vector<double>& scale_x,
-	std::vector<double>& scale_y,
-	std::vector<double>& rotation,
-	std::vector<MotionTrackFrame> const& frames) {
-
-	if (frames.empty())
+void ApplyTinyJitterCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExportSettings const& settings) {
+	if (frames.size() < 2)
 		return;
 
-	size_t last = frames.size() - 1;
-	x.front() = frames.front().x;
-	y.front() = frames.front().y;
-	scale_x.front() = frames.front().scale_x;
-	scale_y.front() = frames.front().scale_y;
-	rotation.front() = frames.front().rotation_deg;
+	auto locked = LockedFrames(frames, settings);
+	double threshold = std::max(0.0, settings.cleanup_threshold);
+	for (size_t i = 1; i < frames.size(); ++i) {
+		if (locked.count(frames[i].frame))
+			continue;
 
-	x[last] = frames[last].x;
-	y[last] = frames[last].y;
-	scale_x[last] = frames[last].scale_x;
-	scale_y[last] = frames[last].scale_y;
-	rotation[last] = frames[last].rotation_deg;
+		if (Distance(frames[i].x, frames[i].y, frames[i - 1].x, frames[i - 1].y) < threshold) {
+			frames[i].x = frames[i - 1].x;
+			frames[i].y = frames[i - 1].y;
+			frames[i].anchor_x = frames[i].x;
+			frames[i].anchor_y = frames[i].y;
+		}
+	}
 }
 
-std::vector<MotionTrackFrame> StabilizeFrames(std::vector<MotionTrackFrame> frames, MotionTrackExportSettings const& settings) {
-	if (frames.size() < 2)
-		return frames;
+void ApplySpikeCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExportSettings const& settings) {
+	if (frames.size() < 3)
+		return;
 
-	for (size_t i = 1; i < frames.size(); ++i)
-		frames[i].rotation_deg = frames[i - 1].rotation_deg + RotationDelta(frames[i].rotation_deg, frames[i - 1].rotation_deg);
+	auto locked = LockedFrames(frames, settings);
+	double threshold = std::max(0.0, settings.cleanup_threshold);
+	auto raw = frames;
+	for (size_t i = 1; i + 1 < frames.size(); ++i) {
+		if (locked.count(raw[i].frame))
+			continue;
 
-	std::vector<double> x;
-	std::vector<double> y;
-	std::vector<double> scale_x;
-	std::vector<double> scale_y;
-	std::vector<double> rotation;
-	x.reserve(frames.size());
-	y.reserve(frames.size());
-	scale_x.reserve(frames.size());
-	scale_y.reserve(frames.size());
-	rotation.reserve(frames.size());
-	for (auto const& frame : frames) {
-		x.push_back(frame.x);
-		y.push_back(frame.y);
-		scale_x.push_back(frame.scale_x);
-		scale_y.push_back(frame.scale_y);
-		rotation.push_back(frame.rotation_deg);
+		int span = std::max(1, raw[i + 1].frame - raw[i - 1].frame);
+		double t = (raw[i].frame - raw[i - 1].frame) / static_cast<double>(span);
+		double expected_x = raw[i - 1].x + (raw[i + 1].x - raw[i - 1].x) * t;
+		double expected_y = raw[i - 1].y + (raw[i + 1].y - raw[i - 1].y) * t;
+		double spike_error = Distance(raw[i].x, raw[i].y, expected_x, expected_y);
+		double from_prev = Distance(raw[i].x, raw[i].y, raw[i - 1].x, raw[i - 1].y);
+		double to_next = Distance(raw[i].x, raw[i].y, raw[i + 1].x, raw[i + 1].y);
+
+		if (spike_error > threshold && from_prev > threshold && to_next > threshold) {
+			frames[i].x = expected_x;
+			frames[i].y = expected_y;
+			frames[i].anchor_x = expected_x;
+			frames[i].anchor_y = expected_y;
+		}
+	}
+}
+
+void LinearizeRange(std::vector<MotionTrackFrame>& frames, size_t first, size_t last) {
+	if (last <= first + 1)
+		return;
+
+	int span = std::max(1, frames[last].frame - frames[first].frame);
+	double start_x = frames[first].x;
+	double start_y = frames[first].y;
+	double end_x = frames[last].x;
+	double end_y = frames[last].y;
+
+	for (size_t i = first + 1; i < last; ++i) {
+		double t = (frames[i].frame - frames[first].frame) / static_cast<double>(span);
+		frames[i].x = start_x + (end_x - start_x) * t;
+		frames[i].y = start_y + (end_y - start_y) * t;
+		frames[i].anchor_x = frames[i].x;
+		frames[i].anchor_y = frames[i].y;
+	}
+}
+
+void ApplyLinearCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExportSettings const& settings) {
+	if (frames.size() < 3)
+		return;
+
+	std::map<int, size_t> frame_index;
+	for (size_t i = 0; i < frames.size(); ++i)
+		frame_index[frames[i].frame] = i;
+
+	if (settings.locked_ranges.empty()) {
+		LinearizeRange(frames, 0, frames.size() - 1);
+		return;
 	}
 
-	int radius = SmoothingRadius(settings.smoothing);
-	auto kernel = SmoothingKernel(settings.smoothing);
-	if (settings.smoothing != MotionTrackSmoothing::Off) {
-		// Offline centered smoothing avoids the frame delay caused by causal filters.
-		x = CenteredWeightedSmooth(MedianSmooth(x, radius), kernel);
-		y = CenteredWeightedSmooth(MedianSmooth(y, radius), kernel);
-		scale_x = CenteredWeightedSmooth(MedianSmooth(scale_x, radius), kernel);
-		scale_y = CenteredWeightedSmooth(MedianSmooth(scale_y, radius), kernel);
-		rotation = CenteredWeightedSmooth(MedianSmooth(rotation, radius), kernel);
+	for (auto const& range : settings.locked_ranges) {
+		auto first_it = frame_index.find(std::min(range.first, range.second));
+		auto last_it = frame_index.find(std::max(range.first, range.second));
+		if (first_it == frame_index.end() || last_it == frame_index.end())
+			continue;
+		LinearizeRange(frames, first_it->second, last_it->second);
 	}
+}
 
-	if (settings.preserve_endpoints)
-		RestoreEndpoints(x, y, scale_x, scale_y, rotation, frames);
-
-	ApplyDeadzones(x, y, scale_x, scale_y, rotation, settings);
-	if (settings.preserve_endpoints)
-		RestoreEndpoints(x, y, scale_x, scale_y, rotation, frames);
-
-	for (size_t i = 0; i < frames.size(); ++i) {
-		frames[i].x = x[i];
-		frames[i].y = y[i];
-		frames[i].anchor_x = x[i];
-		frames[i].anchor_y = y[i];
-		frames[i].scale_x = scale_x[i];
-		frames[i].scale_y = scale_y[i];
-		frames[i].rotation_deg = rotation[i];
+std::vector<MotionTrackFrame> CleanupFrames(std::vector<MotionTrackFrame> frames, MotionTrackExportSettings const& settings) {
+	switch (settings.cleanup) {
+		case MotionTrackCleanup::RemoveTinyJitter:
+			ApplyTinyJitterCleanup(frames, settings);
+			break;
+		case MotionTrackCleanup::RemoveSpikes:
+			ApplySpikeCleanup(frames, settings);
+			break;
+		case MotionTrackCleanup::LinearPerRun:
+			ApplyLinearCleanup(frames, settings);
+			break;
+		default:
+			break;
 	}
 	return frames;
 }
 }
 
 std::vector<MotionTrackFrame> StabilizeMotionTrackFrames(MotionTrackResult const& result, MotionTrackExportSettings settings) {
-	return StabilizeFrames(SortedFrames(result), settings);
+	return CleanupFrames(SortedFrames(result), settings);
 }
 
 std::string ExportAfterEffectsKeyframes(MotionTrackResult const& result, int first_frame, MotionTrackExportSettings settings) {

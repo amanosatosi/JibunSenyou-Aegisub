@@ -10,6 +10,30 @@ MotionTrackPoint Center(MotionTrackMarker const& marker) {
 	return {marker.cx, marker.cy};
 }
 
+int AnchorFrame(MotionTrackSegment const& segment) {
+	return segment.anchor_frame >= 0 ? segment.anchor_frame : segment.start_frame;
+}
+
+int TargetFrame(MotionTrackSegment const& segment) {
+	return segment.target_frame >= 0 ? segment.target_frame : segment.end_frame;
+}
+
+int Direction(MotionTrackSegment const& segment) {
+	if (segment.direction < 0)
+		return -1;
+	if (segment.direction > 0)
+		return 1;
+	return TargetFrame(segment) < AnchorFrame(segment) ? -1 : 1;
+}
+
+void UpdateChronologicalBounds(MotionTrackSegment& segment) {
+	int anchor = AnchorFrame(segment);
+	int target = TargetFrame(segment);
+	segment.start_frame = std::min(anchor, target);
+	segment.end_frame = std::max(anchor, target);
+	segment.direction = target < anchor ? -1 : 1;
+}
+
 MotionTrackPoint LocalMotion(MotionTrackSegment const& segment, MotionTrackMarker const& marker) {
 	return {
 		marker.cx - segment.tracker_box_at_start.cx,
@@ -31,14 +55,6 @@ std::vector<size_t> SortedEnabledSegmentIndices(std::vector<MotionTrackSegment> 
 		if (segments[i].enabled)
 			indices.push_back(i);
 	}
-
-	std::stable_sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
-		if (segments[a].start_frame != segments[b].start_frame)
-			return segments[a].start_frame < segments[b].start_frame;
-		if (segments[a].end_frame != segments[b].end_frame)
-			return segments[a].end_frame < segments[b].end_frame;
-		return a < b;
-	});
 	return indices;
 }
 
@@ -51,12 +67,14 @@ MotionTrackSegmentSample const* FindSample(MotionTrackSegment const& segment, in
 
 MotionTrackSegmentSample const* LastUsableSample(MotionTrackSegment const& segment) {
 	MotionTrackSegmentSample const* best = nullptr;
+	int anchor = AnchorFrame(segment);
+	int direction = Direction(segment);
 	for (auto const& sample : segment.tracked_center_by_frame) {
 		if (sample.state == MotionTrackState::Lost)
 			continue;
 		if (sample.frame < segment.start_frame || sample.frame > segment.end_frame)
 			continue;
-		if (!best || sample.frame > best->frame)
+		if (!best || (sample.frame - anchor) * direction > (best->frame - anchor) * direction)
 			best = &sample;
 	}
 	return best;
@@ -68,6 +86,13 @@ MotionTrackPoint SegmentOffsetAtSample(MotionTrackSegment const& segment, Motion
 }
 
 void UpsertSegmentSample(MotionTrackSegment& segment, MotionTrackSegmentSample sample) {
+	if (segment.anchor_frame < 0) {
+		segment.anchor_frame = sample.frame;
+		segment.target_frame = sample.frame;
+		segment.tracker_box_at_start = sample.marker;
+		UpdateChronologicalBounds(segment);
+	}
+
 	auto it = std::find_if(segment.tracked_center_by_frame.begin(), segment.tracked_center_by_frame.end(), [=](auto const& existing) {
 		return existing.frame == sample.frame;
 	});
@@ -80,12 +105,18 @@ void UpsertSegmentSample(MotionTrackSegment& segment, MotionTrackSegmentSample s
 		return a.frame < b.frame;
 	});
 
-	if (sample.frame <= segment.start_frame) {
-		segment.start_frame = sample.frame;
+	if (sample.frame == AnchorFrame(segment))
 		segment.tracker_box_at_start = sample.marker;
+	if (!segment.end_frame_manual && sample.frame != AnchorFrame(segment)) {
+		if (Direction(segment) < 0) {
+			if (segment.target_frame < 0 || sample.frame < segment.target_frame)
+				segment.target_frame = sample.frame;
+		}
+		else if (sample.frame > TargetFrame(segment)) {
+			segment.target_frame = sample.frame;
+		}
 	}
-	if (!segment.end_frame_manual && sample.frame > segment.end_frame)
-		segment.end_frame = sample.frame;
+	UpdateChronologicalBounds(segment);
 }
 
 void TrimSegmentToEnd(MotionTrackSegment& segment) {
@@ -99,13 +130,25 @@ void TrimSegmentToEnd(MotionTrackSegment& segment) {
 void RecalculateSegmentAccumulatedOffsets(std::vector<MotionTrackSegment>& segments) {
 	auto indices = SortedEnabledSegmentIndices(segments);
 	MotionTrackPoint next_accumulated_offset;
+	std::vector<size_t> processed_indices;
 
 	for (size_t index : indices) {
 		auto& segment = segments[index];
-		segment.accumulated_offset_at_start = next_accumulated_offset;
+		std::optional<MotionTrackPoint> anchor_offset;
+		int anchor = AnchorFrame(segment);
+		for (size_t previous_index : processed_indices) {
+			auto const& previous = segments[previous_index];
+			if (!OwnsFrame(previous, anchor))
+				continue;
+			if (auto sample = FindSample(previous, anchor))
+				anchor_offset = SegmentOffsetAtSample(previous, *sample);
+		}
+
+		segment.accumulated_offset_at_start = anchor_offset.value_or(next_accumulated_offset);
 
 		if (auto sample = LastUsableSample(segment))
 			next_accumulated_offset = SegmentOffsetAtSample(segment, *sample);
+		processed_indices.push_back(index);
 	}
 }
 
