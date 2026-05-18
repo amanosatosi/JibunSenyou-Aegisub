@@ -34,6 +34,7 @@
 
 #include "video_display.h"
 
+#include "ass_dialogue.h"
 #include "ass_file.h"
 #include "async_video_provider.h"
 #include "command/command.h"
@@ -47,6 +48,7 @@
 #include "ocr/ocr_engine.h"
 #include "project.h"
 #include "retina_helper.h"
+#include "selection_controller.h"
 #include "spline_curve.h"
 #include "utils.h"
 #include "video_out_gl.h"
@@ -63,6 +65,7 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <sstream>
 #include <wx/combobox.h>
 #include <wx/filename.h>
 #include <wx/menu.h>
@@ -178,12 +181,15 @@ bool VideoDisplay::InitContext() {
 
 void VideoDisplay::UploadFrameData(FrameReadyEvent &evt) {
 	pending_frame = evt.frame;
+	CancelImage2TextIfFrameChanged(false);
 	Render();
 }
 
 void VideoDisplay::Render() try {
 	if (!con->project->VideoProvider() || !InitContext() || (!videoOut && !pending_frame))
 		return;
+
+	CancelImage2TextIfFrameChanged(false);
 
 	if (!videoOut)
 		videoOut = agi::make_unique<VideoOutGL>();
@@ -645,12 +651,168 @@ std::string VideoDisplay::Image2TextSelectionText(bool line_breaks) const {
 }
 
 void VideoDisplay::CopyImage2TextSelection(bool line_breaks) {
+	CancelImage2TextIfFrameChanged(true);
+	if (image2text_state == Image2TextState::Off)
+		return;
+
 	auto text = Image2TextSelectionText(line_breaks);
 	if (!text.empty())
 		SetClipboard(text);
 }
 
+AssDialogue *VideoDisplay::LiveImage2TextLine(AssDialogue *line) const {
+	if (!line)
+		return nullptr;
+
+	for (auto& event : con->ass->Events) {
+		if (&event == line)
+			return line;
+	}
+	return nullptr;
+}
+
+AssDialogue *VideoDisplay::Image2TextInsertionLine() const {
+	if (auto line = LiveImage2TextLine(image2text_anchor_line))
+		return line;
+
+	if (auto line = LiveImage2TextLine(con->selectionController->GetActiveLine()))
+		return line;
+
+	for (auto line : con->selectionController->GetSortedSelection()) {
+		if (auto live_line = LiveImage2TextLine(line))
+			return live_line;
+	}
+
+	return nullptr;
+}
+
+std::string VideoDisplay::Image2TextMaskDrawing() const {
+	int video_w = image2text_video_w;
+	int video_h = image2text_video_h;
+	if (auto provider = con->project->VideoProvider()) {
+		if (video_w <= 0)
+			video_w = provider->GetWidth();
+		if (video_h <= 0)
+			video_h = provider->GetHeight();
+	}
+
+	if (video_w <= 0 || video_h <= 0 || image2text_script_w <= 0 || image2text_script_h <= 0)
+		return std::string();
+
+	auto to_script = [&](double frame_x, double frame_y) {
+		frame_x = std::min(std::max(frame_x, 0.0), static_cast<double>(video_w));
+		frame_y = std::min(std::max(frame_y, 0.0), static_cast<double>(video_h));
+		return std::make_pair(
+			std::lround(frame_x * image2text_script_w / video_w),
+			std::lround(frame_y * image2text_script_h / video_h));
+	};
+
+	std::ostringstream drawing;
+	drawing << "{\\an7\\p1\\pos(0,0)\\bord0\\shad0\\c&H000000&}";
+	bool drew_shape = false;
+
+	for (auto const& line : SelectedImage2TextLines()) {
+		std::vector<std::pair<double, double>> points;
+		auto bounds = Image2TextBounds(line);
+		if (bounds.first == bounds.second)
+			continue;
+
+		const double padding = 4.0;
+		if (line.box.size() >= 3) {
+			double center_x = (bounds.first.X() + bounds.second.X()) / 2.0;
+			double center_y = (bounds.first.Y() + bounds.second.Y()) / 2.0;
+			for (auto const& point : line.box) {
+				double x = point.first;
+				double y = point.second;
+				if (x < center_x)
+					x -= padding;
+				else if (x > center_x)
+					x += padding;
+				if (y < center_y)
+					y -= padding;
+				else if (y > center_y)
+					y += padding;
+				points.emplace_back(x, y);
+			}
+		}
+		else {
+			double left = bounds.first.X() - padding;
+			double top = bounds.first.Y() - padding;
+			double right = bounds.second.X() + padding;
+			double bottom = bounds.second.Y() + padding;
+			points = {
+				{left, top},
+				{right, top},
+				{right, bottom},
+				{left, bottom}
+			};
+		}
+
+		if (points.size() < 3)
+			continue;
+
+		if (drew_shape)
+			drawing << ' ';
+
+		auto first = to_script(points.front().first, points.front().second);
+		drawing << "m " << first.first << ' ' << first.second;
+		for (size_t i = 1; i < points.size(); ++i) {
+			auto point = to_script(points[i].first, points[i].second);
+			drawing << " l " << point.first << ' ' << point.second;
+		}
+		drew_shape = true;
+	}
+
+	return drew_shape ? drawing.str() : std::string();
+}
+
 void VideoDisplay::MaskImage2TextSelection() {
+	CancelImage2TextIfFrameChanged(true);
+	if (image2text_state == Image2TextState::Off)
+		return;
+
+	if (image2text_selected.empty())
+		return;
+
+	auto drawing = Image2TextMaskDrawing();
+	if (drawing.empty())
+		return;
+
+	auto anchor_line = LiveImage2TextLine(image2text_anchor_line);
+	auto insert_above = anchor_line ? anchor_line : Image2TextInsertionLine();
+	auto style_source = anchor_line ? anchor_line : insert_above;
+	auto mask_line = new AssDialogue;
+
+	mask_line->Comment = false;
+	if (style_source) {
+		mask_line->Style = style_source->Style;
+		mask_line->Margin = style_source->Margin;
+		mask_line->Layer = style_source->Layer + 1;
+	}
+
+	if (anchor_line && anchor_line->Start <= image2text_ocr_time && image2text_ocr_time < anchor_line->End) {
+		mask_line->Start = anchor_line->Start;
+		mask_line->End = anchor_line->End;
+	}
+	else {
+		int duration = std::max(1, image2text_one_frame_ms);
+		mask_line->Start = image2text_ocr_time;
+		mask_line->End = image2text_ocr_time + duration;
+	}
+
+	if (mask_line->End <= mask_line->Start)
+		mask_line->End = mask_line->Start + std::max(1, image2text_one_frame_ms);
+
+	mask_line->Text = drawing;
+
+	if (insert_above)
+		con->ass->Events.insert(con->ass->iterator_to(*insert_above), *mask_line);
+	else
+		con->ass->Events.push_back(*mask_line);
+
+	con->ass->Commit(_("Image2Text mask"), AssFile::COMMIT_DIAG_ADDREM, -1, mask_line);
+	con->selectionController->SetSelectionAndActive({mask_line}, mask_line);
+
 	for (auto index : image2text_selected) {
 		if (index < image2text_masked.size())
 			image2text_masked[index] = true;
@@ -664,6 +826,10 @@ void VideoDisplay::ClearImage2TextSelection() {
 }
 
 void VideoDisplay::ExitImage2Text() {
+	ClearImage2TextState(true);
+}
+
+void VideoDisplay::ClearImage2TextState(bool render) {
 	if (HasCapture())
 		ReleaseMouse();
 	image2text_state = Image2TextState::Off;
@@ -673,7 +839,24 @@ void VideoDisplay::ExitImage2Text() {
 	image2text_hovered = -1;
 	image2text_dragging = false;
 	image2text_error.clear();
-	Render();
+	image2text_anchor_line = nullptr;
+	image2text_ocr_frame = -1;
+	image2text_ocr_time = 0;
+	image2text_one_frame_ms = 100;
+	image2text_script_w = 0;
+	image2text_script_h = 0;
+	image2text_video_w = 0;
+	image2text_video_h = 0;
+	if (render)
+		Render();
+}
+
+void VideoDisplay::CancelImage2TextIfFrameChanged(bool render) {
+	if (image2text_state != Image2TextState::Loading && image2text_state != Image2TextState::Ready)
+		return;
+
+	if (image2text_ocr_frame >= 0 && con->videoController->GetFrameN() != image2text_ocr_frame)
+		ClearImage2TextState(render);
 }
 
 bool VideoDisplay::HandleImage2TextKey(wxKeyEvent& event) {
@@ -759,6 +942,9 @@ void VideoDisplay::OnMouseEvent(wxMouseEvent& event) {
 	last_mouse_pos = mouse_pos = event.GetPosition();
 
 	if (image2text_state != Image2TextState::Off) {
+		CancelImage2TextIfFrameChanged(true);
+		if (image2text_state == Image2TextState::Off)
+			return;
 		HandleImage2TextMouse(event);
 		return;
 	}
@@ -823,6 +1009,14 @@ void VideoDisplay::OnMouseWheel(wxMouseEvent& event) {
 
 void VideoDisplay::OnContextMenu(wxContextMenuEvent& event) {
 	if (image2text_state != Image2TextState::Off) {
+		CancelImage2TextIfFrameChanged(true);
+		if (image2text_state == Image2TextState::Off) {
+			if (!context_menu) context_menu = menu::GetMenu("video_context", (wxID_HIGHEST + 1) + 9000, con);
+			SetCursor(wxNullCursor);
+			menu::OpenPopupMenu(context_menu.get(), this);
+			return;
+		}
+
 		wxPoint point = event.GetPosition();
 		if (point == wxDefaultPosition)
 			point = wxPoint(std::lround(last_mouse_pos.X()), std::lround(last_mouse_pos.Y()));
@@ -846,8 +1040,11 @@ void VideoDisplay::OnContextMenu(wxContextMenuEvent& event) {
 }
 
 void VideoDisplay::OnKeyDown(wxKeyEvent &event) {
-	if (image2text_state != Image2TextState::Off && HandleImage2TextKey(event))
-		return;
+	if (image2text_state != Image2TextState::Off) {
+		CancelImage2TextIfFrameChanged(true);
+		if (image2text_state != Image2TextState::Off && HandleImage2TextKey(event))
+			return;
+	}
 
 	hotkey::check("Video", con, event);
 }
@@ -887,6 +1084,23 @@ void VideoDisplay::StartImage2TextOCR() {
 	}
 
 	int frame_number = con->videoController->GetFrameN();
+	image2text_anchor_line = con->selectionController->GetActiveLine();
+	if (!image2text_anchor_line) {
+		auto selection = con->selectionController->GetSortedSelection();
+		if (!selection.empty())
+			image2text_anchor_line = selection.front();
+	}
+	image2text_ocr_frame = frame_number;
+	image2text_ocr_time = con->videoController->TimeAtFrame(frame_number, agi::vfr::START);
+	image2text_one_frame_ms = con->videoController->TimeAtFrame(frame_number + 1, agi::vfr::START) - image2text_ocr_time;
+	if (image2text_one_frame_ms <= 0)
+		image2text_one_frame_ms = con->videoController->TimeAtFrame(frame_number, agi::vfr::END) - image2text_ocr_time;
+	if (image2text_one_frame_ms <= 0)
+		image2text_one_frame_ms = 100;
+	con->ass->GetResolution(image2text_script_w, image2text_script_h);
+	image2text_video_w = provider->GetWidth();
+	image2text_video_h = provider->GetHeight();
+
 	wxString temp_file = wxFileName::CreateTempFileName("aegisub-image2text-");
 	if (temp_file.empty()) {
 		image2text_state = Image2TextState::Error;
@@ -946,7 +1160,16 @@ void VideoDisplay::OnImage2TextComplete(ValueEvent<Image2TextThreadResult>& even
 	if (image2text_state == Image2TextState::Off)
 		return;
 
-	auto const& result = event.Get().result;
+	auto const& thread_result = event.Get();
+	if (thread_result.frame_number != image2text_ocr_frame)
+		return;
+
+	if (con->videoController->GetFrameN() != thread_result.frame_number) {
+		ClearImage2TextState(true);
+		return;
+	}
+
+	auto const& result = thread_result.result;
 	if (!result.ok) {
 		image2text_state = Image2TextState::Error;
 		image2text_regions.clear();

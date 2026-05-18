@@ -48,6 +48,7 @@
 #include <wx/glcanvas.h>
 
 // Prototypes
+class AssDialogue;
 class RetinaHelper;
 class OpenGLText;
 class VideoController;
@@ -151,6 +152,14 @@ class VideoDisplay final : public wxGLCanvas {
 	Vector2D image2text_drag_start;
 	Vector2D image2text_drag_current;
 	std::string image2text_error;
+	AssDialogue *image2text_anchor_line = nullptr;
+	int image2text_ocr_frame = -1;
+	int image2text_ocr_time = 0;
+	int image2text_one_frame_ms = 100;
+	int image2text_script_w = 0;
+	int image2text_script_h = 0;
+	int image2text_video_w = 0;
+	int image2text_video_h = 0;
 
 	/// @brief Draw an overscan mask
 	/// @param horizontal_percent The percent of the video reserved horizontally
@@ -192,6 +201,11 @@ class VideoDisplay final : public wxGLCanvas {
 	void MaskImage2TextSelection();
 	void ClearImage2TextSelection();
 	void ExitImage2Text();
+	void ClearImage2TextState(bool render);
+	void CancelImage2TextIfFrameChanged(bool render);
+	AssDialogue *LiveImage2TextLine(AssDialogue *line) const;
+	AssDialogue *Image2TextInsertionLine() const;
+	std::string Image2TextMaskDrawing() const;
 	void SelectAllImage2TextRegions();
 	void SelectImage2TextRegionAt(Vector2D const& point, bool clear_first);
 	void SelectImage2TextDragIntersections();
