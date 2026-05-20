@@ -116,6 +116,20 @@ struct tool_ocr_image_to_text final : public Command {
 	}
 };
 
+struct tool_ocr_detect_regions final : public Command {
+	CMD_NAME("tool/ocr/detect_regions")
+	STR_MENU("Detect Text Regions for Mask")
+	STR_DISP("Detect Text Regions for Mask")
+	STR_HELP("Detect selectable text regions from the current video frame for masking")
+
+	void operator()(agi::Context *c) override {
+		if (c->videoDisplay) {
+			c->videoController->Stop();
+			c->videoDisplay->StartImage2TextDetectOnly();
+		}
+	}
+};
+
 struct tool_resampleres final : public Command {
 	CMD_NAME("tool/resampleres")
 	CMD_ICON(resample_toolbutton)
@@ -297,6 +311,7 @@ namespace cmd {
 		reg(agi::make_unique<tool_font_collector>());
 		reg(agi::make_unique<tool_line_select>());
 		reg(agi::make_unique<tool_ocr_image_to_text>());
+		reg(agi::make_unique<tool_ocr_detect_regions>());
 		reg(agi::make_unique<tool_resampleres>());
 		reg(agi::make_unique<tool_style_assistant>());
 		reg(agi::make_unique<tool_styling_assistant_commit>());

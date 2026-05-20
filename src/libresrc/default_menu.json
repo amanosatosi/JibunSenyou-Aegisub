@@ -255,9 +255,13 @@
         { "command" : "video/frame/save/subs" },
         { "command" : "video/frame/copy/subs" },
         {},
-        { "command" : "tool/ocr/image_to_text" },
+        { "submenu" : "video_context/image2text", "text" : "Image2Text" },
         {},
         { "command" : "video/copy_coordinates" },
         { "command" : "video/pan_reset" }
+    ],
+    "video_context/image2text" : [
+        { "command" : "tool/ocr/image_to_text", "text" : "Recognize Text" },
+        { "command" : "tool/ocr/detect_regions", "text" : "Mask mode: Detect Text Regions" }
     ]
 }

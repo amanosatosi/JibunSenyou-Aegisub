@@ -418,7 +418,9 @@ void VideoDisplay::DrawImage2TextOverlay() {
 	E(glLoadIdentity());
 
 	if (image2text_state == Image2TextState::Loading) {
-		DrawImage2TextMessage("Image2Text: scanning frame...", false);
+		DrawImage2TextMessage(
+			image2text_mode == Image2TextMode::DetectOnly ? "Image2Text: detecting text regions..." : "Image2Text: scanning frame...",
+			false);
 		return;
 	}
 
@@ -429,6 +431,20 @@ void VideoDisplay::DrawImage2TextOverlay() {
 
 	for (size_t i = 0; i < image2text_regions.size(); ++i)
 		DrawImage2TextRegion(i);
+
+	if (image2text_dragging) {
+		Vector2D drag_min(
+			std::min(image2text_drag_start.X(), image2text_drag_current.X()),
+			std::min(image2text_drag_start.Y(), image2text_drag_current.Y()));
+		Vector2D drag_max(
+			std::max(image2text_drag_start.X(), image2text_drag_current.X()),
+			std::max(image2text_drag_start.Y(), image2text_drag_current.Y()));
+
+		OpenGLWrapper gl;
+		gl.SetFillColour(*wxWHITE, .12f);
+		gl.SetLineColour(wxColour(82, 168, 255), .62f, 1);
+		gl.DrawRectangle(drag_min, drag_max);
+	}
 }
 
 void VideoDisplay::PositionVideo() {
@@ -652,7 +668,7 @@ std::string VideoDisplay::Image2TextSelectionText(bool line_breaks) const {
 
 void VideoDisplay::CopyImage2TextSelection(bool line_breaks) {
 	CancelImage2TextIfFrameChanged(true);
-	if (image2text_state == Image2TextState::Off)
+	if (image2text_state == Image2TextState::Off || image2text_mode == Image2TextMode::DetectOnly)
 		return;
 
 	auto text = Image2TextSelectionText(line_breaks);
@@ -838,8 +854,10 @@ void VideoDisplay::ClearImage2TextState(bool render) {
 	image2text_selected.clear();
 	image2text_hovered = -1;
 	image2text_dragging = false;
+	image2text_drag_additive = false;
 	image2text_error.clear();
 	image2text_anchor_line = nullptr;
+	image2text_mode = Image2TextMode::Recognize;
 	image2text_ocr_frame = -1;
 	image2text_ocr_time = 0;
 	image2text_one_frame_ms = 100;
@@ -866,6 +884,8 @@ bool VideoDisplay::HandleImage2TextKey(wxKeyEvent& event) {
 	}
 
 	if (event.ControlDown() && (event.GetKeyCode() == 'C' || event.GetKeyCode() == 'c')) {
+		if (image2text_mode == Image2TextMode::DetectOnly)
+			return true;
 		CopyImage2TextSelection(false);
 		return true;
 	}
@@ -888,9 +908,24 @@ bool VideoDisplay::HandleImage2TextMouse(wxMouseEvent& event) {
 
 	if (event.LeftDown()) {
 		image2text_dragging = true;
+		image2text_drag_additive = event.ControlDown();
 		image2text_drag_start = point;
 		image2text_drag_current = point;
-		SelectImage2TextRegionAt(point, true);
+		int hit = HitTestImage2Text(point);
+		if (image2text_drag_additive) {
+			if (hit >= 0) {
+				auto index = static_cast<size_t>(hit);
+				if (image2text_selected.count(index))
+					image2text_selected.erase(index);
+				else
+					image2text_selected.insert(index);
+			}
+		}
+		else {
+			image2text_selected.clear();
+			if (hit >= 0)
+				image2text_selected.insert(static_cast<size_t>(hit));
+		}
 		if (!HasCapture())
 			CaptureMouse();
 		Render();
@@ -907,6 +942,7 @@ bool VideoDisplay::HandleImage2TextMouse(wxMouseEvent& event) {
 
 	if (event.LeftUp() && image2text_dragging) {
 		image2text_dragging = false;
+		image2text_drag_additive = false;
 		if (HasCapture())
 			ReleaseMouse();
 		Render();
@@ -921,17 +957,23 @@ bool VideoDisplay::HandleImage2TextMouse(wxMouseEvent& event) {
 
 void VideoDisplay::OpenImage2TextMenu(wxPoint const& point) {
 	wxMenu menu;
-	auto copy = menu.Append(ID_IMAGE2TEXT_COPY, _("Copy text"));
-	auto copy_lines = menu.Append(ID_IMAGE2TEXT_COPY_LINES, _("Copy text with line breaks"));
+	wxMenuItem *copy = nullptr;
+	wxMenuItem *copy_lines = nullptr;
+	if (image2text_mode != Image2TextMode::DetectOnly) {
+		copy = menu.Append(ID_IMAGE2TEXT_COPY, _("Copy text"));
+		copy_lines = menu.Append(ID_IMAGE2TEXT_COPY_LINES, _("Copy text with line breaks"));
+	}
 	auto mask = menu.Append(ID_IMAGE2TEXT_MASK, _("Mask this area"));
 	if (image2text_selected.empty()) {
-		copy->Enable(false);
-		copy_lines->Enable(false);
+		if (copy)
+			copy->Enable(false);
+		if (copy_lines)
+			copy_lines->Enable(false);
 		mask->Enable(false);
 	}
 	menu.Append(ID_IMAGE2TEXT_CLEAR, _("Clear selection"));
 	menu.AppendSeparator();
-	menu.Append(ID_IMAGE2TEXT_EXIT, _("Exit Image2Text"));
+	menu.Append(ID_IMAGE2TEXT_EXIT, image2text_mode == Image2TextMode::DetectOnly ? _("Exit detection mode") : _("Exit Image2Text"));
 	PopupMenu(&menu, point);
 }
 
@@ -1049,15 +1091,17 @@ void VideoDisplay::OnKeyDown(wxKeyEvent &event) {
 	hotkey::check("Video", con, event);
 }
 
-void VideoDisplay::StartImage2TextOCR() {
+void VideoDisplay::StartImage2Text(bool detect_only) {
 	if (image2text_state == Image2TextState::Loading)
 		return;
 
+	image2text_mode = detect_only ? Image2TextMode::DetectOnly : Image2TextMode::Recognize;
 	image2text_regions.clear();
 	image2text_masked.clear();
 	image2text_selected.clear();
 	image2text_hovered = -1;
 	image2text_dragging = false;
+	image2text_drag_additive = false;
 	image2text_error.clear();
 
 	auto provider = con->project->VideoProvider();
@@ -1075,10 +1119,10 @@ void VideoDisplay::StartImage2TextOCR() {
 	if (options.language.empty())
 		options.language = "japanese";
 
-	auto diagnostic = engine.GetDiagnostic(options);
+	auto diagnostic = detect_only ? engine.GetDetectionDiagnostic(options) : engine.GetDiagnostic(options);
 	if (!diagnostic.empty()) {
 		image2text_state = Image2TextState::Error;
-		image2text_error = "Image2Text: OCR runtime unavailable";
+		image2text_error = detect_only ? "Image2Text: detection runtime unavailable" : "Image2Text: OCR runtime unavailable";
 		Render();
 		return;
 	}
@@ -1143,10 +1187,11 @@ void VideoDisplay::StartImage2TextOCR() {
 	Render();
 
 	auto handler = this;
-	agi::dispatch::Background().Async([handler, engine, options, image_path, frame_number] {
+	agi::dispatch::Background().Async([handler, engine, options, image_path, frame_number, detect_only] {
 		Image2TextThreadResult thread_result;
 		thread_result.frame_number = frame_number;
-		thread_result.result = engine.RecognizeImage(image_path, options);
+		thread_result.detect_only = detect_only;
+		thread_result.result = detect_only ? engine.DetectTextRegions(image_path, options) : engine.RecognizeImage(image_path, options);
 		try {
 			agi::fs::Remove(image_path);
 		}
@@ -1156,12 +1201,23 @@ void VideoDisplay::StartImage2TextOCR() {
 	});
 }
 
+void VideoDisplay::StartImage2TextOCR() {
+	StartImage2Text(false);
+}
+
+void VideoDisplay::StartImage2TextDetectOnly() {
+	StartImage2Text(true);
+}
+
 void VideoDisplay::OnImage2TextComplete(ValueEvent<Image2TextThreadResult>& event) {
 	if (image2text_state == Image2TextState::Off)
 		return;
 
 	auto const& thread_result = event.Get();
 	if (thread_result.frame_number != image2text_ocr_frame)
+		return;
+
+	if (thread_result.detect_only != (image2text_mode == Image2TextMode::DetectOnly))
 		return;
 
 	if (con->videoController->GetFrameN() != thread_result.frame_number) {
@@ -1178,7 +1234,7 @@ void VideoDisplay::OnImage2TextComplete(ValueEvent<Image2TextThreadResult>& even
 		image2text_hovered = -1;
 		auto first_line_end = result.diagnostic.find('\n');
 		auto message = first_line_end == std::string::npos ? result.diagnostic : result.diagnostic.substr(0, first_line_end);
-		image2text_error = message.empty() ? "Image2Text: OCR failed" : "Image2Text: " + message;
+		image2text_error = message.empty() ? (image2text_mode == Image2TextMode::DetectOnly ? "Image2Text: detection failed" : "Image2Text: OCR failed") : "Image2Text: " + message;
 		Render();
 		return;
 	}
@@ -1189,6 +1245,7 @@ void VideoDisplay::OnImage2TextComplete(ValueEvent<Image2TextThreadResult>& even
 	image2text_selected.clear();
 	image2text_hovered = -1;
 	image2text_dragging = false;
+	image2text_drag_additive = false;
 	image2text_error.clear();
 	Render();
 }

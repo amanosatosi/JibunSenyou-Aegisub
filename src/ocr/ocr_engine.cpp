@@ -312,12 +312,17 @@ std::map<std::string, std::string> ReadConfigSettings(agi::fs::path const& confi
 	return settings;
 }
 
-ModelConfig ReadModelConfig(agi::fs::path const& config_path, agi::fs::path const& models_dir) {
+ModelConfig ReadModelConfig(agi::fs::path const& config_path, agi::fs::path const& models_dir, bool detect_only) {
 	ModelConfig config;
 	config.config_path = config_path;
 
 	auto settings = ReadConfigSettings(config_path);
-	for (auto const& key : {"det_model_dir", "rec_model_dir", "rec_char_dict_path"}) {
+	std::vector<std::string> required_settings = {"det_model_dir"};
+	if (!detect_only) {
+		required_settings.push_back("rec_model_dir");
+		required_settings.push_back("rec_char_dict_path");
+	}
+	for (auto const& key : required_settings) {
 		if (!settings.count(key)) {
 			config.missing_setting = key;
 			return config;
@@ -327,8 +332,10 @@ ModelConfig ReadModelConfig(agi::fs::path const& config_path, agi::fs::path cons
 	config.det_model_dir = ResolveModelPath(settings["det_model_dir"], models_dir);
 	if (settings.count("cls_model_dir"))
 		config.cls_model_dir = ResolveModelPath(settings["cls_model_dir"], models_dir);
-	config.rec_model_dir = ResolveModelPath(settings["rec_model_dir"], models_dir);
-	config.rec_char_dict_path = ResolveModelPath(settings["rec_char_dict_path"], models_dir);
+	if (settings.count("rec_model_dir"))
+		config.rec_model_dir = ResolveModelPath(settings["rec_model_dir"], models_dir);
+	if (settings.count("rec_char_dict_path"))
+		config.rec_char_dict_path = ResolveModelPath(settings["rec_char_dict_path"], models_dir);
 
 	return config;
 }
@@ -382,13 +389,16 @@ std::string ValidateModelDirectory(std::string const& role, agi::fs::path const&
 	return {};
 }
 
-std::string ValidateModelConfig(ModelConfig const& config) {
+std::string ValidateModelConfig(ModelConfig const& config, bool detect_only) {
 	if (!config.missing_setting.empty())
 		return "OCR model configuration is incomplete:\n" + config.config_path.string() + "\n\nMissing required setting: " + config.missing_setting;
 
 	auto diagnostic = ValidateModelDirectory("detection", config.det_model_dir, config);
 	if (!diagnostic.empty())
 		return diagnostic;
+
+	if (detect_only)
+		return {};
 
 	if (!config.cls_model_dir.empty()) {
 		diagnostic = ValidateModelDirectory("classification", config.cls_model_dir, config);
@@ -513,17 +523,22 @@ OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& opt
 		if (result.code == 100) {
 			auto const& lines = static_cast<json::Array const&>(data_it->second);
 			for (auto const& item : lines) {
-				auto const& item_object = static_cast<json::Object const&>(item);
-
 				OCRLine line;
-				line.text = GetString(item_object, "text");
-				line.confidence = GetNumber(item_object, "score");
+				try {
+					auto const& item_object = static_cast<json::Object const&>(item);
+					line.text = GetString(item_object, "text");
+					line.confidence = GetNumber(item_object, "score");
 
-				auto box_it = item_object.find("box");
-				if (box_it != item_object.end())
-					ParsePolygon(box_it->second, line);
+					auto box_it = item_object.find("box");
+					if (box_it != item_object.end())
+						ParsePolygon(box_it->second, line);
+				}
+				catch (json::Exception const&) {
+					ParsePolygon(item, line);
+				}
 
-				result.lines.push_back(std::move(line));
+				if (!line.box.empty())
+					result.lines.push_back(std::move(line));
 			}
 
 			result.text = NormalizeText(result.lines, options.keep_line_breaks);
@@ -570,6 +585,14 @@ bool OCREngine::IsAvailable(OCROptions const& options) const {
 }
 
 wxString OCREngine::GetDiagnostic(OCROptions const& options) const {
+	return GetDiagnostic(options, false);
+}
+
+wxString OCREngine::GetDetectionDiagnostic(OCROptions const& options) const {
+	return GetDiagnostic(options, true);
+}
+
+wxString OCREngine::GetDiagnostic(OCROptions const& options, bool detect_only) const {
 #ifndef _WIN32
 	return _("Bundled OCR is currently available only in Windows release artifacts.");
 #endif
@@ -588,8 +611,8 @@ wxString OCREngine::GetDiagnostic(OCROptions const& options) const {
 		return fmt_tl("OCR model configuration is missing:\n%s\n\nThe bundled ocr\\models folder is incomplete.", config_path);
 
 	try {
-		auto model_config = ReadModelConfig(config_path, models_dir);
-		auto model_diagnostic = ValidateModelConfig(model_config);
+		auto model_config = ReadModelConfig(config_path, models_dir, detect_only);
+		auto model_diagnostic = ValidateModelConfig(model_config, detect_only);
 		if (!model_diagnostic.empty())
 			return to_wx(model_diagnostic);
 	}
@@ -603,9 +626,9 @@ wxString OCREngine::GetDiagnostic(OCROptions const& options) const {
 	return "";
 }
 
-OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions const& options) const {
+OCRResult OCREngine::RunImage(agi::fs::path const& image_path, OCROptions const& options, bool detect_only) const {
 	OCRResult result;
-	auto diagnostic = GetDiagnostic(options);
+	auto diagnostic = GetDiagnostic(options, detect_only);
 	if (!diagnostic.empty()) {
 		result.diagnostic = from_wx(diagnostic);
 		return result;
@@ -621,6 +644,12 @@ OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions 
 	command += " -models_path=" + QuoteArg(PathString(models_dir));
 	command += " -config_path=" + QuoteArg(PathString(ConfigPath(options.language)));
 	command += " -ensure_ascii=false";
+	if (detect_only) {
+		command += " -det=true";
+		command += " -rec=false";
+		command += " -cls=false";
+		command += " -use_angle_cls=false";
+	}
 
 	wxArrayString output;
 	wxArrayString errors;
@@ -641,9 +670,22 @@ OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions 
 	}
 
 	result = ParsePaddleOCRJson(json_text, options);
+	if (result.ok && detect_only) {
+		for (auto& line : result.lines)
+			line.text.clear();
+		result.text.clear();
+	}
 	if (!result.ok)
 		result.diagnostic += RuntimeDebugDetails(stdout_text, stderr_text, code);
 	return result;
+}
+
+OCRResult OCREngine::RecognizeImage(agi::fs::path const& image_path, OCROptions const& options) const {
+	return RunImage(image_path, options, false);
+}
+
+OCRResult OCREngine::DetectTextRegions(agi::fs::path const& image_path, OCROptions const& options) const {
+	return RunImage(image_path, options, true);
 }
 
 } // namespace ocr

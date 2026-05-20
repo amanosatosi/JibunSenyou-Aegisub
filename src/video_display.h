@@ -63,6 +63,7 @@ struct VideoFrame;
 struct Image2TextThreadResult {
 	ocr::OCRResult result;
 	int frame_number = -1;
+	bool detect_only = false;
 };
 
 enum class Image2TextState {
@@ -70,6 +71,11 @@ enum class Image2TextState {
 	Loading,
 	Ready,
 	Error
+};
+
+enum class Image2TextMode {
+	Recognize,
+	DetectOnly
 };
 
 namespace agi {
@@ -149,10 +155,12 @@ class VideoDisplay final : public wxGLCanvas {
 	std::set<size_t> image2text_selected;
 	int image2text_hovered = -1;
 	bool image2text_dragging = false;
+	bool image2text_drag_additive = false;
 	Vector2D image2text_drag_start;
 	Vector2D image2text_drag_current;
 	std::string image2text_error;
 	AssDialogue *image2text_anchor_line = nullptr;
+	Image2TextMode image2text_mode = Image2TextMode::Recognize;
 	int image2text_ocr_frame = -1;
 	int image2text_ocr_time = 0;
 	int image2text_one_frame_ms = 100;
@@ -172,6 +180,7 @@ class VideoDisplay final : public wxGLCanvas {
 	/// Upload the image for the current frame to the video card
 	void UploadFrameData(FrameReadyEvent&);
 	void OnImage2TextComplete(ValueEvent<Image2TextThreadResult>& event);
+	void StartImage2Text(bool detect_only);
 
 	/// @brief Initialize the gl context and set the active context to this one
 	/// @return Could the context be set?
@@ -256,4 +265,5 @@ public:
 	void Unload();
 
 	void StartImage2TextOCR();
+	void StartImage2TextDetectOnly();
 };

@@ -28,13 +28,17 @@ class OCREngine {
 	agi::fs::path models_dir;
 
 	agi::fs::path ConfigPath(std::string const& language) const;
+	wxString GetDiagnostic(OCROptions const& options, bool detect_only) const;
+	OCRResult RunImage(agi::fs::path const& image_path, OCROptions const& options, bool detect_only) const;
 
 public:
 	OCREngine();
 
 	bool IsAvailable(OCROptions const& options) const;
 	wxString GetDiagnostic(OCROptions const& options) const;
+	wxString GetDetectionDiagnostic(OCROptions const& options) const;
 	OCRResult RecognizeImage(agi::fs::path const& image_path, OCROptions const& options) const;
+	OCRResult DetectTextRegions(agi::fs::path const& image_path, OCROptions const& options) const;
 };
 
 } // namespace ocr
