@@ -72,6 +72,7 @@ class DialogMotionTrack final : public wxDialog {
 	wxSpinCtrlDouble *cleanup_threshold_ctrl = nullptr;
 	wxCheckBox *normalize_check = nullptr;
 	wxCheckBox *trail_check = nullptr;
+	wxChoice *mode_choice = nullptr;
 	wxChoice *cleanup_choice = nullptr;
 	wxButton *play_button = nullptr;
 	wxButton *track_to_start = nullptr;

@@ -1024,6 +1024,18 @@ void DialogMotionTrack::CreateControls() {
 	settings_row->Add(normalize_check, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
 	controls->Add(settings_row, 0, wxBOTTOM, 4);
 
+	auto output_row = new wxBoxSizer(wxHORIZONTAL);
+	output_row->Add(new wxStaticText(this, -1, _("Output:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
+	mode_choice = new wxChoice(this, -1);
+	mode_choice->Append(_("Movement only"));
+	mode_choice->Append(_("Movement + rotation"));
+	mode_choice->Append(_("Movement + size"));
+	mode_choice->Append(_("Movement + size + rotation"));
+	mode_choice->SetSelection(3);
+	mode_choice->SetToolTip(_("Choose which motion components the tracker should calculate and export."));
+	output_row->Add(mode_choice, 0);
+	controls->Add(output_row, 0, wxBOTTOM, 4);
+
 	auto cleanup_row = new wxBoxSizer(wxHORIZONTAL);
 	cleanup_row->Add(new wxStaticText(this, -1, _("Noise Cleanup:")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 3);
 	cleanup_choice = new wxChoice(this, -1);
@@ -1082,6 +1094,7 @@ void DialogMotionTrack::BindControls() {
 	search_ctrl->Bind(wxEVT_SPINCTRL, [=](wxSpinEvent &) { update_settings(); });
 	threshold_ctrl->Bind(wxEVT_SPINCTRLDOUBLE, [=](wxSpinDoubleEvent &) { update_settings(); });
 	normalize_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { update_settings(); });
+	mode_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
 	cleanup_choice->Bind(wxEVT_CHOICE, [=](wxCommandEvent &) { update_settings(); });
 	cleanup_threshold_ctrl->Bind(wxEVT_SPINCTRLDOUBLE, [=](wxSpinDoubleEvent &) { update_settings(); });
 	trail_check->Bind(wxEVT_CHECKBOX, [=](wxCommandEvent &) { UpdateTrailControls(); });
@@ -1130,7 +1143,12 @@ void DialogMotionTrack::UpdateSettingsFromControls() {
 	settings.brightness_normalize = normalize_check->IsChecked();
 	settings.prepass = true;
 	settings.base = motion_tracking::MotionTrackBase::PreviousFrame;
-	settings.mode = motion_tracking::MotionTrackMode::PositionOnly;
+	switch (mode_choice->GetSelection()) {
+		case 0: settings.mode = motion_tracking::MotionTrackMode::PositionOnly; break;
+		case 1: settings.mode = motion_tracking::MotionTrackMode::PositionRotation; break;
+		case 2: settings.mode = motion_tracking::MotionTrackMode::PositionSize; break;
+		default: settings.mode = motion_tracking::MotionTrackMode::PositionSizeRotation; break;
+	}
 	switch (cleanup_choice->GetSelection()) {
 		case 1: settings.cleanup = motion_tracking::MotionTrackCleanup::RemoveTinyJitter; break;
 		case 2: settings.cleanup = motion_tracking::MotionTrackCleanup::RemoveSpikes; break;
@@ -1758,6 +1776,7 @@ void DialogMotionTrack::TrackRange(int target_frame) {
 
 motion_tracking::MotionTrackExportSettings DialogMotionTrack::GetExportSettings() const {
 	motion_tracking::MotionTrackExportSettings export_settings;
+	export_settings.mode = settings.mode;
 	export_settings.cleanup = settings.cleanup;
 	export_settings.cleanup_threshold = settings.cleanup_threshold;
 	for (auto const& segment : segments) {

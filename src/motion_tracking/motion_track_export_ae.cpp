@@ -29,6 +29,14 @@ double Distance(double ax, double ay, double bx, double by) {
 	return std::sqrt(dx * dx + dy * dy);
 }
 
+bool ModeHasSize(MotionTrackMode mode) {
+	return mode == MotionTrackMode::PositionSize || mode == MotionTrackMode::PositionSizeRotation;
+}
+
+bool ModeHasRotation(MotionTrackMode mode) {
+	return mode == MotionTrackMode::PositionRotation || mode == MotionTrackMode::PositionSizeRotation;
+}
+
 std::set<int> LockedFrames(std::vector<MotionTrackFrame> const& frames, MotionTrackExportSettings const& settings) {
 	std::set<int> locked;
 	if (!frames.empty()) {
@@ -42,12 +50,19 @@ std::set<int> LockedFrames(std::vector<MotionTrackFrame> const& frames, MotionTr
 	return locked;
 }
 
+bool IsScalarSpike(double previous, double current, double next, double expected, double threshold) {
+	return std::abs(current - expected) > threshold &&
+		std::abs(current - previous) > threshold &&
+		std::abs(current - next) > threshold;
+}
+
 void ApplyTinyJitterCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExportSettings const& settings) {
 	if (frames.size() < 2)
 		return;
 
 	auto locked = LockedFrames(frames, settings);
 	double threshold = std::max(0.0, settings.cleanup_threshold);
+	double scale_threshold = threshold * 0.01;
 	for (size_t i = 1; i < frames.size(); ++i) {
 		if (locked.count(frames[i].frame))
 			continue;
@@ -58,6 +73,15 @@ void ApplyTinyJitterCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackEx
 			frames[i].anchor_x = frames[i].x;
 			frames[i].anchor_y = frames[i].y;
 		}
+
+		if (ModeHasSize(settings.mode)) {
+			if (std::abs(frames[i].scale_x - frames[i - 1].scale_x) < scale_threshold)
+				frames[i].scale_x = frames[i - 1].scale_x;
+			if (std::abs(frames[i].scale_y - frames[i - 1].scale_y) < scale_threshold)
+				frames[i].scale_y = frames[i - 1].scale_y;
+		}
+		if (ModeHasRotation(settings.mode) && std::abs(frames[i].rotation_deg - frames[i - 1].rotation_deg) < threshold)
+			frames[i].rotation_deg = frames[i - 1].rotation_deg;
 	}
 }
 
@@ -67,6 +91,7 @@ void ApplySpikeCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExportS
 
 	auto locked = LockedFrames(frames, settings);
 	double threshold = std::max(0.0, settings.cleanup_threshold);
+	double scale_threshold = threshold * 0.01;
 	auto raw = frames;
 	for (size_t i = 1; i + 1 < frames.size(); ++i) {
 		if (locked.count(raw[i].frame))
@@ -86,10 +111,24 @@ void ApplySpikeCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExportS
 			frames[i].anchor_x = expected_x;
 			frames[i].anchor_y = expected_y;
 		}
+
+		if (ModeHasSize(settings.mode)) {
+			double expected_scale_x = raw[i - 1].scale_x + (raw[i + 1].scale_x - raw[i - 1].scale_x) * t;
+			double expected_scale_y = raw[i - 1].scale_y + (raw[i + 1].scale_y - raw[i - 1].scale_y) * t;
+			if (IsScalarSpike(raw[i - 1].scale_x, raw[i].scale_x, raw[i + 1].scale_x, expected_scale_x, scale_threshold))
+				frames[i].scale_x = expected_scale_x;
+			if (IsScalarSpike(raw[i - 1].scale_y, raw[i].scale_y, raw[i + 1].scale_y, expected_scale_y, scale_threshold))
+				frames[i].scale_y = expected_scale_y;
+		}
+		if (ModeHasRotation(settings.mode)) {
+			double expected_rotation = raw[i - 1].rotation_deg + (raw[i + 1].rotation_deg - raw[i - 1].rotation_deg) * t;
+			if (IsScalarSpike(raw[i - 1].rotation_deg, raw[i].rotation_deg, raw[i + 1].rotation_deg, expected_rotation, threshold))
+				frames[i].rotation_deg = expected_rotation;
+		}
 	}
 }
 
-void LinearizeRange(std::vector<MotionTrackFrame>& frames, size_t first, size_t last) {
+void LinearizeRange(std::vector<MotionTrackFrame>& frames, size_t first, size_t last, MotionTrackMode mode) {
 	if (last <= first + 1)
 		return;
 
@@ -98,6 +137,12 @@ void LinearizeRange(std::vector<MotionTrackFrame>& frames, size_t first, size_t 
 	double start_y = frames[first].y;
 	double end_x = frames[last].x;
 	double end_y = frames[last].y;
+	double start_scale_x = frames[first].scale_x;
+	double start_scale_y = frames[first].scale_y;
+	double end_scale_x = frames[last].scale_x;
+	double end_scale_y = frames[last].scale_y;
+	double start_rotation = frames[first].rotation_deg;
+	double end_rotation = frames[last].rotation_deg;
 
 	for (size_t i = first + 1; i < last; ++i) {
 		double t = (frames[i].frame - frames[first].frame) / static_cast<double>(span);
@@ -105,6 +150,12 @@ void LinearizeRange(std::vector<MotionTrackFrame>& frames, size_t first, size_t 
 		frames[i].y = start_y + (end_y - start_y) * t;
 		frames[i].anchor_x = frames[i].x;
 		frames[i].anchor_y = frames[i].y;
+		if (ModeHasSize(mode)) {
+			frames[i].scale_x = start_scale_x + (end_scale_x - start_scale_x) * t;
+			frames[i].scale_y = start_scale_y + (end_scale_y - start_scale_y) * t;
+		}
+		if (ModeHasRotation(mode))
+			frames[i].rotation_deg = start_rotation + (end_rotation - start_rotation) * t;
 	}
 }
 
@@ -117,7 +168,7 @@ void ApplyLinearCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExport
 		frame_index[frames[i].frame] = i;
 
 	if (settings.locked_ranges.empty()) {
-		LinearizeRange(frames, 0, frames.size() - 1);
+		LinearizeRange(frames, 0, frames.size() - 1, settings.mode);
 		return;
 	}
 
@@ -126,7 +177,7 @@ void ApplyLinearCleanup(std::vector<MotionTrackFrame>& frames, MotionTrackExport
 		auto last_it = frame_index.find(std::max(range.first, range.second));
 		if (first_it == frame_index.end() || last_it == frame_index.end())
 			continue;
-		LinearizeRange(frames, first_it->second, last_it->second);
+		LinearizeRange(frames, first_it->second, last_it->second, settings.mode);
 	}
 }
 

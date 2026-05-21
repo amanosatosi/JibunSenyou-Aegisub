@@ -15,6 +15,13 @@ MotionTrackMarker Marker(double x, double y) {
 	return marker;
 }
 
+MotionTrackMarker Marker(double x, double y, double size, double rotation = 0.0) {
+	auto marker = Marker(x, y);
+	marker.size = size;
+	marker.rotation_deg = rotation;
+	return marker;
+}
+
 MotionTrackSegment Segment(int start_frame, int end_frame, double start_x, double start_y) {
 	MotionTrackSegment segment;
 	segment.start_frame = start_frame;
@@ -30,6 +37,10 @@ MotionTrackSegment Segment(int start_frame, int end_frame, double start_x, doubl
 
 void AddSample(MotionTrackSegment& segment, int frame, double x, double y) {
 	UpsertSegmentSample(segment, {frame, Marker(x, y), 1.0, MotionTrackState::Tracked});
+}
+
+void AddSample(MotionTrackSegment& segment, int frame, double x, double y, double size, double rotation = 0.0) {
+	UpsertSegmentSample(segment, {frame, Marker(x, y, size, rotation), 1.0, MotionTrackState::Tracked});
 }
 
 MotionTrackResult Metadata() {
@@ -53,6 +64,14 @@ MotionTrackFrame Frame(int frame, double x, double y) {
 		1.0,
 		MotionTrackState::Tracked
 	};
+}
+
+MotionTrackFrame Frame(int frame, double x, double y, double scale, double rotation) {
+	auto output = Frame(frame, x, y);
+	output.scale_x = scale;
+	output.scale_y = scale;
+	output.rotation_deg = rotation;
+	return output;
 }
 }
 
@@ -118,6 +137,42 @@ TEST(motion_track_segments, handoff_screen_position_does_not_affect_motion) {
 	EXPECT_EQ(200, result.frames.back().frame);
 	EXPECT_DOUBLE_EQ(100.0, result.frames.back().x);
 	EXPECT_DOUBLE_EQ(400.0, result.frames.back().y);
+}
+
+TEST(motion_track_segments, handoff_tracker_size_does_not_reset_scale) {
+	auto first = Segment(0, 100, 100.0, 100.0);
+	AddSample(first, 100, 100.0, 300.0, 80.0);
+	auto second = Segment(100, 200, 500.0, 80.0);
+	second.tracker_box_at_start.size = 20.0;
+	second.tracked_center_by_frame.front().marker.size = 20.0;
+	AddSample(second, 200, 500.0, 180.0, 30.0);
+	std::vector<MotionTrackSegment> segments{first, second};
+	RecalculateSegmentAccumulatedOffsets(segments);
+
+	EXPECT_DOUBLE_EQ(2.0, segments[1].accumulated_scale_at_start);
+
+	auto result = BuildStitchedMotionResult(Metadata(), segments);
+	ASSERT_EQ(3u, result.frames.size());
+	EXPECT_DOUBLE_EQ(2.0, result.frames[1].scale_x);
+	EXPECT_DOUBLE_EQ(3.0, result.frames.back().scale_x);
+}
+
+TEST(motion_track_segments, handoff_tracker_rotation_continues_from_previous_run) {
+	auto first = Segment(0, 100, 100.0, 100.0);
+	AddSample(first, 100, 100.0, 300.0, 40.0, 30.0);
+	auto second = Segment(100, 200, 500.0, 80.0);
+	second.tracker_box_at_start.rotation_deg = -10.0;
+	second.tracked_center_by_frame.front().marker.rotation_deg = -10.0;
+	AddSample(second, 200, 500.0, 180.0, 40.0, 5.0);
+	std::vector<MotionTrackSegment> segments{first, second};
+	RecalculateSegmentAccumulatedOffsets(segments);
+
+	EXPECT_DOUBLE_EQ(30.0, segments[1].accumulated_rotation_at_start);
+
+	auto result = BuildStitchedMotionResult(Metadata(), segments);
+	ASSERT_EQ(3u, result.frames.size());
+	EXPECT_DOUBLE_EQ(30.0, result.frames[1].rotation_deg);
+	EXPECT_DOUBLE_EQ(45.0, result.frames.back().rotation_deg);
 }
 
 TEST(motion_track_segments, boundary_edit_recalculates_later_offsets) {
@@ -233,4 +288,44 @@ TEST(motion_track_cleanup, linear_cleanup_keeps_run_endpoints_fixed) {
 	EXPECT_DOUBLE_EQ(0.0, frames[0].y);
 	EXPECT_DOUBLE_EQ(100.0, frames[1].y);
 	EXPECT_DOUBLE_EQ(200.0, frames[2].y);
+}
+
+TEST(motion_track_cleanup, movement_only_cleanup_does_not_change_scale_or_rotation) {
+	auto result = Metadata();
+	result.frames = {
+		Frame(0, 0.0, 0.0, 1.0, 0.0),
+		Frame(50, 0.0, 35.0, 9.0, 40.0),
+		Frame(100, 0.0, 200.0, 3.0, 90.0)
+	};
+
+	MotionTrackExportSettings settings;
+	settings.mode = MotionTrackMode::PositionOnly;
+	settings.cleanup = MotionTrackCleanup::LinearPerRun;
+	settings.locked_ranges.emplace_back(0, 100);
+	auto frames = StabilizeMotionTrackFrames(result, settings);
+
+	ASSERT_EQ(3u, frames.size());
+	EXPECT_DOUBLE_EQ(100.0, frames[1].y);
+	EXPECT_DOUBLE_EQ(9.0, frames[1].scale_x);
+	EXPECT_DOUBLE_EQ(40.0, frames[1].rotation_deg);
+}
+
+TEST(motion_track_cleanup, size_rotation_cleanup_changes_enabled_components) {
+	auto result = Metadata();
+	result.frames = {
+		Frame(0, 0.0, 0.0, 1.0, 0.0),
+		Frame(50, 0.0, 35.0, 9.0, 40.0),
+		Frame(100, 0.0, 200.0, 3.0, 90.0)
+	};
+
+	MotionTrackExportSettings settings;
+	settings.mode = MotionTrackMode::PositionSizeRotation;
+	settings.cleanup = MotionTrackCleanup::LinearPerRun;
+	settings.locked_ranges.emplace_back(0, 100);
+	auto frames = StabilizeMotionTrackFrames(result, settings);
+
+	ASSERT_EQ(3u, frames.size());
+	EXPECT_DOUBLE_EQ(100.0, frames[1].y);
+	EXPECT_DOUBLE_EQ(2.0, frames[1].scale_x);
+	EXPECT_DOUBLE_EQ(45.0, frames[1].rotation_deg);
 }

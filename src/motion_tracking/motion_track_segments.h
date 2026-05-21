@@ -29,6 +29,8 @@ struct MotionTrackSegment {
 	MotionTrackMarker tracker_box_at_start;
 	std::vector<MotionTrackSegmentSample> tracked_center_by_frame;
 	MotionTrackPoint accumulated_offset_at_start;
+	double accumulated_scale_at_start = 1.0;
+	double accumulated_rotation_at_start = 0.0;
 	bool enabled = true;
 	bool end_frame_manual = false;
 	std::string name;
