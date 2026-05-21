@@ -45,12 +45,20 @@ MotionTrackPoint Add(MotionTrackPoint a, MotionTrackPoint b) {
 	return {a.x + b.x, a.y + b.y};
 }
 
+double NormalizeAngleDelta(double delta) {
+	while (delta > 180.0)
+		delta -= 360.0;
+	while (delta < -180.0)
+		delta += 360.0;
+	return delta;
+}
+
 double LocalScale(MotionTrackSegment const& segment, MotionTrackMarker const& marker) {
 	return marker.size / std::max(4.0, segment.tracker_box_at_start.size);
 }
 
 double LocalRotation(MotionTrackSegment const& segment, MotionTrackMarker const& marker) {
-	return marker.rotation_deg - segment.tracker_box_at_start.rotation_deg;
+	return NormalizeAngleDelta(marker.rotation_deg - segment.tracker_box_at_start.rotation_deg);
 }
 
 bool OwnsFrame(MotionTrackSegment const& segment, int frame) {
@@ -88,17 +96,13 @@ MotionTrackSegmentSample const* LastUsableSample(MotionTrackSegment const& segme
 	return best;
 }
 
-struct MotionTrackTransform {
-	MotionTrackPoint offset;
-	double scale = 1.0;
-	double rotation_deg = 0.0;
-};
-
-MotionTrackTransform SegmentTransformAtSample(MotionTrackSegment const& segment, MotionTrackSegmentSample const& sample) {
+MotionTrackMotionState SegmentStateAtSample(MotionTrackSegment const& segment, MotionTrackSegmentSample const& sample) {
+	double local_scale = LocalScale(segment, sample.marker);
 	return {
-		Add(segment.accumulated_offset_at_start, LocalMotion(segment, sample.marker)),
-		segment.accumulated_scale_at_start * LocalScale(segment, sample.marker),
-		segment.accumulated_rotation_at_start + LocalRotation(segment, sample.marker)
+		Add(segment.accumulated_state_at_anchor.position_offset, LocalMotion(segment, sample.marker)),
+		segment.accumulated_state_at_anchor.scale_x * local_scale,
+		segment.accumulated_state_at_anchor.scale_y * local_scale,
+		segment.accumulated_state_at_anchor.rotation_deg + LocalRotation(segment, sample.marker)
 	};
 }
 }
@@ -147,28 +151,25 @@ void TrimSegmentToEnd(MotionTrackSegment& segment) {
 
 void RecalculateSegmentAccumulatedOffsets(std::vector<MotionTrackSegment>& segments) {
 	auto indices = SortedEnabledSegmentIndices(segments);
-	MotionTrackTransform next_accumulated;
+	MotionTrackMotionState next_accumulated;
 	std::vector<size_t> processed_indices;
 
 	for (size_t index : indices) {
 		auto& segment = segments[index];
-		std::optional<MotionTrackTransform> anchor_transform;
+		std::optional<MotionTrackMotionState> anchor_state;
 		int anchor = AnchorFrame(segment);
 		for (size_t previous_index : processed_indices) {
 			auto const& previous = segments[previous_index];
 			if (!OwnsFrame(previous, anchor))
 				continue;
 			if (auto sample = FindSample(previous, anchor))
-				anchor_transform = SegmentTransformAtSample(previous, *sample);
+				anchor_state = SegmentStateAtSample(previous, *sample);
 		}
 
-		auto accumulated = anchor_transform.value_or(next_accumulated);
-		segment.accumulated_offset_at_start = accumulated.offset;
-		segment.accumulated_scale_at_start = accumulated.scale;
-		segment.accumulated_rotation_at_start = accumulated.rotation_deg;
+		segment.accumulated_state_at_anchor = anchor_state.value_or(next_accumulated);
 
 		if (auto sample = LastUsableSample(segment))
-			next_accumulated = SegmentTransformAtSample(segment, *sample);
+			next_accumulated = SegmentStateAtSample(segment, *sample);
 		processed_indices.push_back(index);
 	}
 }
@@ -182,7 +183,7 @@ std::optional<MotionTrackPoint> GetStitchedOffsetAtFrame(std::vector<MotionTrack
 		auto sample = FindSample(segment, frame);
 		if (!sample)
 			continue;
-		offset = SegmentTransformAtSample(segment, *sample).offset;
+		offset = SegmentStateAtSample(segment, *sample).position_offset;
 	}
 	return offset;
 }
@@ -209,18 +210,18 @@ MotionTrackResult BuildStitchedMotionResult(MotionTrackResult const& metadata, s
 			if (sample.frame < segment.start_frame || sample.frame > segment.end_frame)
 				continue;
 
-			auto transform = SegmentTransformAtSample(segment, sample);
-			double x = output_origin.x + transform.offset.x;
-			double y = output_origin.y + transform.offset.y;
+			auto state = SegmentStateAtSample(segment, sample);
+			double x = output_origin.x + state.position_offset.x;
+			double y = output_origin.y + state.position_offset.y;
 			frames_by_number[sample.frame] = MotionTrackFrame{
 				sample.frame,
 				x,
 				y,
 				x,
 				y,
-				transform.scale,
-				transform.scale,
-				transform.rotation_deg,
+				state.scale_x,
+				state.scale_y,
+				state.rotation_deg,
 				sample.confidence,
 				sample.state
 			};

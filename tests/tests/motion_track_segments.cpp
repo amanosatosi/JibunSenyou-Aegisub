@@ -100,8 +100,8 @@ TEST(motion_track_segments, two_connected_segments) {
 	std::vector<MotionTrackSegment> segments{first, second};
 	RecalculateSegmentAccumulatedOffsets(segments);
 
-	EXPECT_DOUBLE_EQ(0.0, segments[1].accumulated_offset_at_start.x);
-	EXPECT_DOUBLE_EQ(200.0, segments[1].accumulated_offset_at_start.y);
+	EXPECT_DOUBLE_EQ(0.0, segments[1].accumulated_state_at_anchor.position_offset.x);
+	EXPECT_DOUBLE_EQ(200.0, segments[1].accumulated_state_at_anchor.position_offset.y);
 	auto offset = GetStitchedOffsetAtFrame(segments, 200);
 	ASSERT_TRUE(offset);
 	EXPECT_DOUBLE_EQ(0.0, offset->x);
@@ -149,7 +149,8 @@ TEST(motion_track_segments, handoff_tracker_size_does_not_reset_scale) {
 	std::vector<MotionTrackSegment> segments{first, second};
 	RecalculateSegmentAccumulatedOffsets(segments);
 
-	EXPECT_DOUBLE_EQ(2.0, segments[1].accumulated_scale_at_start);
+	EXPECT_DOUBLE_EQ(2.0, segments[1].accumulated_state_at_anchor.scale_x);
+	EXPECT_DOUBLE_EQ(2.0, segments[1].accumulated_state_at_anchor.scale_y);
 
 	auto result = BuildStitchedMotionResult(Metadata(), segments);
 	ASSERT_EQ(3u, result.frames.size());
@@ -167,12 +168,27 @@ TEST(motion_track_segments, handoff_tracker_rotation_continues_from_previous_run
 	std::vector<MotionTrackSegment> segments{first, second};
 	RecalculateSegmentAccumulatedOffsets(segments);
 
-	EXPECT_DOUBLE_EQ(30.0, segments[1].accumulated_rotation_at_start);
+	EXPECT_DOUBLE_EQ(30.0, segments[1].accumulated_state_at_anchor.rotation_deg);
 
 	auto result = BuildStitchedMotionResult(Metadata(), segments);
 	ASSERT_EQ(3u, result.frames.size());
 	EXPECT_DOUBLE_EQ(30.0, result.frames[1].rotation_deg);
 	EXPECT_DOUBLE_EQ(45.0, result.frames.back().rotation_deg);
+}
+
+TEST(motion_track_segments, local_rotation_is_unwrapped_at_run_anchor) {
+	auto first = Segment(0, 100, 100.0, 100.0);
+	AddSample(first, 100, 100.0, 300.0, 40.0, 170.0);
+	auto second = Segment(100, 200, 500.0, 80.0);
+	second.tracker_box_at_start.rotation_deg = 170.0;
+	second.tracked_center_by_frame.front().marker.rotation_deg = 170.0;
+	AddSample(second, 200, 500.0, 180.0, 40.0, -170.0);
+	std::vector<MotionTrackSegment> segments{first, second};
+	RecalculateSegmentAccumulatedOffsets(segments);
+
+	auto result = BuildStitchedMotionResult(Metadata(), segments);
+	ASSERT_EQ(3u, result.frames.size());
+	EXPECT_DOUBLE_EQ(190.0, result.frames.back().rotation_deg);
 }
 
 TEST(motion_track_segments, boundary_edit_recalculates_later_offsets) {
@@ -188,7 +204,7 @@ TEST(motion_track_segments, boundary_edit_recalculates_later_offsets) {
 	std::vector<MotionTrackSegment> segments{first, second};
 	RecalculateSegmentAccumulatedOffsets(segments);
 
-	EXPECT_DOUBLE_EQ(100.0, segments[1].accumulated_offset_at_start.y);
+	EXPECT_DOUBLE_EQ(100.0, segments[1].accumulated_state_at_anchor.position_offset.y);
 	auto offset = GetStitchedOffsetAtFrame(segments, 200);
 	ASSERT_TRUE(offset);
 	EXPECT_DOUBLE_EQ(200.0, offset->y);
@@ -205,7 +221,7 @@ TEST(motion_track_segments, disabled_segments_are_skipped) {
 	std::vector<MotionTrackSegment> segments{first, disabled, third};
 	RecalculateSegmentAccumulatedOffsets(segments);
 
-	EXPECT_DOUBLE_EQ(200.0, segments[2].accumulated_offset_at_start.y);
+	EXPECT_DOUBLE_EQ(200.0, segments[2].accumulated_state_at_anchor.position_offset.y);
 	auto offset = GetStitchedOffsetAtFrame(segments, 250);
 	ASSERT_TRUE(offset);
 	EXPECT_DOUBLE_EQ(250.0, offset->y);
@@ -219,8 +235,8 @@ TEST(motion_track_segments, backward_runs_keep_tracking_order_but_export_chronol
 	std::vector<MotionTrackSegment> segments{first, second};
 	RecalculateSegmentAccumulatedOffsets(segments);
 
-	EXPECT_DOUBLE_EQ(0.0, segments[1].accumulated_offset_at_start.x);
-	EXPECT_DOUBLE_EQ(-100.0, segments[1].accumulated_offset_at_start.y);
+	EXPECT_DOUBLE_EQ(0.0, segments[1].accumulated_state_at_anchor.position_offset.x);
+	EXPECT_DOUBLE_EQ(-100.0, segments[1].accumulated_state_at_anchor.position_offset.y);
 
 	auto result = BuildStitchedMotionResult(Metadata(), segments);
 	ASSERT_EQ(3u, result.frames.size());

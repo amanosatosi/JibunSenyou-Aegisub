@@ -13,6 +13,13 @@ struct MotionTrackPoint {
 	double y = 0.0;
 };
 
+struct MotionTrackMotionState {
+	MotionTrackPoint position_offset;
+	double scale_x = 1.0;
+	double scale_y = 1.0;
+	double rotation_deg = 0.0;
+};
+
 struct MotionTrackSegmentSample {
 	int frame = 0;
 	MotionTrackMarker marker;
@@ -28,9 +35,7 @@ struct MotionTrackSegment {
 	int direction = 1;
 	MotionTrackMarker tracker_box_at_start;
 	std::vector<MotionTrackSegmentSample> tracked_center_by_frame;
-	MotionTrackPoint accumulated_offset_at_start;
-	double accumulated_scale_at_start = 1.0;
-	double accumulated_rotation_at_start = 0.0;
+	MotionTrackMotionState accumulated_state_at_anchor;
 	bool enabled = true;
 	bool end_frame_manual = false;
 	std::string name;
