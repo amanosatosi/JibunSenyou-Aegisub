@@ -29,7 +29,7 @@ ocr/
   models/
     config_ppocrv5.txt
     config_korean.txt
-    PP-OCRv5_mobile_det_infer/
+    PP-OCRv5_server_det_infer/
       inference.pdmodel
       inference.pdiparams
       inference.yml
@@ -64,10 +64,15 @@ JSON result contract.
 
 The default model combo is:
 
-- Detection: `PP-OCRv5_mobile_det`
+- Detection: `PP-OCRv5_server_det`
 - Recognition: `PP-OCRv5_server_rec`
 - Dictionary: `ppocrv5_dict.txt`
 - Config: `models/config_ppocrv5.txt`
+
+The server detector is intentionally larger and slower than the mobile
+detector, but it is the default because full-frame anime signs and credits are
+usually detection-limited. The larger package size is accepted for better
+Image2Text region detection quality.
 
 Korean remains exposed through the Korean config bundled by PaddleOCR-json.
 
@@ -75,7 +80,7 @@ Korean remains exposed through the Korean config bundled by PaddleOCR-json.
 
 The official PP-OCRv5 inference archives used as source inputs are:
 
-- `PP-OCRv5_mobile_det_infer.tar`
+- `PP-OCRv5_server_det_infer.tar`
 - `PP-OCRv5_server_rec_infer.tar`
 
 Those archives contain:
@@ -90,9 +95,9 @@ Paddle 3/PIR PP-OCRv5 archives.
 PaddleOCR-json `v1.4.1-dev.1` does not load those JSON/PIR folders directly. It
 still expects legacy Paddle Inference model folders with `inference.pdmodel`
 and `inference.pdiparams`. The Windows packaging script therefore keeps the
-selected PP-OCRv5 combo, downloads the official PP-OCRv5 source archives for
-validation, then exports the official PP-OCRv5 pretrained weights with
-PaddleOCR `v3.0.0` using:
+selected PP-OCRv5 server-detector/server-recognizer combo, downloads the
+official PP-OCRv5 source archives for validation, then exports the official
+PP-OCRv5 pretrained weights with PaddleOCR `v3.0.0` using:
 
 ```text
 Global.export_with_pir=False
@@ -108,15 +113,16 @@ Python PaddleOCR the runtime backend.
 `models/config_ppocrv5.txt` is generated with one setting per line:
 
 ```text
-det_model_dir models/PP-OCRv5_mobile_det_infer
+det_model_dir models/PP-OCRv5_server_det_infer
 cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer
 rec_model_dir models/PP-OCRv5_server_rec_infer
 rec_char_dict_path models/ppocrv5_dict.txt
 ```
 
-The detection and recognition paths point to the legacy-exported PP-OCRv5 model
-directories. The classifier remains the bundled PaddleOCR-json compatible
-classifier.
+The default detection path must point to
+`models/PP-OCRv5_server_det_infer`, and the recognition path points to
+`models/PP-OCRv5_server_rec_infer`. The classifier remains the bundled
+PaddleOCR-json compatible classifier.
 
 ## Build and packaging
 
@@ -149,16 +155,16 @@ Check these files in the portable zip or installer output:
 ocr/OCR_RUNTIME_VERSION.txt
 ocr/bin/PaddleOCR-json.exe
 ocr/models/config_ppocrv5.txt
-ocr/models/PP-OCRv5_mobile_det_infer/inference.pdmodel
-ocr/models/PP-OCRv5_mobile_det_infer/inference.pdiparams
+ocr/models/PP-OCRv5_server_det_infer/inference.pdmodel
+ocr/models/PP-OCRv5_server_det_infer/inference.pdiparams
 ocr/models/PP-OCRv5_server_rec_infer/inference.pdmodel
 ocr/models/PP-OCRv5_server_rec_infer/inference.pdiparams
 ocr/models/ppocrv5_dict.txt
 ```
 
 `OCR_RUNTIME_VERSION.txt` should include
-`ppocrv5-mobile-det-server-rec-legacy-export`. The config should reference
-`PP-OCRv5_mobile_det_infer`, `PP-OCRv5_server_rec_infer`, and
+`ppocrv5-server-det-server-rec-legacy-export`. The config should reference
+`PP-OCRv5_server_det_infer`, `PP-OCRv5_server_rec_infer`, and
 `ppocrv5_dict.txt`.
 
 If model loading fails at runtime, Aegisub reports a model/runtime error instead

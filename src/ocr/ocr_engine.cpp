@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 #include <wx/arrstr.h>
+#include <wx/log.h>
 #include <wx/utils.h>
 
 namespace {
@@ -637,6 +638,22 @@ OCRResult OCREngine::RunImage(agi::fs::path const& image_path, OCROptions const&
 	if (!agi::fs::FileExists(image_path)) {
 		result.diagnostic = "Image file does not exist: " + image_path.string();
 		return result;
+	}
+
+	try {
+		auto model_config = ReadModelConfig(ConfigPath(options.language), models_dir, detect_only);
+		std::string log_message =
+			"Image2Text OCR starting: mode=" + std::string(detect_only ? "detect-only" : "recognize") +
+			" config=" + model_config.config_path.string() +
+			" det_model_dir=" + model_config.det_model_dir.string() +
+			" cls_model_dir=" + model_config.cls_model_dir.string() +
+			" rec_model_dir=" + model_config.rec_model_dir.string() +
+			" rec_char_dict_path=" + model_config.rec_char_dict_path.string();
+		wxLogMessage("%s", to_wx(log_message).c_str());
+	}
+	catch (agi::Exception const&) {
+	}
+	catch (std::exception const&) {
 	}
 
 	wxString command = QuoteArg(PathString(executable));

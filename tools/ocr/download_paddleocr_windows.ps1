@@ -11,7 +11,7 @@ $ReleaseTag = "v1.4.1-dev"
 $RuntimeVersion = "v1.4.1-dev.1"
 $PaddleOCRSourceVersion = "v3.0.0"
 $PaddlePaddleVersion = "3.0.0"
-$BundleVersion = "$RuntimeVersion-ppocrv5-mobile-det-server-rec-legacy-export-v4"
+$BundleVersion = "$RuntimeVersion-ppocrv5-server-det-server-rec-legacy-export-v1"
 $ArchiveName = "PaddleOCR-json_v1.4.1_dev.1_windows_x86-64_cpu_mkl.7z"
 $ArchiveUrl = "https://github.com/hiroi-sora/PaddleOCR-json/releases/download/$ReleaseTag/$ArchiveName"
 $ArchiveSha256 = "46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d137700f"
@@ -19,26 +19,25 @@ $ArchiveSha256 = "46c3c82e889e5ed0c8a066ed3a089cd200d1e482823601bab23f5e41d13770
 $PaddleOCRSourceArchiveName = "PaddleOCR-$($PaddleOCRSourceVersion.TrimStart("v")).zip"
 $PaddleOCRSourceArchiveUrl = "https://github.com/PaddlePaddle/PaddleOCR/archive/refs/tags/$PaddleOCRSourceVersion.zip"
 $PaddleOCRSourceFolderName = "PaddleOCR-$($PaddleOCRSourceVersion.TrimStart("v"))"
-$PPOcrV5DetConfig = "configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml"
+$PPOcrV5DetConfig = "configs/det/PP-OCRv5/PP-OCRv5_server_det.yml"
 $PPOcrV5RecConfig = "configs/rec/PP-OCRv5/PP-OCRv5_server_rec.yml"
 
-$PPOcrV5DetArchiveName = "PP-OCRv5_mobile_det_infer.tar"
+$PPOcrV5DetArchiveName = "PP-OCRv5_server_det_infer.tar"
 $PPOcrV5RecArchiveName = "PP-OCRv5_server_rec_infer.tar"
 $PPOcrV5ModelBaseUrl = "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0"
 $PPOcrV5DetArchiveUrl = "$PPOcrV5ModelBaseUrl/$PPOcrV5DetArchiveName"
 $PPOcrV5RecArchiveUrl = "$PPOcrV5ModelBaseUrl/$PPOcrV5RecArchiveName"
-$PPOcrV5DetArchiveSha256 = "50446e5d01ac2a73d5319c89513281f6578414c888c602f9af13f93feefffc58"
+$PPOcrV5DetArchiveSha256 = "22a33e0ba6a21425ea4192da03bf4395c9a0c67902bd924b7328fc859073045d"
 $PPOcrV5RecArchiveSha256 = "d99be2ffd348943ab52876179168be4fb5b14f5f0812f2ae4c76d89ec2ea750a"
 $PPOcrV5DictUrl = "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/eaede685bcaf22f287edf8865f4dd8d374acb75e/ppocr/utils/dict/ppocrv5_dict.txt"
 
 $PPOcrV5PretrainedBaseUrl = "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model"
-$PPOcrV5DetPretrainedName = "PP-OCRv5_mobile_det_pretrained.pdparams"
+$PPOcrV5DetPretrainedName = "PP-OCRv5_server_det_pretrained.pdparams"
 $PPOcrV5RecPretrainedName = "PP-OCRv5_server_rec_pretrained.pdparams"
 $PPOcrV5DetPretrainedUrl = "$PPOcrV5PretrainedBaseUrl/$PPOcrV5DetPretrainedName"
 $PPOcrV5RecPretrainedUrl = "$PPOcrV5PretrainedBaseUrl/$PPOcrV5RecPretrainedName"
-$PPOcrV5DetPretrainedSha256 = "7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648"
-# Paddle's official pretrained-weight endpoint does not publish checksums; keep
-# the large recognition download size-pinned so partial files are rejected.
+$PPOcrV5DetPretrainedSha256 = "2802f7d4748ea592819ae4550c195c5bdb43755dfdb5ebd25e01bb4d885aebc9"
+# Keep the large recognition download size-pinned so partial files are rejected.
 $PPOcrV5RecPretrainedExpectedBytes = 214594738
 
 $RequiredConfigNames = @(
@@ -375,6 +374,55 @@ function Assert-OcrModelConfig {
     }
 }
 
+function Assert-PPOcrV5DefaultConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$ModelsDir
+    )
+
+    $settings = Get-OcrConfigSettings -ConfigPath $ConfigPath
+    $detModelDir = Resolve-OcrConfigPath -ConfiguredPath $settings["det_model_dir"] -ModelsDir $ModelsDir
+    $recModelDir = Resolve-OcrConfigPath -ConfiguredPath $settings["rec_model_dir"] -ModelsDir $ModelsDir
+    $dictionaryPath = Resolve-OcrConfigPath -ConfiguredPath $settings["rec_char_dict_path"] -ModelsDir $ModelsDir
+    $clsModelDir = ""
+    if ($settings.ContainsKey("cls_model_dir") -and ![string]::IsNullOrWhiteSpace($settings["cls_model_dir"])) {
+        $clsModelDir = Resolve-OcrConfigPath -ConfiguredPath $settings["cls_model_dir"] -ModelsDir $ModelsDir
+    }
+
+    if ((Split-Path -Leaf $detModelDir) -ne "PP-OCRv5_server_det_infer") {
+        throw (New-OcrValidationError `
+            -Message "Default PP-OCRv5 config must use PP-OCRv5_server_det_infer, but det_model_dir is $detModelDir." `
+            -FolderPath $detModelDir `
+            -ConfigPath $ConfigPath `
+            -DetModelDir $detModelDir `
+            -ClsModelDir $clsModelDir `
+            -RecModelDir $recModelDir `
+            -DictionaryPath $dictionaryPath)
+    }
+
+    if ((Split-Path -Leaf $recModelDir) -ne "PP-OCRv5_server_rec_infer") {
+        throw (New-OcrValidationError `
+            -Message "Default PP-OCRv5 config must use PP-OCRv5_server_rec_infer, but rec_model_dir is $recModelDir." `
+            -FolderPath $recModelDir `
+            -ConfigPath $ConfigPath `
+            -DetModelDir $detModelDir `
+            -ClsModelDir $clsModelDir `
+            -RecModelDir $recModelDir `
+            -DictionaryPath $dictionaryPath)
+    }
+
+    if ((Split-Path -Leaf $dictionaryPath) -ne "ppocrv5_dict.txt") {
+        throw (New-OcrValidationError `
+            -Message "Default PP-OCRv5 config must use ppocrv5_dict.txt, but rec_char_dict_path is $dictionaryPath." `
+            -FolderPath (Split-Path -Parent $dictionaryPath) `
+            -ConfigPath $ConfigPath `
+            -DetModelDir $detModelDir `
+            -ClsModelDir $clsModelDir `
+            -RecModelDir $recModelDir `
+            -DictionaryPath $dictionaryPath)
+    }
+}
+
 function Test-OcrRuntimeComplete {
     param(
         [Parameter(Mandatory = $true)][string]$BinDir,
@@ -395,7 +443,11 @@ function Test-OcrRuntimeComplete {
 
     try {
         foreach ($configName in $RequiredConfigNames) {
-            Assert-OcrModelConfig -ConfigPath (Join-Path $ModelsDir $configName) -ModelsDir $ModelsDir
+            $configPath = Join-Path $ModelsDir $configName
+            Assert-OcrModelConfig -ConfigPath $configPath -ModelsDir $ModelsDir
+            if ($configName -eq "config_ppocrv5.txt") {
+                Assert-PPOcrV5DefaultConfig -ConfigPath $configPath -ModelsDir $ModelsDir
+            }
         }
     }
     catch {
@@ -835,6 +887,10 @@ if (Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR_json.exe")) {
 }
 
 Copy-DirectoryContents -Source $ArchiveModelsDir -Destination $ModelsDir
+$LegacyMobileDetDir = Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer"
+if (Test-Path -LiteralPath $LegacyMobileDetDir) {
+    Remove-Item -LiteralPath $LegacyMobileDetDir -Force -Recurse
+}
 
 $DetArchivePath = Join-Path $WorkDir $PPOcrV5DetArchiveName
 $RecArchivePath = Join-Path $WorkDir $PPOcrV5RecArchiveName
@@ -851,7 +907,7 @@ if (!$?) { Exit $LASTEXITCODE }
 tar -xf $RecArchivePath -C $OfficialModelsDir
 if (!$?) { Exit $LASTEXITCODE }
 
-$OfficialDetDir = Join-Path $OfficialModelsDir "PP-OCRv5_mobile_det_infer"
+$OfficialDetDir = Join-Path $OfficialModelsDir "PP-OCRv5_server_det_infer"
 $OfficialRecDir = Join-Path $OfficialModelsDir "PP-OCRv5_server_rec_infer"
 Assert-OfficialPPOcrV5ModelDirectory -Role "detection" -ModelDir $OfficialDetDir
 Assert-OfficialPPOcrV5ModelDirectory -Role "recognition" -ModelDir $OfficialRecDir
@@ -865,7 +921,7 @@ $RecPretrainedPath = Join-Path $WorkDir $PPOcrV5RecPretrainedName
 Download-File -Uri $PPOcrV5DetPretrainedUrl -OutFile $DetPretrainedPath -ExpectedSha256 $PPOcrV5DetPretrainedSha256
 Download-File -Uri $PPOcrV5RecPretrainedUrl -OutFile $RecPretrainedPath -ExpectedBytes $PPOcrV5RecPretrainedExpectedBytes
 
-$DetRuntimeDir = Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer"
+$DetRuntimeDir = Join-Path $ModelsDir "PP-OCRv5_server_det_infer"
 $RecRuntimeDir = Join-Path $ModelsDir "PP-OCRv5_server_rec_infer"
 Export-PPOcrV5LegacyModel `
     -PythonExe $PythonExe `
@@ -887,10 +943,10 @@ Download-File -Uri $PPOcrV5DictUrl -OutFile (Join-Path $ModelsDir "ppocrv5_dict.
 
 @(
     "# Aegisub default OCR model combo:",
-    "# PP-OCRv5_mobile_det + PP-OCRv5_server_rec",
+    "# PP-OCRv5_server_det + PP-OCRv5_server_rec",
     "# The bundled PaddleOCR-json runtime loads the legacy-exported folders below.",
     "",
-    "det_model_dir models/PP-OCRv5_mobile_det_infer",
+    "det_model_dir models/PP-OCRv5_server_det_infer",
     "cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer",
     "rec_model_dir models/PP-OCRv5_server_rec_infer",
     "rec_char_dict_path models/ppocrv5_dict.txt"
@@ -913,7 +969,7 @@ SHA256: $ArchiveSha256
 PaddleOCR-json is built from PaddleOCR C++/Paddle Inference. Aegisub keeps this
 sidecar runtime and targets this default model combo:
 
-  Detection:   PP-OCRv5_mobile_det
+  Detection:   PP-OCRv5_server_det
   Recognition: PP-OCRv5_server_rec
   Dictionary:  ppocrv5_dict.txt
 
@@ -939,7 +995,7 @@ The generated config is:
 
 It points to:
 
-  det_model_dir models/PP-OCRv5_mobile_det_infer
+  det_model_dir models/PP-OCRv5_server_det_infer
   cls_model_dir models/ch_ppocr_mobile_v2.0_cls_infer
   rec_model_dir models/PP-OCRv5_server_rec_infer
   rec_char_dict_path models/ppocrv5_dict.txt
@@ -968,7 +1024,11 @@ foreach ($file in $RequiredFiles) {
 }
 
 foreach ($configName in $RequiredConfigNames) {
-    Assert-OcrModelConfig -ConfigPath (Join-Path $ModelsDir $configName) -ModelsDir $ModelsDir
+    $configPath = Join-Path $ModelsDir $configName
+    Assert-OcrModelConfig -ConfigPath $configPath -ModelsDir $ModelsDir
+    if ($configName -eq "config_ppocrv5.txt") {
+        Assert-PPOcrV5DefaultConfig -ConfigPath $configPath -ModelsDir $ModelsDir
+    }
 }
 
 Test-PPOcrV5RuntimeLoad `
