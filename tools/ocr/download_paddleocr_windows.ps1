@@ -41,8 +41,17 @@ $PPOcrV5DetPretrainedSha256 = "2802f7d4748ea592819ae4550c195c5bdb43755dfdb5ebd25
 $PPOcrV5RecPretrainedExpectedBytes = 214594738
 
 $RequiredConfigNames = @(
+    "config_ppocrv5.txt"
+)
+
+$AllowedModelAssetNames = @(
+    "#cmd.txt",
+    "config.txt",
     "config_ppocrv5.txt",
-    "config_korean.txt"
+    "PP-OCRv5_server_det_infer",
+    "PP-OCRv5_server_rec_infer",
+    "ch_ppocr_mobile_v2.0_cls_infer",
+    "ppocrv5_dict.txt"
 )
 
 function Invoke-WebRequestWithRetry {
@@ -154,6 +163,47 @@ function Copy-DirectoryContents {
 
     Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+    }
+}
+
+function Get-AllowedModelAssetSet {
+    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $AllowedModelAssetNames) {
+        [void]$set.Add($name)
+    }
+    return $set
+}
+
+function Remove-UnusedOcrModelAssets {
+    param(
+        [Parameter(Mandatory = $true)][string]$ModelsDir
+    )
+
+    if (!(Test-Path -LiteralPath $ModelsDir -PathType Container)) {
+        return
+    }
+
+    $allowed = Get-AllowedModelAssetSet
+    Get-ChildItem -LiteralPath $ModelsDir -Force | ForEach-Object {
+        if (!$allowed.Contains($_.Name)) {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        }
+    }
+}
+
+function Assert-NoUnusedOcrModelAssets {
+    param(
+        [Parameter(Mandatory = $true)][string]$ModelsDir
+    )
+
+    $allowed = Get-AllowedModelAssetSet
+    $unexpected = Get-ChildItem -LiteralPath $ModelsDir -Force |
+        Where-Object { !$allowed.Contains($_.Name) } |
+        ForEach-Object { $_.Name } |
+        Sort-Object
+
+    if ($unexpected) {
+        throw "OCR models folder contains unused bundled model/config assets that should not be packaged:`n$($unexpected -join "`n")"
     }
 }
 
@@ -449,6 +499,7 @@ function Test-OcrRuntimeComplete {
                 Assert-PPOcrV5DefaultConfig -ConfigPath $configPath -ModelsDir $ModelsDir
             }
         }
+        Assert-NoUnusedOcrModelAssets -ModelsDir $ModelsDir
     }
     catch {
         Write-Host "Existing PaddleOCR runtime at $DestinationDir is incomplete and will be rebuilt."
@@ -887,10 +938,7 @@ if (Test-Path -LiteralPath (Join-Path $BinDir "PaddleOCR_json.exe")) {
 }
 
 Copy-DirectoryContents -Source $ArchiveModelsDir -Destination $ModelsDir
-$LegacyMobileDetDir = Join-Path $ModelsDir "PP-OCRv5_mobile_det_infer"
-if (Test-Path -LiteralPath $LegacyMobileDetDir) {
-    Remove-Item -LiteralPath $LegacyMobileDetDir -Force -Recurse
-}
+Remove-UnusedOcrModelAssets -ModelsDir $ModelsDir
 
 $DetArchivePath = Join-Path $WorkDir $PPOcrV5DetArchiveName
 $RecArchivePath = Join-Path $WorkDir $PPOcrV5RecArchiveName
@@ -1030,6 +1078,7 @@ foreach ($configName in $RequiredConfigNames) {
         Assert-PPOcrV5DefaultConfig -ConfigPath $configPath -ModelsDir $ModelsDir
     }
 }
+Assert-NoUnusedOcrModelAssets -ModelsDir $ModelsDir
 
 Test-PPOcrV5RuntimeLoad `
     -ExePath (Join-Path $BinDir "PaddleOCR-json.exe") `

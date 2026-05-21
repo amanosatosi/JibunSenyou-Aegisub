@@ -602,6 +602,30 @@ struct video_frame_save_subs final : public validator_video_loaded {
 	}
 };
 
+struct video_image2text final : public validator_video_attached {
+	CMD_NAME("video/image2text")
+	STR_MENU("Image2Text")
+	STR_DISP("Image2Text")
+	STR_HELP("Recognize selectable text from the current video frame")
+
+	void operator()(agi::Context *c) override {
+		c->videoController->Stop();
+		c->videoDisplay->StartImage2TextOCR();
+	}
+};
+
+struct video_image2text_mask final : public validator_video_attached {
+	CMD_NAME("video/image2text/mask")
+	STR_MENU("Mask mode")
+	STR_DISP("Mask mode")
+	STR_HELP("Detect text regions from the current video frame for masking")
+
+	void operator()(agi::Context *c) override {
+		c->videoController->Stop();
+		c->videoDisplay->StartImage2TextDetectOnly();
+	}
+};
+
 struct video_jump final : public validator_video_loaded {
 	CMD_NAME("video/jump")
 	CMD_ICON(jumpto_button)
@@ -935,6 +959,8 @@ namespace cmd {
 		reg(agi::make_unique<video_frame_save>());
 		reg(agi::make_unique<video_frame_save_raw>());
 		reg(agi::make_unique<video_frame_save_subs>());
+		reg(agi::make_unique<video_image2text>());
+		reg(agi::make_unique<video_image2text_mask>());
 		reg(agi::make_unique<video_jump>());
 		reg(agi::make_unique<video_jump_end>());
 		reg(agi::make_unique<video_jump_start>());

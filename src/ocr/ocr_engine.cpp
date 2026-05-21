@@ -575,9 +575,7 @@ OCREngine::OCREngine()
 {
 }
 
-agi::fs::path OCREngine::ConfigPath(std::string const& language) const {
-	if (language == "korean")
-		return models_dir / "config_korean.txt";
+agi::fs::path OCREngine::ConfigPath(std::string const&) const {
 	return models_dir / "config_ppocrv5.txt";
 }
 

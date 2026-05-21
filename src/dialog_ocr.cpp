@@ -81,11 +81,7 @@ struct LanguageChoice {
 
 std::vector<LanguageChoice> const& Languages() {
 	static std::vector<LanguageChoice> languages = {
-		{_("Japanese"), "japanese"},
-		{_("English"), "english"},
-		{_("Simplified Chinese"), "chinese_simplified"},
-		{_("Traditional Chinese"), "chinese_traditional"},
-		{_("Korean"), "korean"}
+		{_("PP-OCRv5"), "japanese"}
 	};
 	return languages;
 }

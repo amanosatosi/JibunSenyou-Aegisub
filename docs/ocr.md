@@ -27,8 +27,10 @@ ocr/
     PaddleOCR-json.exe
     runtime DLLs
   models/
+    #cmd.txt
+    config.txt
     config_ppocrv5.txt
-    config_korean.txt
+    ch_ppocr_mobile_v2.0_cls_infer/
     PP-OCRv5_server_det_infer/
       inference.pdmodel
       inference.pdiparams
@@ -38,7 +40,6 @@ ocr/
       inference.pdiparams
       inference.yml
     ppocrv5_dict.txt
-    bundled PaddleOCR-json Korean model folders
   licenses/
     THIRD_PARTY_OCR.txt
     copied upstream license/readme files when present
@@ -47,6 +48,13 @@ ocr/
 The OCR dialog uses this folder next to `aegisub.exe`. If any required file is
 deleted, Aegisub reports the exact missing path and the files present in that
 folder.
+
+The packaging step removes the unused PaddleOCR-json sample language packs and
+PP-OCRv4 model folders from `ocr/models`. Release artifacts keep only the active
+PP-OCRv5 server detector/server recognizer assets, the PP-OCRv5 dictionary and
+config, and the angle classifier folder used by the generated config.
+The OCR language selector exposes the bundled PP-OCRv5 profile only; deleted
+legacy language configs are not referenced at runtime.
 
 ## Bundled runtime
 
@@ -73,8 +81,6 @@ The server detector is intentionally larger and slower than the mobile
 detector, but it is the default because full-frame anime signs and credits are
 usually detection-limited. The larger package size is accepted for better
 Image2Text region detection quality.
-
-Korean remains exposed through the Korean config bundled by PaddleOCR-json.
 
 ## PP-OCRv5 model format
 
