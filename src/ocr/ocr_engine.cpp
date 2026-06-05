@@ -15,6 +15,7 @@
 #include "ocr_engine.h"
 
 #include "../compat.h"
+#include "../format.h"
 #include "../options.h"
 
 #include <libaegisub/cajun/elements.h>
