@@ -77,7 +77,12 @@ Write-Output 'Copying - redist\XAudio2_9'
 Copy-New-Item $InstallerDepsDir\XAudio2_redist\build\native\release\bin\x64\xaudio2_9redist.dll $PortableOutputDir\Redist
 Rename-Item $PortableOutputDir\Redist\xaudio2_9redist.dll $PortableOutputDir\Redist\XAudio2_9.dll
 Write-Output 'Copying - OCR runtime'
-Copy-New-Items "$InstallerDepsDir\ocr\*" "$PortableOutputDir\ocr" -Recurse
+if (Test-Path "$InstallerDepsDir\ocr") {
+    Copy-New-Items "$InstallerDepsDir\ocr\*" "$PortableOutputDir\ocr" -Recurse
+}
+else {
+    Write-Output 'Skipping - OCR runtime not present'
+}
 
 Write-Output 'Copying - automation'
 Copy-New-Items "$InstallerDir\share\aegisub\automation\*"  "$PortableOutputDir\automation\"  -Recurse

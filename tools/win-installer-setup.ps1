@@ -4,7 +4,8 @@ param (
   [Parameter(Position = 0)]
   [string]$BuildRoot,
   [Parameter(Position = 1)]
-  [string]$SourceRoot
+  [string]$SourceRoot,
+  [switch]$SkipOCR
 )
 
 $InstallerDir = Join-Path $SourceRoot "packages\win_installer" | Resolve-Path
@@ -222,9 +223,14 @@ if (!(Test-Path dictionaries)) {
 }
 
 # PaddleOCR runtime and bundled models
-$OcrRuntimeSetup = Join-Path $SourceRoot "tools\ocr\download_paddleocr_windows.ps1"
-& $OcrRuntimeSetup -DestinationDir (Join-Path $DepsDir "ocr")
-if(!$?) { Exit $LASTEXITCODE }
+if ($SkipOCR -or $Env:AEGISUB_SKIP_OCR_PACKAGE -eq "1") {
+	Write-Output "Skipping - OCR runtime package assets"
+}
+else {
+	$OcrRuntimeSetup = Join-Path $SourceRoot "tools\ocr\download_paddleocr_windows.ps1"
+	& $OcrRuntimeSetup -DestinationDir (Join-Path $DepsDir "ocr")
+	if(!$?) { Exit $LASTEXITCODE }
+}
 
 # localization
 Set-Location $BuildRoot

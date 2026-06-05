@@ -887,6 +887,12 @@ DialogOCR::~DialogOCR() {
 }
 
 void ShowOCRDialog(agi::Context *c) {
+	auto diagnostic = ocr::OCREngine::GetRuntimeDiagnostic();
+	if (!diagnostic.empty()) {
+		wxMessageBox(diagnostic, _("OCR runtime unavailable"), wxOK | wxICON_ERROR | wxCENTER, c->parent);
+		return;
+	}
+
 	DialogOCR dialog(c);
 	dialog.ShowModal();
 }

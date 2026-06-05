@@ -522,7 +522,7 @@
 			"Maximized" : false
 		},
 		"OCR" : {
-			"Copy After OCR" : true,
+			"Copy After OCR" : false,
 			"Insert After OCR" : false,
 			"Keep Line Breaks" : true,
 			"Language" : "japanese",

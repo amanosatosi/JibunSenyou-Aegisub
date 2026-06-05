@@ -1122,7 +1122,7 @@ void VideoDisplay::StartImage2Text(bool detect_only) {
 	auto diagnostic = detect_only ? engine.GetDetectionDiagnostic(options) : engine.GetDiagnostic(options);
 	if (!diagnostic.empty()) {
 		image2text_state = Image2TextState::Error;
-		image2text_error = detect_only ? "Image2Text: detection runtime unavailable" : "Image2Text: OCR runtime unavailable";
+		image2text_error = "Image2Text: " + from_wx(diagnostic);
 		Render();
 		return;
 	}

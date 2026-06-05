@@ -43,6 +43,7 @@
 #include "../include/aegisub/subtitles_provider.h"
 #include "../libresrc/libresrc.h"
 #include "../options.h"
+#include "../ocr/ocr_engine.h"
 #include "../project.h"
 #include "../selection_controller.h"
 #include "../utils.h"
@@ -119,6 +120,12 @@ struct validator_video_attached : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
 	bool Validate(const agi::Context *c) override {
 		return !!c->project->VideoProvider() && !c->dialog->Get<DialogDetachedVideo>();
+	}
+};
+
+struct validator_video_attached_ocr : public validator_video_attached {
+	bool Validate(const agi::Context *c) override {
+		return validator_video_attached::Validate(c) && ocr::OCREngine::IsRuntimeAvailable();
 	}
 };
 
@@ -602,27 +609,31 @@ struct video_frame_save_subs final : public validator_video_loaded {
 	}
 };
 
-struct video_image2text final : public validator_video_attached {
+struct video_image2text final : public validator_video_attached_ocr {
 	CMD_NAME("video/image2text")
 	STR_MENU("Image2Text")
 	STR_DISP("Image2Text")
 	STR_HELP("Recognize selectable text from the current video frame")
 
 	void operator()(agi::Context *c) override {
-		c->videoController->Stop();
-		c->videoDisplay->StartImage2TextOCR();
+		if (Validate(c)) {
+			c->videoController->Stop();
+			c->videoDisplay->StartImage2TextOCR();
+		}
 	}
 };
 
-struct video_image2text_mask final : public validator_video_attached {
+struct video_image2text_mask final : public validator_video_attached_ocr {
 	CMD_NAME("video/image2text/mask")
 	STR_MENU("Mask mode")
 	STR_DISP("Mask mode")
 	STR_HELP("Detect text regions from the current video frame for masking")
 
 	void operator()(agi::Context *c) override {
-		c->videoController->Stop();
-		c->videoDisplay->StartImage2TextDetectOnly();
+		if (Validate(c)) {
+			c->videoController->Stop();
+			c->videoDisplay->StartImage2TextDetectOnly();
+		}
 	}
 };
 

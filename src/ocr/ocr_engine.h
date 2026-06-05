@@ -34,6 +34,9 @@ class OCREngine {
 public:
 	OCREngine();
 
+	static bool IsRuntimeAvailable();
+	static wxString GetRuntimeDiagnostic();
+
 	bool IsAvailable(OCROptions const& options) const;
 	wxString GetDiagnostic(OCROptions const& options) const;
 	wxString GetDetectionDiagnostic(OCROptions const& options) const;

@@ -15,7 +15,6 @@
 #include "ocr_engine.h"
 
 #include "../compat.h"
-#include "../format.h"
 #include "../options.h"
 
 #include <libaegisub/cajun/elements.h>
@@ -420,6 +419,64 @@ std::string ValidateModelConfig(ModelConfig const& config, bool detect_only) {
 	return {};
 }
 
+agi::fs::path RuntimeDir() {
+	return config::path->Decode("?data/ocr");
+}
+
+agi::fs::path ExecutablePath(agi::fs::path const& runtime_dir) {
+	return runtime_dir / "bin" / "PaddleOCR-json.exe";
+}
+
+agi::fs::path ModelsDir(agi::fs::path const& runtime_dir) {
+	return runtime_dir / "models";
+}
+
+agi::fs::path ConfigPath(agi::fs::path const& models_dir) {
+	return models_dir / "config_ppocrv5.txt";
+}
+
+wxString MissingOCRDiagnostic() {
+	return _("OCR files are not installed. Reinstall Aegisub and select the OCR option to enable this feature.");
+}
+
+wxString IncompleteOCRDiagnostic() {
+	return _("OCR files are missing or incomplete. Reinstall Aegisub and select the OCR option to repair this feature.");
+}
+
+wxString CheckRuntimeDiagnostic() {
+#ifndef _WIN32
+	return _("Bundled OCR is currently available only in Windows release artifacts.");
+#endif
+
+#ifndef WITH_PADDLEOCR
+	return _("This build was configured without bundled PaddleOCR support. Build Windows artifacts with -Dpaddleocr=enabled.");
+#endif
+
+	auto runtime_dir = RuntimeDir();
+	if (!agi::fs::DirectoryExists(runtime_dir))
+		return MissingOCRDiagnostic();
+
+	auto executable = ExecutablePath(runtime_dir);
+	auto models_dir = ModelsDir(runtime_dir);
+	auto config_path = ConfigPath(models_dir);
+	if (!agi::fs::FileExists(executable) || !agi::fs::DirectoryExists(models_dir) || !agi::fs::FileExists(config_path))
+		return IncompleteOCRDiagnostic();
+
+	try {
+		auto model_config = ReadModelConfig(config_path, models_dir, false);
+		if (!ValidateModelConfig(model_config, false).empty())
+			return IncompleteOCRDiagnostic();
+	}
+	catch (agi::Exception const&) {
+		return IncompleteOCRDiagnostic();
+	}
+	catch (std::exception const&) {
+		return IncompleteOCRDiagnostic();
+	}
+
+	return "";
+}
+
 } // namespace
 
 namespace ocr {
@@ -569,14 +626,23 @@ OCRResult ParsePaddleOCRJson(std::string const& json_text, OCROptions const& opt
 }
 
 OCREngine::OCREngine()
-: runtime_dir(config::path->Decode("?data/ocr"))
-, executable(runtime_dir / "bin" / "PaddleOCR-json.exe")
-, models_dir(runtime_dir / "models")
+: runtime_dir(RuntimeDir())
+, executable(ExecutablePath(runtime_dir))
+, models_dir(ModelsDir(runtime_dir))
 {
 }
 
 agi::fs::path OCREngine::ConfigPath(std::string const&) const {
-	return models_dir / "config_ppocrv5.txt";
+	return ::ConfigPath(models_dir);
+}
+
+bool OCREngine::IsRuntimeAvailable() {
+	return GetRuntimeDiagnostic().empty();
+}
+
+wxString OCREngine::GetRuntimeDiagnostic() {
+	static wxString const diagnostic = CheckRuntimeDiagnostic();
+	return diagnostic;
 }
 
 bool OCREngine::IsAvailable(OCROptions const& options) const {
@@ -592,34 +658,22 @@ wxString OCREngine::GetDetectionDiagnostic(OCROptions const& options) const {
 }
 
 wxString OCREngine::GetDiagnostic(OCROptions const& options, bool detect_only) const {
-#ifndef _WIN32
-	return _("Bundled OCR is currently available only in Windows release artifacts.");
-#endif
-
-#ifndef WITH_PADDLEOCR
-	return _("This build was configured without bundled PaddleOCR support. Build Windows artifacts with -Dpaddleocr=enabled.");
-#endif
-
-	if (!agi::fs::FileExists(executable))
-		return fmt_tl("OCR runtime is missing:\n%s\n\nReinstall Aegisub or restore the bundled ocr folder next to aegisub.exe.", executable);
-	if (!agi::fs::DirectoryExists(models_dir))
-		return fmt_tl("OCR model folder is missing:\n%s\n\nReinstall Aegisub or restore the bundled ocr folder next to aegisub.exe.", models_dir);
-
-	auto config_path = ConfigPath(options.language);
-	if (!agi::fs::FileExists(config_path))
-		return fmt_tl("OCR model configuration is missing:\n%s\n\nThe bundled ocr\\models folder is incomplete.", config_path);
+	auto runtime_diagnostic = GetRuntimeDiagnostic();
+	if (!runtime_diagnostic.empty())
+		return runtime_diagnostic;
 
 	try {
+		auto config_path = ConfigPath(options.language);
 		auto model_config = ReadModelConfig(config_path, models_dir, detect_only);
 		auto model_diagnostic = ValidateModelConfig(model_config, detect_only);
 		if (!model_diagnostic.empty())
-			return to_wx(model_diagnostic);
+			return IncompleteOCRDiagnostic();
 	}
-	catch (agi::Exception const& e) {
-		return to_wx("OCR model configuration could not be read:\n" + config_path.string() + "\n\n" + e.GetMessage());
+	catch (agi::Exception const&) {
+		return IncompleteOCRDiagnostic();
 	}
-	catch (std::exception const& e) {
-		return to_wx("OCR model configuration could not be read:\n" + config_path.string() + "\n\n" + std::string(e.what()));
+	catch (std::exception const&) {
+		return IncompleteOCRDiagnostic();
 	}
 
 	return "";
