@@ -56,13 +56,17 @@ class FrameMain : public wxFrame {
 	wxTimer StatusClear;   ///< Status bar timeout timer
 	wxTimer AlignmentPickerTimer;
 	wxWindow *alignmentPicker = nullptr;
-	int alignmentPickerSelection = 0;
+	int alignmentPickerPreview = 0;
+	int alignmentPickerSelected = 0;
+	int alignmentPickerPendingArrows = 0;
+	bool alignmentPickerSettling = false;
 
 	void InitContents();
 
 	void UpdateTitle();
 
 	bool HandleAlignmentPickerKeyDown(wxKeyEvent &event);
+	void ResetAlignmentPickerState();
 	void HideAlignmentPicker();
 	void OnAlignmentPickerTimer(wxTimerEvent &event);
 	void OnKeyDown(wxKeyEvent &event);

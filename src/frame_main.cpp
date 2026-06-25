@@ -79,6 +79,15 @@ enum {
 	ID_ALIGNMENT_PICKER_TIMER
 };
 
+static const int ALIGNMENT_PICKER_SETTLE_MS = 150;
+static const int ALIGNMENT_PICKER_POLL_MS = 25;
+enum AlignmentArrowBits {
+	ALIGN_ARROW_LEFT = 1,
+	ALIGN_ARROW_RIGHT = 2,
+	ALIGN_ARROW_UP = 4,
+	ALIGN_ARROW_DOWN = 8
+};
+
 #ifdef WITH_STARTUPLOG
 #define StartupLog(a) MessageBox(0, a, "Aegisub startup log", 0)
 #else
@@ -162,6 +171,23 @@ static bool is_arrow_key(int key_code) {
 	return key_code == WXK_LEFT || key_code == WXK_RIGHT || key_code == WXK_UP || key_code == WXK_DOWN;
 }
 
+static int arrow_bit_from_key(int key_code) {
+	if (key_code == WXK_LEFT) return ALIGN_ARROW_LEFT;
+	if (key_code == WXK_RIGHT) return ALIGN_ARROW_RIGHT;
+	if (key_code == WXK_UP) return ALIGN_ARROW_UP;
+	if (key_code == WXK_DOWN) return ALIGN_ARROW_DOWN;
+	return 0;
+}
+
+static int current_arrow_bits() {
+	int arrows = 0;
+	if (wxGetKeyState(WXK_LEFT)) arrows |= ALIGN_ARROW_LEFT;
+	if (wxGetKeyState(WXK_RIGHT)) arrows |= ALIGN_ARROW_RIGHT;
+	if (wxGetKeyState(WXK_UP)) arrows |= ALIGN_ARROW_UP;
+	if (wxGetKeyState(WXK_DOWN)) arrows |= ALIGN_ARROW_DOWN;
+	return arrows;
+}
+
 static int alignment_from_number_key(int key_code) {
 	if (key_code >= '1' && key_code <= '9')
 		return key_code - '0';
@@ -170,11 +196,11 @@ static int alignment_from_number_key(int key_code) {
 	return 0;
 }
 
-static int alignment_from_arrow_state() {
-	bool left = wxGetKeyState(WXK_LEFT);
-	bool right = wxGetKeyState(WXK_RIGHT);
-	bool up = wxGetKeyState(WXK_UP);
-	bool down = wxGetKeyState(WXK_DOWN);
+static int alignment_from_arrow_bits(int arrows) {
+	bool left = !!(arrows & ALIGN_ARROW_LEFT);
+	bool right = !!(arrows & ALIGN_ARROW_RIGHT);
+	bool up = !!(arrows & ALIGN_ARROW_UP);
+	bool down = !!(arrows & ALIGN_ARROW_DOWN);
 	int count = (left ? 1 : 0) + (right ? 1 : 0) + (up ? 1 : 0) + (down ? 1 : 0);
 
 	if (!count) return 0;
@@ -430,9 +456,16 @@ void FrameMain::OnStatusClear(wxTimerEvent &) {
 	SetStatusText("",1);
 }
 
-void FrameMain::HideAlignmentPicker() {
+void FrameMain::ResetAlignmentPickerState() {
 	AlignmentPickerTimer.Stop();
-	alignmentPickerSelection = 0;
+	alignmentPickerPreview = 0;
+	alignmentPickerSelected = 0;
+	alignmentPickerPendingArrows = 0;
+	alignmentPickerSettling = false;
+}
+
+void FrameMain::HideAlignmentPicker() {
+	ResetAlignmentPickerState();
 	if (!alignmentPicker) return;
 	alignmentPicker->Destroy();
 	alignmentPicker = nullptr;
@@ -440,6 +473,11 @@ void FrameMain::HideAlignmentPicker() {
 
 bool FrameMain::HandleAlignmentPickerKeyDown(wxKeyEvent &event) {
 	int key_code = event.GetKeyCode();
+	if (key_code == WXK_ESCAPE && alignmentPicker) {
+		HideAlignmentPicker();
+		return true;
+	}
+
 	bool ctrl_alt = event.ControlDown() && event.AltDown();
 	if (!ctrl_alt)
 		return false;
@@ -460,9 +498,18 @@ bool FrameMain::HandleAlignmentPickerKeyDown(wxKeyEvent &event) {
 		alignmentPicker->Show();
 	}
 
-	alignmentPickerSelection = alignment_from_arrow_state();
-	static_cast<AlignmentPickerPopup *>(alignmentPicker)->SetSelection(alignmentPickerSelection);
-	AlignmentPickerTimer.Start(25);
+	if (int arrow = arrow_bit_from_key(key_code)) {
+		if (!alignmentPickerSettling)
+			alignmentPickerPendingArrows = 0;
+		alignmentPickerPendingArrows |= current_arrow_bits() | arrow;
+		alignmentPickerPreview = alignment_from_arrow_bits(alignmentPickerPendingArrows);
+		static_cast<AlignmentPickerPopup *>(alignmentPicker)->SetSelection(alignmentPickerPreview);
+		alignmentPickerSettling = true;
+		AlignmentPickerTimer.Start(ALIGNMENT_PICKER_SETTLE_MS, wxTIMER_ONE_SHOT);
+	}
+	else if (!AlignmentPickerTimer.IsRunning()) {
+		AlignmentPickerTimer.Start(ALIGNMENT_PICKER_POLL_MS);
+	}
 	return true;
 }
 
@@ -472,16 +519,22 @@ void FrameMain::OnAlignmentPickerTimer(wxTimerEvent &) {
 		return;
 	}
 
+	if (alignmentPickerSettling) {
+		alignmentPickerSelected = alignment_from_arrow_bits(alignmentPickerPendingArrows);
+		alignmentPickerSettling = false;
+		if (alignmentPickerSelected)
+			static_cast<AlignmentPickerPopup *>(alignmentPicker)->SetSelection(alignmentPickerSelected);
+	}
+
 	if (!ctrl_alt_down()) {
-		int an = alignmentPickerSelection;
+		int an = alignmentPickerSelected ? alignmentPickerSelected : alignment_from_arrow_bits(alignmentPickerPendingArrows);
 		HideAlignmentPicker();
 		if (an)
 			cmd::call(agi::format("subtitle/set_alignment/an%d", an), context.get());
 		return;
 	}
 
-	alignmentPickerSelection = alignment_from_arrow_state();
-	static_cast<AlignmentPickerPopup *>(alignmentPicker)->SetSelection(alignmentPickerSelection);
+	AlignmentPickerTimer.Start(ALIGNMENT_PICKER_POLL_MS);
 }
 
 void FrameMain::OnAudioOpen(agi::AudioProvider *provider) {
