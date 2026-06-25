@@ -955,6 +955,40 @@ static int SafeInsertPosForEndpoint(int pos, const std::vector<OverrideBlockRang
 	return blocks[static_cast<size_t>(idx)].end;
 }
 
+enum class BoundaryInsertMode {
+	WrappedNewBlock,
+	InsideCurrentBlock,
+	BeforeCurrentBlockClose,
+	IntoPreviousAdjacentBlock
+};
+
+struct BoundaryInsertion {
+	BoundaryInsertMode mode = BoundaryInsertMode::WrappedNewBlock;
+	int pos = 0;
+};
+
+static bool LooksLikeOverrideBlock(const std::string& text, OverrideBlockRange const& block) {
+	return block.start >= 0 &&
+		block.start + 1 < static_cast<int>(text.size()) &&
+		text[block.start] == '{' &&
+		text[block.start + 1] == '\\';
+}
+
+static BoundaryInsertion GetStartBoundaryInsertion(const std::string& text, const std::vector<OverrideBlockRange>& blocks, int pos) {
+	pos = std::clamp(pos, 0, static_cast<int>(text.size()));
+
+	for (auto const& block : blocks) {
+		if (pos > block.start && pos < block.end)
+			return {BoundaryInsertMode::InsideCurrentBlock, pos};
+		if (pos == block.end)
+			return {BoundaryInsertMode::BeforeCurrentBlockClose, pos};
+		if (pos == block.end + 1 && LooksLikeOverrideBlock(text, block))
+			return {BoundaryInsertMode::IntoPreviousAdjacentBlock, block.end};
+	}
+
+	return {BoundaryInsertMode::WrappedNewBlock, pos};
+}
+
 struct TInsertionPoint {
 	bool valid = false;
 	bool replace = false;
@@ -1323,15 +1357,12 @@ static ColorWrapResult InsertTagPairAtSelection(
 		blocks = refresh_blocks(text);
 	};
 
-	int start_insert_pos = selection_start;
-	bool start_inside_block = false;
-	if (auto close = find_close(selection_start)) {
-		start_insert_pos = *close;
-		start_inside_block = true;
-	}
-	insert_text(start_insert_pos, start_tag, !start_inside_block);
+	auto start_insertion = GetStartBoundaryInsertion(text, blocks, selection_start);
+	int start_insert_pos = start_insertion.pos;
+	bool wrap_start = start_insertion.mode == BoundaryInsertMode::WrappedNewBlock;
+	insert_text(start_insert_pos, start_tag, wrap_start);
 	if (!start_tag.empty()) {
-		local_result.start_pos = start_insert_pos + (start_inside_block ? 0 : 1);
+		local_result.start_pos = start_insert_pos + (wrap_start ? 1 : 0);
 		local_result.start_len = start_tag.size();
 	}
 
@@ -1606,13 +1637,13 @@ static SelectionApplyResult InsertBoundaryTags(
 	int sel_end,
 	const std::string& start_content,
 	const std::string& end_content,
-	bool start_inside_override,
 	bool end_inside_override)
 {
 	SelectionApplyResult result;
 	std::string text = base_text;
 	int selection_start = sel_start;
 	int selection_end = sel_end;
+	auto blocks = FindOverrideBlocks(text);
 
 	if (!end_content.empty()) {
 		bool inside_block = end_inside_override || (selection_end < static_cast<int>(text.size()) && text[selection_end] == '}');
@@ -1628,12 +1659,9 @@ static SelectionApplyResult InsertBoundaryTags(
 	}
 
 	if (!start_content.empty()) {
-		bool inside_prev_block =
-			start_inside_override ||
-			(selection_start > 0 && text[selection_start - 1] == '}') ||
-			(selection_start < static_cast<int>(text.size()) && text[selection_start] == '}');
-		if (inside_prev_block) {
-			text.insert(selection_start, start_content);
+		auto start_insertion = GetStartBoundaryInsertion(text, blocks, selection_start);
+		if (start_insertion.mode != BoundaryInsertMode::WrappedNewBlock) {
+			text.insert(start_insertion.pos, start_content);
 			selection_start += static_cast<int>(start_content.size());
 			selection_end += static_cast<int>(start_content.size());
 		}
@@ -1825,10 +1853,9 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 		}
 		return false;
 	};
-	bool start_inside_block = inside_or_closing(apply_start);
 	bool end_inside_block = inside_or_closing(apply_end);
 
-	SelectionApplyResult wrapped = InsertBoundaryTags(text, apply_start, apply_end, start_content, end_content, start_inside_block, end_inside_block);
+	SelectionApplyResult wrapped = InsertBoundaryTags(text, apply_start, apply_end, start_content, end_content, end_inside_block);
 	wrapped.shift.start += apply_start - original_start;
 	wrapped.shift.end += apply_end - original_end;
 	return wrapped;
