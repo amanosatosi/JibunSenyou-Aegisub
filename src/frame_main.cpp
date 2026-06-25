@@ -60,17 +60,23 @@
 #include "video_display.h"
 
 #include <libaegisub/dispatch.h>
+#include <libaegisub/format.h>
 #include <libaegisub/log.h>
 #include <libaegisub/make_unique.h>
 
 #include <wx/dnd.h>
+#include <wx/dcbuffer.h>
 #include <wx/msgdlg.h>
+#include <wx/popupwin.h>
 #include <wx/sizer.h>
 #include <wx/statline.h>
 #include <wx/sysopt.h>
+#include <wx/settings.h>
+#include <wx/utils.h>
 
 enum {
-	ID_APP_TIMER_STATUSCLEAR = 12002
+	ID_APP_TIMER_STATUSCLEAR = 12002,
+	ID_ALIGNMENT_PICKER_TIMER
 };
 
 #ifdef WITH_STARTUPLOG
@@ -93,11 +99,102 @@ public:
 	}
 };
 
+class AlignmentPickerPopup final : public wxPopupWindow {
+	int selection = 0;
+
+public:
+	AlignmentPickerPopup(wxWindow *parent)
+	: wxPopupWindow(parent, wxBORDER_SIMPLE)
+	{
+		SetBackgroundStyle(wxBG_STYLE_PAINT);
+		SetClientSize(wxSize(96, 96));
+		Bind(wxEVT_PAINT, [=](wxPaintEvent &) {
+			wxAutoBufferedPaintDC dc(this);
+			dc.SetBackground(wxBrush(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW)));
+			dc.Clear();
+
+			static const int values[3][3] = {
+				{ 7, 8, 9 },
+				{ 4, 5, 6 },
+				{ 1, 2, 3 }
+			};
+
+			wxSize size = GetClientSize();
+			int cell_w = size.GetWidth() / 3;
+			int cell_h = size.GetHeight() / 3;
+
+			for (int row = 0; row < 3; ++row) {
+				for (int col = 0; col < 3; ++col) {
+					int value = values[row][col];
+					wxRect rect(col * cell_w, row * cell_h, cell_w, cell_h);
+					if (value == selection) {
+						dc.SetBrush(wxBrush(wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHT)));
+						dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_HIGHLIGHTTEXT));
+					}
+					else {
+						dc.SetBrush(wxBrush(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW)));
+						dc.SetTextForeground(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+					}
+					dc.SetPen(wxPen(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT)));
+					dc.DrawRectangle(rect);
+					dc.DrawLabel(wxString::Format("%d", value), rect, wxALIGN_CENTER);
+				}
+			}
+		});
+	}
+
+	void SetSelection(int value) {
+		if (selection == value) return;
+		selection = value;
+		Refresh();
+	}
+};
+
+static bool ctrl_alt_down() {
+	bool ctrl = wxGetKeyState(WXK_CONTROL);
+#ifdef WXK_RAW_CONTROL
+	ctrl = ctrl || wxGetKeyState(WXK_RAW_CONTROL);
+#endif
+	return ctrl && wxGetKeyState(WXK_ALT);
+}
+
+static bool is_arrow_key(int key_code) {
+	return key_code == WXK_LEFT || key_code == WXK_RIGHT || key_code == WXK_UP || key_code == WXK_DOWN;
+}
+
+static int alignment_from_number_key(int key_code) {
+	if (key_code >= '1' && key_code <= '9')
+		return key_code - '0';
+	if (key_code >= WXK_NUMPAD1 && key_code <= WXK_NUMPAD9)
+		return key_code - WXK_NUMPAD0;
+	return 0;
+}
+
+static int alignment_from_arrow_state() {
+	bool left = wxGetKeyState(WXK_LEFT);
+	bool right = wxGetKeyState(WXK_RIGHT);
+	bool up = wxGetKeyState(WXK_UP);
+	bool down = wxGetKeyState(WXK_DOWN);
+	int count = (left ? 1 : 0) + (right ? 1 : 0) + (up ? 1 : 0) + (down ? 1 : 0);
+
+	if (!count) return 0;
+	if (count >= 3 || (left && right) || (up && down)) return 5;
+	if (up && left) return 7;
+	if (up && right) return 9;
+	if (down && left) return 1;
+	if (down && right) return 3;
+	if (up) return 8;
+	if (down) return 2;
+	if (left) return 4;
+	return 6;
+}
+
 FrameMain::FrameMain()
 : wxFrame(nullptr, -1, "", wxDefaultPosition, wxSize(920,700), wxDEFAULT_FRAME_STYLE | wxCLIP_CHILDREN)
 , context(agi::make_unique<agi::Context>())
 {
 	StartupLog("Entering FrameMain constructor");
+	AlignmentPickerTimer.SetOwner(this, ID_ALIGNMENT_PICKER_TIMER);
 
 #ifdef __WXGTK__
 	// XXX HACK XXX
@@ -161,6 +258,7 @@ FrameMain::FrameMain()
 }
 
 FrameMain::~FrameMain () {
+	HideAlignmentPicker();
 	context->project->CloseAudio();
 	context->project->CloseVideo();
 
@@ -302,6 +400,7 @@ void FrameMain::StatusTimeout(wxString text,int ms) {
 
 BEGIN_EVENT_TABLE(FrameMain, wxFrame)
 	EVT_TIMER(ID_APP_TIMER_STATUSCLEAR, FrameMain::OnStatusClear)
+	EVT_TIMER(ID_ALIGNMENT_PICKER_TIMER, FrameMain::OnAlignmentPickerTimer)
 	EVT_CLOSE(FrameMain::OnCloseWindow)
 	EVT_CHAR_HOOK(FrameMain::OnKeyDown)
 	EVT_MOUSEWHEEL(FrameMain::OnMouseWheel)
@@ -331,6 +430,60 @@ void FrameMain::OnStatusClear(wxTimerEvent &) {
 	SetStatusText("",1);
 }
 
+void FrameMain::HideAlignmentPicker() {
+	AlignmentPickerTimer.Stop();
+	alignmentPickerSelection = 0;
+	if (!alignmentPicker) return;
+	alignmentPicker->Destroy();
+	alignmentPicker = nullptr;
+}
+
+bool FrameMain::HandleAlignmentPickerKeyDown(wxKeyEvent &event) {
+	int key_code = event.GetKeyCode();
+	bool ctrl_alt = event.ControlDown() && event.AltDown();
+	if (!ctrl_alt)
+		return false;
+
+	if (int an = alignment_from_number_key(key_code)) {
+		HideAlignmentPicker();
+		cmd::call(agi::format("subtitle/set_alignment/an%d", an), context.get());
+		return true;
+	}
+
+	if (!is_arrow_key(key_code) && key_code != WXK_CONTROL && key_code != WXK_ALT)
+		return false;
+
+	if (!alignmentPicker) {
+		alignmentPicker = new AlignmentPickerPopup(this);
+		wxPoint pos = wxGetMousePosition();
+		alignmentPicker->Move(pos + wxPoint(16, 16));
+		alignmentPicker->Show();
+	}
+
+	alignmentPickerSelection = alignment_from_arrow_state();
+	static_cast<AlignmentPickerPopup *>(alignmentPicker)->SetSelection(alignmentPickerSelection);
+	AlignmentPickerTimer.Start(25);
+	return true;
+}
+
+void FrameMain::OnAlignmentPickerTimer(wxTimerEvent &) {
+	if (!alignmentPicker) {
+		AlignmentPickerTimer.Stop();
+		return;
+	}
+
+	if (!ctrl_alt_down()) {
+		int an = alignmentPickerSelection;
+		HideAlignmentPicker();
+		if (an)
+			cmd::call(agi::format("subtitle/set_alignment/an%d", an), context.get());
+		return;
+	}
+
+	alignmentPickerSelection = alignment_from_arrow_state();
+	static_cast<AlignmentPickerPopup *>(alignmentPicker)->SetSelection(alignmentPickerSelection);
+}
+
 void FrameMain::OnAudioOpen(agi::AudioProvider *provider) {
 	if (provider)
 		SetDisplayMode(-1, 1);
@@ -344,6 +497,8 @@ void FrameMain::OnSubtitlesOpen() {
 }
 
 void FrameMain::OnKeyDown(wxKeyEvent &event) {
+	if (HandleAlignmentPickerKeyDown(event))
+		return;
 	hotkey::check("Main Frame", context.get(), event);
 }
 

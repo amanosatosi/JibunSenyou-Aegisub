@@ -51,6 +51,7 @@
 
 #include <libaegisub/address_of_adaptor.h>
 #include <libaegisub/charset_conv.h>
+#include <libaegisub/format.h>
 #include <libaegisub/make_unique.h>
 
 #include <boost/range/algorithm/copy.hpp>
@@ -117,6 +118,59 @@ struct validate_nonempty_selection_video_loaded : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
 	bool Validate(const agi::Context *c) override {
 		return c->project->VideoProvider() && !c->selectionController->GetSelectedSet().empty();
+	}
+};
+
+std::string set_line_alignment(std::string const& text, int an) {
+	std::string tag = agi::format("\\an%d", an);
+
+	if (text.empty() || text[0] != '{')
+		return "{" + tag + "}" + text;
+
+	auto block_end = text.find('}');
+	if (block_end == std::string::npos)
+		return "{" + tag + "}" + text;
+
+	for (size_t pos = 1; pos + 3 < block_end; ++pos) {
+		if (text[pos] == '\\' && text[pos + 1] == 'a' && text[pos + 2] == 'n' &&
+			text[pos + 3] >= '1' && text[pos + 3] <= '9')
+		{
+			auto ret = text;
+			ret.replace(pos, 4, tag);
+			return ret;
+		}
+	}
+
+	return "{" + tag + text.substr(1);
+}
+
+void SetSelectedLinesAlignment(agi::Context *c, int an) {
+	auto const& sel = c->selectionController->GetSelectedSet();
+	if (sel.empty()) return;
+
+	for (auto line : sel)
+		line->Text = set_line_alignment(line->Text.get(), an);
+
+	c->ass->Commit(_("set alignment"), AssFile::COMMIT_DIAG_TEXT, -1, sel.size() == 1 ? *sel.begin() : nullptr);
+}
+
+struct subtitle_set_alignment final : public validate_nonempty_selection {
+	int an;
+	std::string cmd_name;
+
+	subtitle_set_alignment(int an)
+	: an(an)
+	, cmd_name(agi::format("subtitle/set_alignment/an%d", an))
+	{
+	}
+
+	const char *name() const override { return cmd_name.c_str(); }
+	wxString StrMenu(const agi::Context *) const override { return wxString::Format(_("Set Alignment \\an%d"), an); }
+	wxString StrDisplay(const agi::Context *) const override { return wxString::Format(_("Set Alignment \\an%d"), an); }
+	wxString StrHelp() const override { return _("Set ASS alignment for selected lines"); }
+
+	void operator()(agi::Context *c) override {
+		SetSelectedLinesAlignment(c, an);
 	}
 };
 
@@ -551,6 +605,8 @@ namespace cmd {
 		reg(agi::make_unique<subtitle_attachment>());
 		reg(agi::make_unique<subtitle_find>());
 		reg(agi::make_unique<subtitle_find_next>());
+		for (int an = 1; an <= 9; ++an)
+			reg(agi::make_unique<subtitle_set_alignment>(an));
 		reg(agi::make_unique<subtitle_insert_after>());
 		reg(agi::make_unique<subtitle_insert_after_videotime>());
 		reg(agi::make_unique<subtitle_insert_before>());

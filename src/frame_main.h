@@ -35,6 +35,7 @@ class AegisubApp;
 class AsyncVideoProvider;
 class AudioBox;
 class VideoBox;
+class wxWindow;
 namespace agi { class AudioProvider; }
 namespace agi { struct Context; class OptionValue; }
 
@@ -53,11 +54,17 @@ class FrameMain : public wxFrame {
 	bool showAudio = true; ///< Is the audio display shown?
 	int fileLockWarnings = 0; // Satoshi: count how many times save hit a lock
 	wxTimer StatusClear;   ///< Status bar timeout timer
+	wxTimer AlignmentPickerTimer;
+	wxWindow *alignmentPicker = nullptr;
+	int alignmentPickerSelection = 0;
 
 	void InitContents();
 
 	void UpdateTitle();
 
+	bool HandleAlignmentPickerKeyDown(wxKeyEvent &event);
+	void HideAlignmentPicker();
+	void OnAlignmentPickerTimer(wxTimerEvent &event);
 	void OnKeyDown(wxKeyEvent &event);
 	void OnMouseWheel(wxMouseEvent &evt);
 

@@ -57,6 +57,28 @@ namespace {
 		{nullptr}
 	};
 
+	const char *added_hotkeys_alignment[][3] = {
+		{"subtitle/set_alignment/an1", "Default", "Ctrl-Alt-1"},
+		{"subtitle/set_alignment/an1", "Default", "Ctrl-Alt-KP_1"},
+		{"subtitle/set_alignment/an2", "Default", "Ctrl-Alt-2"},
+		{"subtitle/set_alignment/an2", "Default", "Ctrl-Alt-KP_2"},
+		{"subtitle/set_alignment/an3", "Default", "Ctrl-Alt-3"},
+		{"subtitle/set_alignment/an3", "Default", "Ctrl-Alt-KP_3"},
+		{"subtitle/set_alignment/an4", "Default", "Ctrl-Alt-4"},
+		{"subtitle/set_alignment/an4", "Default", "Ctrl-Alt-KP_4"},
+		{"subtitle/set_alignment/an5", "Default", "Ctrl-Alt-5"},
+		{"subtitle/set_alignment/an5", "Default", "Ctrl-Alt-KP_5"},
+		{"subtitle/set_alignment/an6", "Default", "Ctrl-Alt-6"},
+		{"subtitle/set_alignment/an6", "Default", "Ctrl-Alt-KP_6"},
+		{"subtitle/set_alignment/an7", "Default", "Ctrl-Alt-7"},
+		{"subtitle/set_alignment/an7", "Default", "Ctrl-Alt-KP_7"},
+		{"subtitle/set_alignment/an8", "Default", "Ctrl-Alt-8"},
+		{"subtitle/set_alignment/an8", "Default", "Ctrl-Alt-KP_8"},
+		{"subtitle/set_alignment/an9", "Default", "Ctrl-Alt-9"},
+		{"subtitle/set_alignment/an9", "Default", "Ctrl-Alt-KP_9"},
+		{nullptr}
+	};
+
 	void migrate_hotkeys(const char *added[][3]) {
 		auto hk_map = hotkey::inst->GetHotkeyMap();
 		bool changed = false;
@@ -104,6 +126,11 @@ void init() {
 	if (boost::find(migrations, "edit/line/duplicate/shift_back") == end(migrations)) {
 		migrate_hotkeys(added_hotkeys_shift_back);
 		migrations.emplace_back("edit/line/duplicate/shift_back");
+	}
+
+	if (boost::find(migrations, "subtitle/set_alignment") == end(migrations)) {
+		migrate_hotkeys(added_hotkeys_alignment);
+		migrations.emplace_back("subtitle/set_alignment");
 	}
 
 	if (boost::find(migrations, "duplicate -> split") == end(migrations)) {
