@@ -16,4 +16,7 @@ Tracking fixes and behavior changes made after `Toshi-ban V1.1`.
   - Linked files load/unload prompt now supports Esc as cancel/no.
   - Style import resolution mismatch prompt now supports Esc as cancel.
   - Files: `src/project.cpp`, `src/dialog_style_manager.cpp`
-
+- Added motion tracking via openCV.
+- Added Image2Text(OCR) via PaddleOCR.
+- Fixed a partial coloring bug where starting a selection immediately after an override block could inject incomplete color tags.
+- Added Alignment Picker, a quick way to set `\an1`–`\an9` alignment tags using Ctrl+Alt with arrow keys, number keys, or numpad keys. Opposite arrow keys set `\an5`.
