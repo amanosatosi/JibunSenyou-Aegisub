@@ -439,7 +439,7 @@ void AssKaraoke::AutoSplitJapaneseKana() {
 
 	std::vector<std::string> units;
 	using namespace boost::locale::boundary;
-	const ssegment_index characters(character, begin(source_text), end(source_text));
+	const ssegment_index characters(character, source_text.begin(), source_text.end());
 	for (auto chr : characters) {
 		std::string text = chr.str();
 		uint32_t cp = utf8_codepoint(text);
