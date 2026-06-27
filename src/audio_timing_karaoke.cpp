@@ -306,7 +306,8 @@ void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {
 	for (auto it = kara->begin(); it != kara->end(); ++it) {
 		if (it != kara->begin())
 			markers.emplace_back(it->start_time, &separator_pen, AudioMarker::Feet_None);
-		labels.push_back(AudioLabel{it->text.empty() ? wxS("rest") : to_wx(it->text), TimeRange(it->start_time, it->start_time + it->duration)});
+		wxString label_text = it->text.empty() ? wxString(wxS("rest")) : to_wx(it->text);
+		labels.push_back(AudioLabel{label_text, TimeRange(it->start_time, it->start_time + it->duration)});
 	}
 }
 
