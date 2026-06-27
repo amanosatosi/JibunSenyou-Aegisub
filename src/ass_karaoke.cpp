@@ -102,6 +102,8 @@ AssKaraoke::AssKaraoke(const AssDialogue *line, bool auto_split, bool normalize)
 
 void AssKaraoke::SetLine(const AssDialogue *line, bool auto_split, bool normalize) {
 	syls.clear();
+	line_start_time = line->Start;
+	line_end_time = line->End;
 	Syllable syl;
 	syl.start_time = line->Start;
 	syl.duration = 0;
@@ -432,8 +434,8 @@ void AssKaraoke::AutoSplitJapaneseKana() {
 
 	std::string source_text;
 	std::string tag_type = GetTagType();
-	int start_time = syls.front().start_time;
-	int end_time = syls.back().start_time + syls.back().duration;
+	int start_time = line_start_time;
+	int end_time = line_end_time;
 	for (auto const& syl : syls)
 		source_text += syl.text;
 
@@ -515,6 +517,8 @@ void AssKaraoke::SetStartTime(size_t syl_idx, int time) {
 
 void AssKaraoke::SetLineTimes(int start_time, int end_time) {
 	assert(end_time >= start_time);
+	line_start_time = start_time;
+	line_end_time = end_time;
 
 	size_t idx = 0;
 	// Chop off any portion of syllables starting before the new start_time

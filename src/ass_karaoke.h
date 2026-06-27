@@ -57,6 +57,8 @@ public:
 	};
 private:
 	std::vector<Syllable> syls;
+	int line_start_time = 0;
+	int line_end_time = 0;
 
 	bool no_announce = false;
 
