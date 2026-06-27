@@ -306,7 +306,7 @@ void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {
 	for (auto it = kara->begin(); it != kara->end(); ++it) {
 		if (it != kara->begin())
 			markers.emplace_back(it->start_time, &separator_pen, AudioMarker::Feet_None);
-		labels.push_back(AudioLabel{to_wx(it->text), TimeRange(it->start_time, it->start_time + it->duration)});
+		labels.push_back(AudioLabel{it->text.empty() ? wxS("rest") : to_wx(it->text), TimeRange(it->start_time, it->start_time + it->duration)});
 	}
 }
 
@@ -435,10 +435,16 @@ std::vector<AudioMarker*> AudioTimingControllerKaraoke::OnLeftClick(int ms, bool
 	TimeRange range(ms - sensitivity, ms + sensitivity);
 
 	size_t syl = distance(markers.begin(), lower_bound(markers.begin(), markers.end(), ms));
-	if (syl < markers.size() && range.contains(markers[syl]))
+	if (syl < markers.size() && range.contains(markers[syl])) {
+		if (spectrogram_timing)
+			cur_syl = syl;
 		return copy_ptrs<AudioMarker>(markers, syl, ctrl_down ? markers.size() : syl + 1);
-	if (syl > 0 && range.contains(markers[syl - 1]))
+	}
+	if (syl > 0 && range.contains(markers[syl - 1])) {
+		if (spectrogram_timing)
+			cur_syl = syl - 1;
 		return copy_ptrs<AudioMarker>(markers, syl - 1, ctrl_down ? markers.size() : syl);
+	}
 
 	if (spectrogram_timing && AssignSpectrogramBoundary(ms))
 		return {};

@@ -48,7 +48,6 @@
 #include <wx/panel.h>
 #include <wx/settings.h>
 #include <wx/sizer.h>
-#include <wx/tglbtn.h>
 
 template<class Container, class Value>
 static inline size_t last_lt_or_eq(Container const& c, Value const& v) {
@@ -77,16 +76,11 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 	accept_button->SetToolTip(_("Commit splits"));
 	accept_button->Bind(wxEVT_BUTTON, bind(&AudioKaraoke::AcceptSplit, this));
 
-	spectrogram_timing_button = new wxBitmapToggleButton(this, -1, GETIMAGE(kara_spectrogram_timing_16));
-	spectrogram_timing_button->SetToolTip(_("Assign karaoke timings from the spectrogram"));
-	spectrogram_timing_button->Bind(wxEVT_TOGGLEBUTTON, &AudioKaraoke::OnSpectrogramTimingButton, this);
-
 	split_area = new wxPanel(this);
 
 	wxSizer *main_sizer = new wxBoxSizer(wxHORIZONTAL);
 	main_sizer->Add(cancel_button);
 	main_sizer->Add(accept_button);
-	main_sizer->Add(spectrogram_timing_button);
 	main_sizer->Add(split_area, wxSizerFlags(1).Expand());
 	SetSizerAndFit(main_sizer);
 
@@ -105,7 +99,6 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 
 	accept_button->Enable(false);
 	cancel_button->Enable(false);
-	spectrogram_timing_button->Enable(false);
 	enabled = false;
 }
 
@@ -114,45 +107,72 @@ AudioKaraoke::~AudioKaraoke() {
 
 void AudioKaraoke::OnActiveLineChanged(AssDialogue *new_line) {
 	active_line = new_line;
-	if (enabled) {
+	if (enabled || ktiming_enabled) {
 		LoadFromLine();
-		split_area->Refresh(false);
+		if (enabled)
+			split_area->Refresh(false);
 	}
 }
 
 void AudioKaraoke::OnFileChanged(int type, const AssDialogue *changed) {
-	if (enabled && (type & AssFile::COMMIT_DIAG_FULL) && (!changed || changed == active_line)) {
+	if ((enabled || ktiming_enabled) && (type & AssFile::COMMIT_DIAG_FULL) && (!changed || changed == active_line)) {
 		LoadFromLine();
-		split_area->Refresh(false);
+		if (enabled)
+			split_area->Refresh(false);
 	}
 }
 
 void AudioKaraoke::OnAudioOpened(agi::AudioProvider *provider) {
-	if (provider)
-		SetEnabled(enabled);
+	if (provider) {
+		if (ktiming_enabled)
+			SetKTimingController();
+		else
+			SetEnabled(enabled);
+	}
 	else {
-		SetSpectrogramTimingEnabled(false);
-		spectrogram_timing_button->Enable(false);
+		ktiming_enabled = false;
 		c->audioController->SetTimingController(nullptr);
 	}
 }
 
 void AudioKaraoke::SetEnabled(bool en) {
+	if (en && ktiming_enabled)
+		SetKTimingEnabled(false);
+
 	enabled = en;
 
 	c->audioBox->ShowKaraokeBar(enabled);
 	if (enabled) {
 		LoadFromLine();
 		c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
-		if (auto timing = c->audioController->GetTimingController())
-			timing->SetSpectrogramKaraokeTiming(spectrogram_timing_enabled);
 		Refresh(false);
 	}
 	else {
-		SetSpectrogramTimingEnabled(false);
 		c->audioController->SetTimingController(CreateDialogueTimingController(c));
 	}
-	spectrogram_timing_button->Enable(enabled && !!c->project->AudioProvider());
+}
+
+void AudioKaraoke::SetKTimingController() {
+	LoadFromLine();
+	c->audioBox->ShowKaraokeBar(false);
+	c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
+	if (auto timing = c->audioController->GetTimingController())
+		timing->SetSpectrogramKaraokeTiming(true);
+}
+
+void AudioKaraoke::SetKTimingEnabled(bool en) {
+	if (ktiming_enabled == en) return;
+
+	if (en && enabled) {
+		enabled = false;
+		c->audioBox->ShowKaraokeBar(false);
+	}
+
+	ktiming_enabled = en;
+	if (ktiming_enabled && c->project->AudioProvider())
+		SetKTimingController();
+	else if (!enabled)
+		c->audioController->SetTimingController(CreateDialogueTimingController(c));
 }
 
 void AudioKaraoke::OnSize(wxSizeEvent &evt) {
@@ -330,21 +350,7 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 		return;
 	}
 
-	if (event.CmdDown()) {
-		size_t rest_pos = syl;
-		if (click_left && !click_right)
-			rest_pos = syl + 1;
-
-		if (rest_pos < kara->size() && kara->IsEmptySyllable(rest_pos))
-			kara->RemoveEmptySyllable(rest_pos);
-		else if (syl < kara->size() && kara->IsEmptySyllable(syl))
-			kara->RemoveEmptySyllable(syl);
-		else if (click_will_remove_split)
-			kara->InsertEmptySyllable(rest_pos);
-		else
-			return;
-	}
-	else if (click_will_remove_split)
+	if (click_will_remove_split)
 		kara->RemoveSplit(syl + (click_left && !click_right));
 	else {
 		// [Satoshi preserve timings on cut] Optionally preserve existing timings when splitting
@@ -462,7 +468,6 @@ void AudioKaraoke::SetDisplayText() {
 
 void AudioKaraoke::CancelSplit() {
 	LoadFromLine();
-	SetSpectrogramTimingEnabled(false);
 	split_area->Refresh(false);
 }
 
@@ -476,20 +481,26 @@ void AudioKaraoke::AcceptSplit() {
 	cancel_button->Enable(false);
 }
 
-void AudioKaraoke::SetSpectrogramTimingEnabled(bool enable) {
-	spectrogram_timing_enabled = enable && enabled;
-	if (spectrogram_timing_button)
-		spectrogram_timing_button->SetValue(spectrogram_timing_enabled);
-
-	if (auto timing = c->audioController->GetTimingController())
-		timing->SetSpectrogramKaraokeTiming(spectrogram_timing_enabled);
-}
-
-void AudioKaraoke::OnSpectrogramTimingButton(wxCommandEvent &) {
-	SetSpectrogramTimingEnabled(spectrogram_timing_button->GetValue());
-}
-
 void AudioKaraoke::SetTagType(std::string const& new_tag) {
 	kara->SetTagType(new_tag);
 	AcceptSplit();
+}
+
+void AudioKaraoke::AutoSplitJapaneseKana() {
+	if (!active_line)
+		active_line = c->selectionController->GetActiveLine();
+	if (!active_line) return;
+
+	kara->SetLine(active_line, false);
+	kara->AutoSplitJapaneseKana();
+	active_line->Text = kara->GetText();
+
+	file_changed.Block();
+	c->ass->Commit(_("auto split Japanese kana"), AssFile::COMMIT_DIAG_TEXT, -1, active_line);
+	file_changed.Unblock();
+
+	if (enabled || ktiming_enabled)
+		LoadFromLine();
+	if (enabled)
+		split_area->Refresh(false);
 }

@@ -90,6 +90,8 @@ public:
 	bool IsEmptySyllable(size_t syl_idx) const;
 	/// Rebuild syllable timings from ordered boundary positions
 	void SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce = true);
+	/// Recut the current text into Japanese kana timing slots
+	void AutoSplitJapaneseKana();
 	/// Set the start time of a syllable in ms
 	void SetStartTime(size_t syl_idx, int time);
 	/// Adjust the line's start and end times without shifting the syllables

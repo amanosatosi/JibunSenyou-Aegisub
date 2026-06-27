@@ -218,3 +218,51 @@ TEST(AssKaraoke, TimingBoundariesAssignEverySyllable) {
 
 	EXPECT_EQ("{\\ko12}a{\\ko17}b{\\ko21}c", kara.GetText());
 }
+
+TEST(AssKaraoke, AutoSplitJapaneseKana_BasicKana) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 600;
+	dia.Text = std::string(u8"あめにじんだ");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana();
+
+	EXPECT_EQ(std::string(u8"{\\k10}あ{\\k10}め{\\k10}に{\\k10}じ{\\k10}ん{\\k10}だ"), kara.GetText());
+}
+
+TEST(AssKaraoke, AutoSplitJapaneseKana_AttachesSmallKanaButNotSmallTsuOrLongVowel) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 700;
+	dia.Text = std::string(u8"ちゃっとスーパー");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana();
+
+	EXPECT_EQ(std::string(u8"{\\k10}ちゃ{\\k10}っ{\\k10}と{\\k10}ス{\\k10}ー{\\k10}パ{\\k10}ー"), kara.GetText());
+}
+
+TEST(AssKaraoke, AutoSplitJapaneseKana_ExplicitRestMarker) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 400;
+	dia.Text = std::string(u8"あめ||にじ");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana();
+
+	EXPECT_EQ(std::string(u8"{\\k8}あ{\\k8}め{\\k8}{\\k8}に{\\k8}じ"), kara.GetText());
+}
+
+TEST(AssKaraoke, AutoSplitJapaneseKana_AttachesPunctuation) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 300;
+	dia.Text = std::string(u8"あ、い。う");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana();
+
+	EXPECT_EQ(std::string(u8"{\\k10}あ、{\\k10}い。{\\k10}う"), kara.GetText());
+}

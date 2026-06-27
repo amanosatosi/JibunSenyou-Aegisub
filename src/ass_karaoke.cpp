@@ -25,6 +25,60 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/locale/boundary.hpp>
 #include <algorithm>
+#include <cctype>
+
+namespace {
+uint32_t utf8_codepoint(std::string const& chr) {
+	const unsigned char *s = reinterpret_cast<const unsigned char *>(chr.data());
+	if (chr.empty()) return 0;
+	if (s[0] < 0x80) return s[0];
+	if ((s[0] & 0xE0) == 0xC0 && chr.size() >= 2)
+		return ((s[0] & 0x1F) << 6) | (s[1] & 0x3F);
+	if ((s[0] & 0xF0) == 0xE0 && chr.size() >= 3)
+		return ((s[0] & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F);
+	if ((s[0] & 0xF8) == 0xF0 && chr.size() >= 4)
+		return ((s[0] & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+	return 0;
+}
+
+bool is_hiragana(uint32_t c) { return c >= 0x3040 && c <= 0x309F; }
+bool is_katakana(uint32_t c) { return c >= 0x30A0 && c <= 0x30FF; }
+bool is_halfwidth_katakana(uint32_t c) { return c >= 0xFF66 && c <= 0xFF9F; }
+bool is_kana(uint32_t c) { return is_hiragana(c) || is_katakana(c) || is_halfwidth_katakana(c); }
+bool is_combining_voicing_mark(uint32_t c) { return c == 0x3099 || c == 0x309A; }
+bool is_long_vowel_mark(uint32_t c) { return c == 0x30FC || c == 0xFF70; }
+bool is_small_tsu(uint32_t c) { return c == 0x3063 || c == 0x30C3 || c == 0xFF6F; }
+
+bool is_small_kana_modifier(uint32_t c) {
+	switch (c) {
+	case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049:
+	case 0x3083: case 0x3085: case 0x3087: case 0x308E:
+	case 0x30A1: case 0x30A3: case 0x30A5: case 0x30A7: case 0x30A9:
+	case 0x30E3: case 0x30E5: case 0x30E7: case 0x30EE:
+	case 0xFF67: case 0xFF68: case 0xFF69: case 0xFF6A: case 0xFF6B:
+	case 0xFF6C: case 0xFF6D: case 0xFF6E:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_space_cp(uint32_t c) {
+	return c == ' ' || c == '\t' || c == 0x3000;
+}
+
+bool is_ascii_punctuation(uint32_t c) {
+	return c < 0x80 && !std::isalnum(static_cast<unsigned char>(c)) && !is_space_cp(c);
+}
+
+bool is_japanese_punctuation(uint32_t c) {
+	return (c >= 0x3001 && c <= 0x303F) || c == 0xFF01 || c == 0xFF0C || c == 0xFF0E || c == 0xFF1F;
+}
+
+bool is_punctuation(uint32_t c) {
+	return is_ascii_punctuation(c) || is_japanese_punctuation(c);
+}
+} // namespace
 
 std::string AssKaraoke::Syllable::GetText(bool k_tag) const {
 	std::string ret;
@@ -371,6 +425,76 @@ void AssKaraoke::SetTimingBoundaries(int start_time, int end_time, std::vector<i
 	}
 
 	if (announce && !no_announce) AnnounceSyllablesChanged();
+}
+
+void AssKaraoke::AutoSplitJapaneseKana() {
+	if (syls.empty()) return;
+
+	std::string source_text;
+	std::string tag_type = GetTagType();
+	int start_time = syls.front().start_time;
+	int end_time = syls.back().start_time + syls.back().duration;
+	for (auto const& syl : syls)
+		source_text += syl.text;
+
+	std::vector<std::string> units;
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, begin(source_text), end(source_text));
+	for (auto chr : characters) {
+		std::string text = chr.str();
+		uint32_t cp = utf8_codepoint(text);
+
+		if (text == "|") {
+			if (!units.empty() && units.back() == "|") {
+				units.back().clear();
+				continue;
+			}
+			units.push_back(text);
+			continue;
+		}
+
+		if (is_combining_voicing_mark(cp) || is_small_kana_modifier(cp) || is_space_cp(cp) || is_punctuation(cp)) {
+			if (units.empty() || units.back().empty())
+				units.push_back(text);
+			else
+				units.back() += text;
+			continue;
+		}
+
+		if (is_small_tsu(cp) || is_long_vowel_mark(cp) || is_kana(cp)) {
+			units.push_back(text);
+			continue;
+		}
+
+		if (units.empty() || units.back().empty())
+			units.push_back(text);
+		else if (!is_kana(utf8_codepoint(units.back())) && !is_long_vowel_mark(utf8_codepoint(units.back())) && !is_small_tsu(utf8_codepoint(units.back())))
+			units.back() += text;
+		else
+			units.push_back(text);
+	}
+
+	units.erase(std::remove(units.begin(), units.end(), "|"), units.end());
+	if (units.empty())
+		units.push_back("");
+
+	syls.clear();
+	syls.reserve(units.size());
+	for (auto const& unit : units) {
+		Syllable syl;
+		syl.text = unit;
+		syl.tag_type = tag_type;
+		syls.push_back(syl);
+	}
+
+	std::vector<int> boundaries;
+	boundaries.reserve(syls.size() - 1);
+	int duration = std::max(0, end_time - start_time);
+	for (size_t i = 1; i < syls.size(); ++i)
+		boundaries.push_back((start_time + duration * static_cast<int>(i) / static_cast<int>(syls.size()) + 5) / 10 * 10);
+
+	SetTimingBoundaries(start_time, end_time, boundaries, false);
+	if (!no_announce) AnnounceSyllablesChanged();
 }
 
 void AssKaraoke::SetStartTime(size_t syl_idx, int time) {
