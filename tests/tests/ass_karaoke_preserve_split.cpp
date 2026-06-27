@@ -176,3 +176,45 @@ TEST(AssKaraoke, AddSplitPreserveTimes_AllowsSplittingEmptySyllables) {
 	ASSERT_EQ(3u, kara.size());
 	EXPECT_EQ("{\\k0}{\\k0}{\\k0}", kara.GetText());
 }
+
+TEST(AssKaraoke, EmptyRestSerializesWithoutPlaceholderText) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 600;
+	dia.Text = "{\\kf20}ab{\\kf40}cd";
+
+	AssKaraoke kara(&dia, false, false);
+	kara.InsertEmptySyllable(1);
+	ASSERT_EQ(3u, kara.size());
+	EXPECT_TRUE(kara.IsEmptySyllable(1));
+
+	kara.SetTimingBoundaries(0, 600, {200, 280}, false);
+	EXPECT_EQ("{\\kf20}ab{\\kf8}{\\kf32}cd", kara.GetText());
+}
+
+TEST(AssKaraoke, EmptyRestRemovalMergesDurationCleanly) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 600;
+	dia.Text = "{\\k20}ab{\\k8}{\\k32}cd";
+
+	AssKaraoke kara(&dia, false, false);
+	ASSERT_EQ(3u, kara.size());
+	ASSERT_TRUE(kara.IsEmptySyllable(1));
+
+	kara.RemoveEmptySyllable(1);
+	ASSERT_EQ(2u, kara.size());
+	EXPECT_EQ("{\\k28}ab{\\k32}cd", kara.GetText());
+}
+
+TEST(AssKaraoke, TimingBoundariesAssignEverySyllable) {
+	AssDialogue dia;
+	dia.Start = 1000;
+	dia.End = 1500;
+	dia.Text = "{\\ko10}a{\\ko10}b{\\ko30}c";
+
+	AssKaraoke kara(&dia, false, false);
+	kara.SetTimingBoundaries(1000, 1500, {1120, 1290}, false);
+
+	EXPECT_EQ("{\\ko12}a{\\ko17}b{\\ko21}c", kara.GetText());
+}

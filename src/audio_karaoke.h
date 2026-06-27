@@ -26,6 +26,7 @@
 
 class AssDialogue;
 class AssKaraoke;
+class wxBitmapToggleButton;
 class wxButton;
 namespace agi { class AudioProvider; }
 namespace agi { struct Context; }
@@ -106,9 +107,11 @@ class AudioKaraoke final : public wxWindow {
 	wxFont split_font; ///< Font used in the split/join interface
 
 	bool enabled = false; ///< Is karaoke mode enabled?
+	bool spectrogram_timing_enabled = false; ///< Is spectrogram timing assignment enabled?
 
 	wxButton *accept_button; ///< Accept pending splits button
 	wxButton *cancel_button; ///< Revert pending changes
+	wxBitmapToggleButton *spectrogram_timing_button; ///< Toggle spectrogram karaoke timing assignment
 
 	wxWindow *split_area; ///< The split/join window
 
@@ -133,6 +136,8 @@ class AudioKaraoke final : public wxWindow {
 	void CancelSplit();
 	/// Apply any pending split information to the syllable data and return to normal mode
 	void AcceptSplit();
+	void SetSpectrogramTimingEnabled(bool enabled);
+	void OnSpectrogramTimingButton(wxCommandEvent &evt);
 
 	void OnActiveLineChanged(AssDialogue *new_line);
 	void OnContextMenu(wxContextMenuEvent&);

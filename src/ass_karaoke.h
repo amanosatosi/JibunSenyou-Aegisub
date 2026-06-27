@@ -80,6 +80,16 @@ public:
 	void AddSplitPreserveTimes(size_t syl_idx, size_t pos);
 	/// Remove the split at the given index
 	void RemoveSplit(size_t syl_idx);
+	/// Insert an empty rest syllable before the given syllable index
+	void InsertEmptySyllable(size_t syl_idx);
+	/// Append an empty rest syllable to the end of the line
+	void AppendEmptySyllable(bool announce = true);
+	/// Remove an empty rest syllable
+	void RemoveEmptySyllable(size_t syl_idx);
+	/// Is the given syllable an empty rest?
+	bool IsEmptySyllable(size_t syl_idx) const;
+	/// Rebuild syllable timings from ordered boundary positions
+	void SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce = true);
 	/// Set the start time of a syllable in ms
 	void SetStartTime(size_t syl_idx, int time);
 	/// Adjust the line's start and end times without shifting the syllables

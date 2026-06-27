@@ -296,6 +296,11 @@ button/kara_split_cancel_24.png
 button/kara_split_cancel_32.png
 button/kara_split_cancel_48.png
 button/kara_split_cancel_64.png
+button/kara_spectrogram_timing_16.png
+button/kara_spectrogram_timing_24.png
+button/kara_spectrogram_timing_32.png
+button/kara_spectrogram_timing_48.png
+button/kara_spectrogram_timing_64.png
 button/kara_timing_copier_16.png
 button/kara_timing_copier_24.png
 button/kara_timing_copier_32.png
@@ -951,6 +956,11 @@ button_dark/kara_split_cancel_24.png
 button_dark/kara_split_cancel_32.png
 button_dark/kara_split_cancel_48.png
 button_dark/kara_split_cancel_64.png
+button_dark/kara_spectrogram_timing_16.png
+button_dark/kara_spectrogram_timing_24.png
+button_dark/kara_spectrogram_timing_32.png
+button_dark/kara_spectrogram_timing_48.png
+button_dark/kara_spectrogram_timing_64.png
 button_dark/kara_timing_copier_16.png
 button_dark/kara_timing_copier_24.png
 button_dark/kara_timing_copier_32.png

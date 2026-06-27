@@ -24,6 +24,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/locale/boundary.hpp>
+#include <algorithm>
 
 std::string AssKaraoke::Syllable::GetText(bool k_tag) const {
 	std::string ret;
@@ -301,6 +302,75 @@ void AssKaraoke::RemoveSplit(size_t syl_idx) {
 	syls.erase(syls.begin() + syl_idx);
 
 	if (!no_announce) AnnounceSyllablesChanged();
+}
+
+void AssKaraoke::InsertEmptySyllable(size_t syl_idx) {
+	if (syls.empty()) return;
+
+	syl_idx = std::min(syl_idx, syls.size());
+	Syllable rest;
+	if (syl_idx > 0) {
+		auto const& prev = syls[syl_idx - 1];
+		rest.start_time = prev.start_time + prev.duration;
+		rest.tag_type = prev.tag_type;
+	}
+	else {
+		rest.start_time = syls.front().start_time;
+		rest.tag_type = syls.front().tag_type;
+	}
+	rest.duration = 0;
+
+	syls.insert(syls.begin() + syl_idx, rest);
+
+	if (!no_announce) AnnounceSyllablesChanged();
+}
+
+void AssKaraoke::AppendEmptySyllable(bool announce) {
+	if (syls.empty()) return;
+
+	Syllable rest;
+	auto const& prev = syls.back();
+	rest.start_time = prev.start_time + prev.duration;
+	rest.duration = 0;
+	rest.tag_type = prev.tag_type;
+	syls.push_back(rest);
+
+	if (announce && !no_announce) AnnounceSyllablesChanged();
+}
+
+void AssKaraoke::RemoveEmptySyllable(size_t syl_idx) {
+	if (!IsEmptySyllable(syl_idx) || syls.size() <= 1) return;
+
+	if (syl_idx == 0) {
+		syls[1].start_time = syls[0].start_time;
+		syls[1].duration += syls[0].duration;
+	}
+	else
+		syls[syl_idx - 1].duration += syls[syl_idx].duration;
+
+	syls.erase(syls.begin() + syl_idx);
+
+	if (!no_announce) AnnounceSyllablesChanged();
+}
+
+bool AssKaraoke::IsEmptySyllable(size_t syl_idx) const {
+	if (syl_idx >= syls.size()) return false;
+	return syls[syl_idx].text.empty() && syls[syl_idx].ovr_tags.empty();
+}
+
+void AssKaraoke::SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce) {
+	if (syls.empty()) return;
+
+	int prev = start_time;
+	for (size_t i = 0; i < syls.size(); ++i) {
+		int next = i < boundaries.size() ? boundaries[i] : end_time;
+		next = std::max(prev, std::min(next, end_time));
+		syls[i].start_time = prev;
+		syls[i].duration = next - prev;
+		prev = next;
+	}
+
+	if (announce && !no_announce) AnnounceSyllablesChanged();
 }
 
 void AssKaraoke::SetStartTime(size_t syl_idx, int time) {
