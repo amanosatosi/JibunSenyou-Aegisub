@@ -550,11 +550,15 @@ struct audio_karaoke_ktiming final : public validate_audio_open {
 	STR_HELP("Time karaoke syllables directly from the spectrogram")
 	CMD_TYPE(COMMAND_VALIDATE | COMMAND_TOGGLE)
 
+	bool Validate(const agi::Context *c) override {
+		return c->karaoke && validate_audio_open::Validate(c) && c->selectionController->GetActiveLine() != nullptr;
+	}
 	bool IsActive(const agi::Context *c) override {
-		return c->karaoke->IsKTimingEnabled();
+		return c->karaoke && c->karaoke->IsKTimingEnabled();
 	}
 	void operator()(agi::Context *c) override {
-		c->karaoke->SetKTimingEnabled(!c->karaoke->IsKTimingEnabled());
+		if (c->karaoke)
+			c->karaoke->SetKTimingEnabled(!c->karaoke->IsKTimingEnabled());
 	}
 };
 
@@ -566,10 +570,11 @@ struct audio_karaoke_auto_cut_kana final : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
 
 	bool Validate(const agi::Context *c) override {
-		return c->selectionController->GetActiveLine() != nullptr;
+		return c->karaoke && c->selectionController->GetActiveLine() != nullptr;
 	}
 	void operator()(agi::Context *c) override {
-		c->karaoke->AutoSplitJapaneseKana();
+		if (c->karaoke)
+			c->karaoke->AutoSplitJapaneseKana();
 	}
 };
 

@@ -159,8 +159,8 @@ AudioTimingControllerKaraoke::AudioTimingControllerKaraoke(agi::Context *c, AssK
 , c(c)
 , active_line(c->selectionController->GetActiveLine())
 , kara(kara)
-, start_marker(active_line->Start, &start_pen, AudioMarker::Feet_Right)
-, end_marker(active_line->End, &end_pen, AudioMarker::Feet_Left)
+, start_marker(active_line ? active_line->Start : 0, &start_pen, AudioMarker::Feet_Right)
+, end_marker(active_line ? active_line->End : 0, &end_pen, AudioMarker::Feet_Left)
 , keyframes_provider(c, "Audio/Display/Draw/Keyframes in Karaoke Mode")
 , video_position_provider(c)
 {
@@ -260,6 +260,23 @@ void AudioTimingControllerKaraoke::Commit() {
 
 void AudioTimingControllerKaraoke::Revert() {
 	active_line = c->selectionController->GetActiveLine();
+	if (!active_line) {
+		cur_syl = 0;
+		spectrogram_next_boundary = 0;
+		spectrogram_boundaries.clear();
+		commit_id = -1;
+		pending_changes = false;
+		start_marker.Move(0);
+		end_marker.Move(0);
+		markers.clear();
+		labels.clear();
+		AnnounceUpdatedPrimaryRange();
+		AnnounceUpdatedStyleRanges();
+		AnnounceMarkerMoved();
+		AnnounceLabelChanged();
+		return;
+	}
+
 	reloading_karaoke = true;
 	kara->SetLine(active_line, true);
 	reloading_karaoke = false;
@@ -284,6 +301,10 @@ void AudioTimingControllerKaraoke::OnKaraokeSyllablesChanged() {
 	if (reloading_karaoke) return;
 
 	active_line = c->selectionController->GetActiveLine();
+	if (!active_line) {
+		Revert();
+		return;
+	}
 	start_marker.Move(active_line->Start);
 	end_marker.Move(active_line->End);
 	cur_syl = std::min(cur_syl, kara->size() ? kara->size() - 1 : 0);

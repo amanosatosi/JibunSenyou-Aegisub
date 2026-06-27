@@ -153,6 +153,13 @@ void AudioKaraoke::SetEnabled(bool en) {
 }
 
 void AudioKaraoke::SetKTimingController() {
+	active_line = c->selectionController->GetActiveLine();
+	if (!active_line) {
+		ktiming_enabled = false;
+		c->audioController->SetTimingController(CreateDialogueTimingController(c));
+		return;
+	}
+
 	LoadFromLine();
 	c->audioBox->ShowKaraokeBar(false);
 	c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
@@ -162,6 +169,7 @@ void AudioKaraoke::SetKTimingController() {
 
 void AudioKaraoke::SetKTimingEnabled(bool en) {
 	if (ktiming_enabled == en) return;
+	if (en && !c->selectionController->GetActiveLine()) return;
 
 	if (en && enabled) {
 		enabled = false;
@@ -293,6 +301,7 @@ void AudioKaraoke::OnContextMenu(wxContextMenuEvent&) {
 
 void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 	if (!enabled) return;
+	if (!active_line || syl_start_points.empty()) return;
 
 	mouse_pos = event.GetX();
 
@@ -391,6 +400,18 @@ void AudioKaraoke::OnScrollTimer(wxTimerEvent&) {
 void AudioKaraoke::LoadFromLine() {
 	scroll_x = 0;
 	scroll_timer.Stop();
+	if (!active_line)
+		active_line = c->selectionController->GetActiveLine();
+	if (!active_line) {
+		spaced_text.clear();
+		char_to_byte.clear();
+		syl_start_points.clear();
+		syl_lines.clear();
+		RenderText();
+		accept_button->Enable(false);
+		cancel_button->Enable(false);
+		return;
+	}
 	kara->SetLine(active_line, true);
 	SetDisplayText();
 	accept_button->Enable(kara->GetText() != active_line->Text);
