@@ -574,8 +574,8 @@ struct audio_karaoke_auto_cut_kana final : public Command {
 	}
 	void operator()(agi::Context *c) override {
 		if (c->karaoke) {
-			c->karaoke->AutoSplitJapaneseKana();
 			c->karaoke->SetKTimingEnabled(true);
+			c->karaoke->AutoSplitJapaneseKana(false);
 		}
 	}
 };

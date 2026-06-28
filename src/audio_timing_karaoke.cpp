@@ -254,7 +254,14 @@ void AudioTimingControllerKaraoke::DoCommit() {
 }
 
 void AudioTimingControllerKaraoke::Commit() {
-	if (!auto_commit && pending_changes)
+	if (spectrogram_timing) {
+		if (kara->size() > 1 && spectrogram_next_boundary < kara->size() - 1)
+			return;
+		if (kara->size() == 1)
+			kara->SetTimingBoundaries(start_marker, end_marker, {}, false);
+	}
+
+	if ((spectrogram_timing || !auto_commit) && pending_changes)
 		DoCommit();
 }
 
@@ -278,7 +285,9 @@ void AudioTimingControllerKaraoke::Revert() {
 	}
 
 	reloading_karaoke = true;
-	kara->SetLine(active_line, true);
+	kara->SetLine(active_line, !spectrogram_timing, !spectrogram_timing);
+	if (spectrogram_timing)
+		kara->ClearTiming();
 	reloading_karaoke = false;
 
 	cur_syl = 0;
@@ -310,6 +319,8 @@ void AudioTimingControllerKaraoke::OnKaraokeSyllablesChanged() {
 	cur_syl = std::min(cur_syl, kara->size() ? kara->size() - 1 : 0);
 	spectrogram_next_boundary = 0;
 	spectrogram_boundaries.clear();
+	if (spectrogram_timing)
+		kara->ClearTiming();
 	RebuildMarkersAndLabels();
 	AnnounceUpdatedPrimaryRange();
 	AnnounceUpdatedStyleRanges();
@@ -346,18 +357,8 @@ bool AudioTimingControllerKaraoke::AssignSpectrogramBoundary(int ms) {
 	int end_time = end_marker.GetPosition();
 	int position = (ms + 5) / 10 * 10;
 
-	if (spectrogram_next_boundary >= syl_count - 1) {
-		int prev = spectrogram_boundaries.empty() ? start_marker.GetPosition() : spectrogram_boundaries.back();
-		if (position <= prev || position > end_time - 10)
-			return false;
-		position = mid(prev + 10, position, end_time - 10);
-
-		kara->AppendEmptySyllable(false);
-		spectrogram_boundaries.push_back(position);
-		ApplyBoundaryVector(spectrogram_boundaries, syl_count);
-		++spectrogram_next_boundary;
-		return true;
-	}
+	if (spectrogram_next_boundary >= syl_count - 1)
+		return false;
 
 	int prev = spectrogram_next_boundary == 0 ? start_marker.GetPosition() : spectrogram_boundaries[spectrogram_next_boundary - 1];
 	size_t slots_after = syl_count - spectrogram_next_boundary - 1;
@@ -549,6 +550,9 @@ void AudioTimingControllerKaraoke::SetSpectrogramKaraokeTiming(bool enabled) {
 	spectrogram_timing = enabled;
 	spectrogram_next_boundary = 0;
 	spectrogram_boundaries.clear();
+
+	if (spectrogram_timing && active_line)
+		Revert();
 
 	AnnounceUpdatedPrimaryRange();
 	AnnounceUpdatedStyleRanges();

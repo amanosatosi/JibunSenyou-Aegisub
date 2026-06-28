@@ -165,5 +165,5 @@ public:
 	/// Enable or disable dedicated k-timing mode
 	void SetKTimingEnabled(bool enable);
 	/// Auto-split the active line into Japanese kana k-timing slots
-	void AutoSplitJapaneseKana();
+	void AutoSplitJapaneseKana(bool commit = true);
 };

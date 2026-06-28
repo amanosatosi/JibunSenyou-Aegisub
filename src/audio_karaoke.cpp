@@ -286,7 +286,7 @@ void AudioKaraoke::AddMenuItem(wxMenu &menu, std::string const& tag, wxString co
 }
 
 void AudioKaraoke::OnContextMenu(wxContextMenuEvent&) {
-	if (!enabled && !ktiming_enabled) return;
+	if (!enabled) return;
 
 	wxMenu context_menu(_("Karaoke tag"));
 	std::string type = kara->GetTagType();
@@ -375,7 +375,7 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 	}
 
 	SetDisplayText();
-	accept_button->Enable(true);
+	accept_button->Enable(!ktiming_enabled);
 	cancel_button->Enable(true);
 	split_area->Refresh(false);
 }
@@ -411,9 +411,9 @@ void AudioKaraoke::LoadFromLine() {
 		cancel_button->Enable(false);
 		return;
 	}
-	kara->SetLine(active_line, true);
+	kara->SetLine(active_line, !ktiming_enabled, !ktiming_enabled);
 	SetDisplayText();
-	accept_button->Enable(kara->GetText() != active_line->Text);
+	accept_button->Enable(!ktiming_enabled && kara->GetText() != active_line->Text);
 	cancel_button->Enable(false);
 }
 
@@ -487,11 +487,25 @@ void AudioKaraoke::SetDisplayText() {
 }
 
 void AudioKaraoke::CancelSplit() {
+	if (ktiming_enabled) {
+		if (auto timing = c->audioController->GetTimingController())
+			timing->Revert();
+		LoadFromLine();
+		split_area->Refresh(false);
+		return;
+	}
+
 	LoadFromLine();
 	split_area->Refresh(false);
 }
 
 void AudioKaraoke::AcceptSplit() {
+	if (ktiming_enabled) {
+		if (auto timing = c->audioController->GetTimingController())
+			timing->Commit();
+		return;
+	}
+
 	active_line->Text = kara->GetText();
 	file_changed.Block();
 	c->ass->Commit(_("karaoke split"), AssFile::COMMIT_DIAG_TEXT);
@@ -506,21 +520,29 @@ void AudioKaraoke::SetTagType(std::string const& new_tag) {
 	AcceptSplit();
 }
 
-void AudioKaraoke::AutoSplitJapaneseKana() {
+void AudioKaraoke::AutoSplitJapaneseKana(bool commit) {
 	if (!active_line)
 		active_line = c->selectionController->GetActiveLine();
 	if (!active_line) return;
 
-	kara->SetLine(active_line, false);
-	kara->AutoSplitJapaneseKana();
-	active_line->Text = kara->GetText();
+	kara->SetLine(active_line, false, commit);
+	kara->AutoSplitJapaneseKana(commit);
 
-	file_changed.Block();
-	c->ass->Commit(_("auto split Japanese kana"), AssFile::COMMIT_DIAG_TEXT, -1, active_line);
-	file_changed.Unblock();
+	if (commit) {
+		active_line->Text = kara->GetText();
 
-	if (enabled || ktiming_enabled)
+		file_changed.Block();
+		c->ass->Commit(_("auto split Japanese kana"), AssFile::COMMIT_DIAG_TEXT, -1, active_line);
+		file_changed.Unblock();
+	}
+
+	if (commit && (enabled || ktiming_enabled))
 		LoadFromLine();
+	else if (!commit && ktiming_enabled) {
+		SetDisplayText();
+		accept_button->Enable(false);
+		cancel_button->Enable(true);
+	}
 	if (enabled || ktiming_enabled)
 		split_area->Refresh(false);
 }

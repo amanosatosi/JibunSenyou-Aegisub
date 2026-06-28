@@ -429,7 +429,14 @@ void AssKaraoke::SetTimingBoundaries(int start_time, int end_time, std::vector<i
 	if (announce && !no_announce) AnnounceSyllablesChanged();
 }
 
-void AssKaraoke::AutoSplitJapaneseKana() {
+void AssKaraoke::ClearTiming() {
+	for (auto& syl : syls) {
+		syl.start_time = line_start_time;
+		syl.duration = 0;
+	}
+}
+
+void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings) {
 	if (syls.empty()) return;
 
 	std::string source_text;
@@ -486,16 +493,22 @@ void AssKaraoke::AutoSplitJapaneseKana() {
 		Syllable syl;
 		syl.text = unit;
 		syl.tag_type = tag_type;
+		syl.start_time = start_time;
 		syls.push_back(syl);
 	}
 
-	std::vector<int> boundaries;
-	boundaries.reserve(syls.size() - 1);
-	int duration = std::max(0, end_time - start_time);
-	for (size_t i = 1; i < syls.size(); ++i)
-		boundaries.push_back((start_time + duration * static_cast<int>(i) / static_cast<int>(syls.size()) + 5) / 10 * 10);
+	if (distribute_timings) {
+		std::vector<int> boundaries;
+		boundaries.reserve(syls.size() - 1);
+		int duration = std::max(0, end_time - start_time);
+		for (size_t i = 1; i < syls.size(); ++i)
+			boundaries.push_back((start_time + duration * static_cast<int>(i) / static_cast<int>(syls.size()) + 5) / 10 * 10);
 
-	SetTimingBoundaries(start_time, end_time, boundaries, false);
+		SetTimingBoundaries(start_time, end_time, boundaries, false);
+	}
+	else
+		ClearTiming();
+
 	if (!no_announce) AnnounceSyllablesChanged();
 }
 
