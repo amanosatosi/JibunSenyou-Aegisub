@@ -41,6 +41,8 @@
 
 #include <algorithm>
 #include <boost/range/algorithm/transform.hpp>
+#include <exception>
+#include <utility>
 #include <vector>
 
 #include <wx/button.h>
@@ -239,7 +241,19 @@ void DialogAutomation::OnAdd(wxCommandEvent &)
 			continue;
 		}
 
-		local_manager->Add(Automation4::ScriptFactory::CreateFromFile(fnpath, true));
+		try {
+			if (auto script = Automation4::ScriptFactory::CreateFromFile(fnpath, true))
+				local_manager->Add(std::move(script));
+		}
+		catch (agi::Exception const& e) {
+			wxLogError(_("Failed to load Automation script '%s':\n%s"), fname, to_wx(e.GetMessage()));
+		}
+		catch (std::exception const& e) {
+			wxLogError(_("Failed to load Automation script '%s':\n%s"), fname, to_wx(e.what()));
+		}
+		catch (...) {
+			wxLogError(_("Failed to load Automation script '%s':\nUnknown error"), fname);
+		}
 	}
 }
 
