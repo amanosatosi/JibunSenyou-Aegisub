@@ -24,7 +24,8 @@
         "audio/opt/spectrum",
         "app/toggle/global_hotkeys",
         "",
-        "audio/karaoke"
+        "audio/karaoke",
+        "audio/karaoke/ktiming"
     ],
     "main" : [
         "subtitle/new",

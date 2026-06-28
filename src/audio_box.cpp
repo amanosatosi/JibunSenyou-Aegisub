@@ -37,13 +37,10 @@
 #include "audio_karaoke.h"
 #include "audio_timing.h"
 #include "options.h"
-#include "project.h"
-#include "selection_controller.h"
 #include "toggle_bitmap.h"
 #include "utils.h"
 
 #include <cmath>
-#include <wx/button.h>
 #include <wx/panel.h>
 #include <wx/slider.h>
 #include <wx/scrolbar.h>
@@ -106,16 +103,7 @@ AudioBox::AudioBox(wxWindow *parent, agi::Context *context)
 	auto MainSizer = new wxBoxSizer(wxVERTICAL);
 	MainSizer->Add(TopSizer,1,wxEXPAND|wxALL,3);
 
-	auto AudioToolbarSizer = new wxBoxSizer(wxHORIZONTAL);
-	AudioToolbarSizer->Add(toolbar::GetToolbar(panel, "audio", context, "Audio"), 1, wxEXPAND);
-	auto ktiming_btn = new wxButton(panel, -1, _("K-Timing"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-	ktiming_btn->SetToolTip(_("Time karaoke syllables directly from the spectrogram"));
-	ktiming_btn->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) {
-		if (context->karaoke && context->project->AudioProvider() && context->selectionController->GetActiveLine())
-			context->karaoke->SetKTimingEnabled(!context->karaoke->IsKTimingEnabled());
-	});
-	AudioToolbarSizer->Add(ktiming_btn, 0, wxLEFT | wxEXPAND, 3);
-	MainSizer->Add(AudioToolbarSizer,0,wxEXPAND|wxLEFT|wxRIGHT,3);
+	MainSizer->Add(toolbar::GetToolbar(panel, "audio", context, "Audio"),0,wxEXPAND|wxLEFT|wxRIGHT,3);
 	MainSizer->Add(context->karaoke,0,wxEXPAND|wxALL,3);
 	MainSizer->Show(context->karaoke, false);
 	panel->SetSizer(MainSizer);
@@ -176,7 +164,7 @@ void AudioBox::OnSashDrag(wxSashEvent &event) {
 
 	// Karaoke mode is always disabled when the audio box is first opened, so
 	// the initial height shouldn't include it
-	if (context->karaoke->IsEnabled())
+	if (context->karaoke->IsEnabled() || context->karaoke->IsKTimingEnabled())
 		new_height -= context->karaoke->GetSize().GetHeight() + 6;
 
 	OPT_SET("Audio/Display Height")->SetInt(new_height);

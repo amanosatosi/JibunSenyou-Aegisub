@@ -544,6 +544,7 @@ struct audio_karaoke final : public Command {
 
 struct audio_karaoke_ktiming final : public validate_audio_open {
 	CMD_NAME("audio/karaoke/ktiming")
+	CMD_ICON(kara_spectrogram_timing)
 	STR_MENU("K-Timing Mode")
 	STR_DISP("K-Timing Mode")
 	STR_HELP("Time karaoke syllables directly from the spectrogram")
@@ -572,8 +573,10 @@ struct audio_karaoke_auto_cut_kana final : public Command {
 		return c->karaoke && c->selectionController->GetActiveLine() != nullptr;
 	}
 	void operator()(agi::Context *c) override {
-		if (c->karaoke)
+		if (c->karaoke) {
 			c->karaoke->AutoSplitJapaneseKana();
+			c->karaoke->SetKTimingEnabled(true);
+		}
 	}
 };
 

@@ -109,16 +109,14 @@ void AudioKaraoke::OnActiveLineChanged(AssDialogue *new_line) {
 	active_line = new_line;
 	if (enabled || ktiming_enabled) {
 		LoadFromLine();
-		if (enabled)
-			split_area->Refresh(false);
+		split_area->Refresh(false);
 	}
 }
 
 void AudioKaraoke::OnFileChanged(int type, const AssDialogue *changed) {
 	if ((enabled || ktiming_enabled) && (type & AssFile::COMMIT_DIAG_FULL) && (!changed || changed == active_line)) {
 		LoadFromLine();
-		if (enabled)
-			split_area->Refresh(false);
+		split_area->Refresh(false);
 	}
 }
 
@@ -161,26 +159,27 @@ void AudioKaraoke::SetKTimingController() {
 	}
 
 	LoadFromLine();
-	c->audioBox->ShowKaraokeBar(false);
+	c->audioBox->ShowKaraokeBar(true);
 	c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
 	if (auto timing = c->audioController->GetTimingController())
 		timing->SetSpectrogramKaraokeTiming(true);
+	Refresh(false);
 }
 
 void AudioKaraoke::SetKTimingEnabled(bool en) {
 	if (ktiming_enabled == en) return;
 	if (en && !c->selectionController->GetActiveLine()) return;
 
-	if (en && enabled) {
+	if (en && enabled)
 		enabled = false;
-		c->audioBox->ShowKaraokeBar(false);
-	}
 
 	ktiming_enabled = en;
 	if (ktiming_enabled && c->project->AudioProvider())
 		SetKTimingController();
-	else if (!enabled)
+	else if (!enabled) {
+		c->audioBox->ShowKaraokeBar(false);
 		c->audioController->SetTimingController(CreateDialogueTimingController(c));
+	}
 }
 
 void AudioKaraoke::OnSize(wxSizeEvent &evt) {
@@ -287,7 +286,7 @@ void AudioKaraoke::AddMenuItem(wxMenu &menu, std::string const& tag, wxString co
 }
 
 void AudioKaraoke::OnContextMenu(wxContextMenuEvent&) {
-	if (!enabled) return;
+	if (!enabled && !ktiming_enabled) return;
 
 	wxMenu context_menu(_("Karaoke tag"));
 	std::string type = kara->GetTagType();
@@ -300,7 +299,7 @@ void AudioKaraoke::OnContextMenu(wxContextMenuEvent&) {
 }
 
 void AudioKaraoke::OnMouse(wxMouseEvent &event) {
-	if (!enabled) return;
+	if (!enabled && !ktiming_enabled) return;
 	if (!active_line || syl_start_points.empty()) return;
 
 	mouse_pos = event.GetX();
@@ -522,6 +521,6 @@ void AudioKaraoke::AutoSplitJapaneseKana() {
 
 	if (enabled || ktiming_enabled)
 		LoadFromLine();
-	if (enabled)
+	if (enabled || ktiming_enabled)
 		split_area->Refresh(false);
 }
