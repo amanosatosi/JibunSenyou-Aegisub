@@ -103,7 +103,13 @@ AudioBox::AudioBox(wxWindow *parent, agi::Context *context)
 	// Main sizer
 	auto MainSizer = new wxBoxSizer(wxVERTICAL);
 	MainSizer->Add(TopSizer,1,wxEXPAND|wxALL,3);
-	MainSizer->Add(toolbar::GetToolbar(panel, "audio", context, "Audio"),0,wxEXPAND|wxLEFT|wxRIGHT,3);
+
+	auto AudioToolbarSizer = new wxBoxSizer(wxHORIZONTAL);
+	AudioToolbarSizer->Add(toolbar::GetToolbar(panel, "audio", context, "Audio"), 1, wxEXPAND);
+	auto ktiming_btn = new ToggleBitmap(panel, context, "audio/karaoke/ktiming", 16, "Audio", wxSize(22, -1));
+	ktiming_btn->SetMaxSize(wxDefaultSize);
+	AudioToolbarSizer->Add(ktiming_btn, 0, wxLEFT | wxEXPAND, 3);
+	MainSizer->Add(AudioToolbarSizer,0,wxEXPAND|wxLEFT|wxRIGHT,3);
 	MainSizer->Add(context->karaoke,0,wxEXPAND|wxALL,3);
 	MainSizer->Show(context->karaoke, false);
 	panel->SetSizer(MainSizer);
