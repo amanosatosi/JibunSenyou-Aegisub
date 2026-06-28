@@ -88,6 +88,10 @@ function Assert-FileHash {
 	}
 }
 
+. (Join-Path $SourceRoot "tools\apply-git-patch.ps1")
+
+$DepCtrlPatchDir = Join-Path $SourceRoot "tools\patches\dependencycontrol"
+
 # DepCtrl
 if (!(Test-Path DependencyControl)) {
 	git clone https://github.com/TypesettingTools/DependencyControl.git
@@ -95,6 +99,7 @@ if (!(Test-Path DependencyControl)) {
 	git checkout v0.6.3-alpha
 	Set-Location $DepsDir
 }
+Apply-GitPatch -RepoDir (Join-Path $DepsDir "DependencyControl") -PatchPath (Join-Path $DepCtrlPatchDir "0001-windows-unicode-long-paths.patch")
 
 # YUtils
 if (!(Test-Path YUtils)) {

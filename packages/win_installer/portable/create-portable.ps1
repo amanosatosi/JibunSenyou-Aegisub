@@ -34,6 +34,8 @@ $InstallerDir = Join-Path $BuildRoot "install"
 $InstallerDepsDir = Join-Path $BuildRoot "installer-deps"
 $PortableOutputDir = Join-Path $BuildRoot "aegisub-portable"
 
+. (Join-Path $SourceRoot "tools\apply-git-patch.ps1")
+
 
 Write-Output Goto building dir
 Set-Location $BuildRoot
@@ -87,6 +89,12 @@ else {
 Write-Output 'Copying - automation'
 Copy-New-Items "$InstallerDir\share\aegisub\automation\*"  "$PortableOutputDir\automation\"  -Recurse
 Write-Output 'Copying - automation\DEPCTRL'
+$DepCtrlDir = Join-Path $InstallerDepsDir "DependencyControl"
+if (!(Test-Path $DepCtrlDir)) {
+    throw "DependencyControl installer dependency was not found at $DepCtrlDir. Run the installer dependency setup first."
+}
+$DepCtrlPatchDir = Join-Path $SourceRoot "tools\patches\dependencycontrol"
+Apply-GitPatch -RepoDir $DepCtrlDir -PatchPath (Join-Path $DepCtrlPatchDir "0001-windows-unicode-long-paths.patch")
 Copy-New-Items "$InstallerDepsDir\DependencyControl\modules\*"  "$PortableOutputDir\automation\include\l0\"  -Recurse
 Copy-New-Items "$InstallerDepsDir\DependencyControl\macros\*"  "$PortableOutputDir\automation\autoload\"  -Recurse
 Copy-New-Item $InstallerDepsDir\Yutils\src\Yutils.lua  $PortableOutputDir\automation\include
