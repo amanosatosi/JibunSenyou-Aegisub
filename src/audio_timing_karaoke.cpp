@@ -159,8 +159,8 @@ AudioTimingControllerKaraoke::AudioTimingControllerKaraoke(agi::Context *c, AssK
 , c(c)
 , active_line(c->selectionController->GetActiveLine())
 , kara(kara)
-, start_marker(active_line ? active_line->Start : 0, &start_pen, AudioMarker::Feet_Right)
-, end_marker(active_line ? active_line->End : 0, &end_pen, AudioMarker::Feet_Left)
+, start_marker(active_line ? static_cast<int>(active_line->Start) : 0, &start_pen, AudioMarker::Feet_Right)
+, end_marker(active_line ? static_cast<int>(active_line->End) : 0, &end_pen, AudioMarker::Feet_Left)
 , keyframes_provider(c, "Audio/Display/Draw/Keyframes in Karaoke Mode")
 , video_position_provider(c)
 {
