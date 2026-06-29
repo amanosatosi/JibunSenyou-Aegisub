@@ -27,6 +27,7 @@
 class AssDialogue;
 class AssKaraoke;
 class wxButton;
+class wxToggleButton;
 namespace agi { class AudioProvider; }
 namespace agi { struct Context; }
 
@@ -110,7 +111,7 @@ class AudioKaraoke final : public wxWindow {
 
 	wxButton *accept_button; ///< Accept pending splits button
 	wxButton *cancel_button; ///< Revert pending changes
-	wxButton *auto_cut_button; ///< Populate K-Timing slots automatically
+	wxToggleButton *auto_cut_button; ///< Toggle automatic K-Timing slot cutting
 
 	wxWindow *split_area; ///< The split/join window
 
@@ -136,6 +137,7 @@ class AudioKaraoke final : public wxWindow {
 	/// Apply any pending split information to the syllable data and return to normal mode
 	void AcceptSplit();
 	void AutoCutKTiming();
+	void ApplyKTimingAutoCutIfNeeded();
 	void UpdateAutoCutButton();
 	void SetKTimingController();
 
@@ -167,6 +169,8 @@ public:
 	void SetEnabled(bool enable);
 	/// Enable or disable dedicated k-timing mode
 	void SetKTimingEnabled(bool enable);
+	/// Enable or disable automatic K-Timing slot cutting for this window
+	void SetKTimingAutoCutEnabled(bool enable);
 	/// Auto-split the active line into Japanese kana k-timing slots
 	void AutoSplitJapaneseKana(bool commit = true, bool spaces_as_slots = false, bool song_sane = false);
 };

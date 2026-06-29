@@ -43,8 +43,9 @@ uint32_t utf8_codepoint(std::string const& chr) {
 
 bool is_hiragana(uint32_t c) { return c >= 0x3040 && c <= 0x309F; }
 bool is_katakana(uint32_t c) { return c >= 0x30A0 && c <= 0x30FF; }
+bool is_katakana_phonetic_extension(uint32_t c) { return c >= 0x31F0 && c <= 0x31FF; }
 bool is_halfwidth_katakana(uint32_t c) { return c >= 0xFF66 && c <= 0xFF9F; }
-bool is_kana(uint32_t c) { return is_hiragana(c) || is_katakana(c) || is_halfwidth_katakana(c); }
+bool is_kana(uint32_t c) { return is_hiragana(c) || is_katakana(c) || is_katakana_phonetic_extension(c) || is_halfwidth_katakana(c); }
 bool is_combining_voicing_mark(uint32_t c) { return c == 0x3099 || c == 0x309A; }
 bool is_long_vowel_mark(uint32_t c) { return c == 0x30FC || c == 0xFF70; }
 bool is_small_tsu(uint32_t c) { return c == 0x3063 || c == 0x30C3 || c == 0xFF6F; }
@@ -76,6 +77,10 @@ bool is_cjk_ideograph(uint32_t c) {
 	       (c >= 0x4E00 && c <= 0x9FFF) ||
 	       (c >= 0xF900 && c <= 0xFAFF) ||
 	       (c >= 0x20000 && c <= 0x2EBEF);
+}
+
+bool is_japanese_text_cp(uint32_t c) {
+	return is_kana(c) || is_cjk_ideograph(c);
 }
 
 bool is_roman_text(uint32_t c) {
@@ -164,6 +169,7 @@ AssKaraoke::AssKaraoke(const AssDialogue *line, bool auto_split, bool normalize)
 
 void AssKaraoke::SetLine(const AssDialogue *line, bool auto_split, bool normalize) {
 	syls.clear();
+	has_karaoke_tags = false;
 	line_start_time = line->Start;
 	line_end_time = line->End;
 	Syllable syl;
@@ -227,6 +233,7 @@ void AssKaraoke::ParseSyllables(const AssDialogue *line, Syllable &syl) {
 			bool in_tag = false;
 			for (auto& tag : ovr->Tags) {
 				if (tag.IsValid() && boost::istarts_with(tag.Name, "\\k")) {
+					has_karaoke_tags = true;
 					if (in_tag) {
 						syl.ovr_tags[syl.text.size()] += "}";
 						in_tag = false;
@@ -538,7 +545,7 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 			continue;
 		}
 
-		if (is_repeat_marker(cp)) {
+		if (song_sane && is_repeat_marker(cp)) {
 			units.push_back(text);
 			continue;
 		}
@@ -569,7 +576,7 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 			continue;
 		}
 
-		if (is_cjk_ideograph(cp)) {
+		if (song_sane && is_cjk_ideograph(cp)) {
 			units.push_back(text);
 			continue;
 		}
@@ -577,8 +584,12 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		if (!is_fallback_run(cp)) {
 			if (units.empty() || units.back().empty())
 				units.push_back(text);
-			else
+			else if (song_sane)
 				units.back() += text;
+			else if (!is_kana(last_codepoint(units.back())) && !is_long_vowel_mark(last_codepoint(units.back())) && !is_small_tsu(last_codepoint(units.back())))
+				units.back() += text;
+			else
+				units.push_back(text);
 			continue;
 		}
 
@@ -594,6 +605,7 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 	if (units.empty())
 		units.push_back("");
 
+	has_karaoke_tags = false;
 	syls.clear();
 	syls.reserve(units.size());
 	for (auto const& unit : units) {
@@ -617,6 +629,101 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		ClearTiming();
 
 	if (!no_announce) AnnounceSyllablesChanged();
+}
+
+void AssKaraoke::AutoSplitWords(bool distribute_timings) {
+	if (syls.empty()) return;
+
+	std::string source_text;
+	std::string tag_type = GetTagType();
+	int start_time = line_start_time;
+	int end_time = line_end_time;
+	for (auto const& syl : syls)
+		source_text += syl.text;
+
+	std::vector<std::string> units;
+	std::string current;
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, source_text.begin(), source_text.end());
+	for (auto chr : characters) {
+		std::string text = chr.str();
+		uint32_t cp = utf8_codepoint(text);
+
+		if (text == "|") {
+			if (!current.empty()) {
+				units.push_back(current);
+				current.clear();
+			}
+			if (!units.empty() && units.back() == "|") {
+				units.back().clear();
+				continue;
+			}
+			units.push_back(text);
+			continue;
+		}
+
+		if (is_repeat_marker(cp)) {
+			if (!current.empty()) {
+				units.push_back(current);
+				current.clear();
+			}
+			units.push_back(text);
+			continue;
+		}
+
+		if (is_space_cp(cp)) {
+			if (!current.empty()) {
+				units.push_back(current);
+				current.clear();
+			}
+			continue;
+		}
+
+		current += text;
+	}
+	if (!current.empty())
+		units.push_back(current);
+
+	units.erase(std::remove(units.begin(), units.end(), "|"), units.end());
+	if (units.empty())
+		units.push_back("");
+
+	has_karaoke_tags = false;
+	syls.clear();
+	syls.reserve(units.size());
+	for (auto const& unit : units) {
+		Syllable syl;
+		syl.text = unit;
+		syl.tag_type = tag_type;
+		syl.start_time = start_time;
+		syls.push_back(syl);
+	}
+
+	if (distribute_timings) {
+		std::vector<int> boundaries;
+		boundaries.reserve(syls.size() - 1);
+		int duration = std::max(0, end_time - start_time);
+		for (size_t i = 1; i < syls.size(); ++i)
+			boundaries.push_back((start_time + duration * static_cast<int>(i) / static_cast<int>(syls.size()) + 5) / 10 * 10);
+
+		SetTimingBoundaries(start_time, end_time, boundaries, false);
+	}
+	else
+		ClearTiming();
+
+	if (!no_announce) AnnounceSyllablesChanged();
+}
+
+bool AssKaraoke::ContainsJapaneseText() const {
+	using namespace boost::locale::boundary;
+	for (auto const& syl : syls) {
+		const ssegment_index characters(character, syl.text.begin(), syl.text.end());
+		for (auto chr : characters) {
+			if (is_japanese_text_cp(utf8_codepoint(chr.str())))
+				return true;
+		}
+	}
+	return false;
 }
 
 void AssKaraoke::SetStartTime(size_t syl_idx, int time) {

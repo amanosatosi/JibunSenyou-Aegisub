@@ -120,6 +120,7 @@ class AudioTimingControllerKaraoke final : public AudioTimingController {
 	void AnnounceChanges(int syl);
 	void RebuildMarkersAndLabels();
 	void OnKaraokeSyllablesChanged();
+	void ResetSpectrogramBoundaryStateFromKaraoke();
 	void ApplyBoundaryVector(std::vector<int> const& boundaries, int selected_syl);
 	bool AssignSpectrogramBoundary(int ms);
 
@@ -299,13 +300,17 @@ void AudioTimingControllerKaraoke::Revert() {
 
 	reloading_karaoke = true;
 	kara->SetLine(active_line, !spectrogram_timing, !spectrogram_timing);
+	if (spectrogram_timing && kara->HasKaraokeTags())
+		kara->SetLine(active_line, false, true);
 	if (spectrogram_timing)
-		kara->ClearTiming();
+		ResetSpectrogramBoundaryStateFromKaraoke();
+	else {
+		spectrogram_next_boundary = 0;
+		spectrogram_boundaries.clear();
+	}
 	reloading_karaoke = false;
 
 	cur_syl = 0;
-	spectrogram_next_boundary = 0;
-	spectrogram_boundaries.clear();
 	commit_id = -1;
 	pending_changes = false;
 
@@ -330,15 +335,33 @@ void AudioTimingControllerKaraoke::OnKaraokeSyllablesChanged() {
 	start_marker.Move(active_line->Start);
 	end_marker.Move(active_line->End);
 	cur_syl = std::min(cur_syl, kara->size() ? kara->size() - 1 : 0);
-	spectrogram_next_boundary = 0;
-	spectrogram_boundaries.clear();
 	if (spectrogram_timing)
-		kara->ClearTiming();
+		ResetSpectrogramBoundaryStateFromKaraoke();
+	else {
+		spectrogram_next_boundary = 0;
+		spectrogram_boundaries.clear();
+	}
 	RebuildMarkersAndLabels();
 	AnnounceUpdatedPrimaryRange();
 	AnnounceUpdatedStyleRanges();
 	AnnounceMarkerMoved();
 	AnnounceLabelChanged();
+}
+
+void AudioTimingControllerKaraoke::ResetSpectrogramBoundaryStateFromKaraoke() {
+	spectrogram_boundaries.clear();
+
+	if (!kara->HasKaraokeTags()) {
+		spectrogram_next_boundary = 0;
+		kara->ClearTiming();
+		return;
+	}
+
+	for (auto it = kara->begin(); it != kara->end(); ++it) {
+		if (it != kara->begin())
+			spectrogram_boundaries.push_back(it->start_time);
+	}
+	spectrogram_next_boundary = spectrogram_boundaries.size();
 }
 
 void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {

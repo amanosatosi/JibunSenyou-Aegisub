@@ -59,6 +59,7 @@ private:
 	std::vector<Syllable> syls;
 	int line_start_time = 0;
 	int line_end_time = 0;
+	bool has_karaoke_tags = false;
 
 	bool no_announce = false;
 
@@ -92,12 +93,18 @@ public:
 	bool IsEmptySyllable(size_t syl_idx) const;
 	/// Is the given syllable a literal whitespace slot?
 	bool IsWhitespaceSyllable(size_t syl_idx) const;
+	/// Did the parsed line contain explicit karaoke timing tags?
+	bool HasKaraokeTags() const { return has_karaoke_tags; }
 	/// Rebuild syllable timings from ordered boundary positions
 	void SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce = true);
 	/// Clear all syllable timing while preserving the current slot text/order
 	void ClearTiming();
 	/// Recut the current text into Japanese kana timing slots
 	void AutoSplitJapaneseKana(bool distribute_timings = true, bool spaces_as_slots = false, bool song_sane = false);
+	/// Recut the current text into space-separated word timing slots
+	void AutoSplitWords(bool distribute_timings = true);
+	/// Does the current stripped text contain kana or CJK ideographs?
+	bool ContainsJapaneseText() const;
 	/// Set the start time of a syllable in ms
 	void SetStartTime(size_t syl_idx, int time);
 	/// Adjust the line's start and end times without shifting the syllables
