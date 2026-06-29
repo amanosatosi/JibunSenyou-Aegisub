@@ -266,3 +266,75 @@ TEST(AssKaraoke, AutoSplitJapaneseKana_AttachesPunctuation) {
 
 	EXPECT_EQ(std::string(u8"{\\k10}あ、{\\k10}い。{\\k10}う"), kara.GetText());
 }
+
+TEST(AssKaraoke, ToshikiAutoSplit_AttachesBracketsDirectionally) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 300;
+	dia.Text = std::string(u8"(まちょっと)");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana(true, true, true);
+
+	EXPECT_EQ(std::string(u8"{\\k10}(ま{\\k10}ちょっ{\\k10}と)"), kara.GetText());
+}
+
+TEST(AssKaraoke, ToshikiAutoSplit_BracketsDoNotAbsorbRepeatMarkers) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 600;
+	dia.Text = std::string(u8"(心##焦がす)");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana(true, true, true);
+
+	EXPECT_EQ(std::string(u8"{\\k10}(心{\\k10}#{\\k10}#{\\k10}焦{\\k10}が{\\k10}す)"), kara.GetText());
+}
+
+TEST(AssKaraoke, ToshikiAutoSplit_BracketsRespectHardBoundaries) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 400;
+	dia.Text = std::string(u8"( #あ");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana(true, true, true);
+
+	EXPECT_EQ(std::string(u8"{\\k10}({\\k10} {\\k10}#{\\k10}あ"), kara.GetText());
+}
+
+TEST(AssKaraoke, ToshikiAutoSplit_BracketsDoNotAbsorbRestMarkers) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 500;
+	dia.Text = std::string(u8"(あめ||にじ)");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana(true, true, true);
+
+	EXPECT_EQ(std::string(u8"{\\k10}(あ{\\k10}め{\\k10}{\\k10}に{\\k10}じ)"), kara.GetText());
+}
+
+TEST(AssKaraoke, ToshikiAutoSplit_ClosingBracketDoesNotAttachToSpaceSlot) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 300;
+	dia.Text = std::string(u8"あ )");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana(true, true, true);
+
+	EXPECT_EQ(std::string(u8"{\\k10}あ{\\k10} {\\k10})"), kara.GetText());
+}
+
+TEST(AssKaraoke, ToshikiAutoSplit_AttachesJapaneseQuotes) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 200;
+	dia.Text = std::string(u8"「スーパー」");
+
+	AssKaraoke kara(&dia, false, false);
+	kara.AutoSplitJapaneseKana(true, true, true);
+
+	EXPECT_EQ(std::string(u8"{\\k10}「スー{\\k10}パー」"), kara.GetText());
+}

@@ -72,6 +72,81 @@ bool is_repeat_marker(uint32_t c) {
 	return c == '#' || c == 0xFF03;
 }
 
+bool is_opening_bracket(uint32_t c) {
+	switch (c) {
+	case '(':
+	case '[':
+	case '<':
+	case 0x2018: // left single quotation mark
+	case 0x201C: // left double quotation mark
+	case 0x3008: // left angle bracket
+	case 0x300A: // left double angle bracket
+	case 0x300C: // left corner bracket
+	case 0x300E: // left white corner bracket
+	case 0x3010: // left black lenticular bracket
+	case 0x3014: // left tortoise shell bracket
+	case 0x3016: // left white lenticular bracket
+	case 0x3018: // left white tortoise shell bracket
+	case 0x301A: // left white square bracket
+	case 0x301D: // reversed double prime quotation mark
+	case 0xFF08: // fullwidth left parenthesis
+	case 0xFF3B: // fullwidth left square bracket
+	case 0xFF5B: // fullwidth left curly bracket
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_closing_bracket(uint32_t c) {
+	switch (c) {
+	case ')':
+	case ']':
+	case '>':
+	case 0x2019: // right single quotation mark
+	case 0x201D: // right double quotation mark
+	case 0x3009: // right angle bracket
+	case 0x300B: // right double angle bracket
+	case 0x300D: // right corner bracket
+	case 0x300F: // right white corner bracket
+	case 0x3011: // right black lenticular bracket
+	case 0x3015: // right tortoise shell bracket
+	case 0x3017: // right white lenticular bracket
+	case 0x3019: // right white tortoise shell bracket
+	case 0x301B: // right white square bracket
+	case 0x301E: // double prime quotation mark
+	case 0x301F: // low double prime quotation mark
+	case 0xFF09: // fullwidth right parenthesis
+	case 0xFF3D: // fullwidth right square bracket
+	case 0xFF5D: // fullwidth right curly bracket
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_repeat_marker_unit(std::string const& text) {
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, text.begin(), text.end());
+	auto it = characters.begin();
+	if (it == characters.end())
+		return false;
+	bool repeat = is_repeat_marker(utf8_codepoint(it->str()));
+	++it;
+	return repeat && it == characters.end();
+}
+
+bool is_space_unit(std::string const& text) {
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, text.begin(), text.end());
+	auto it = characters.begin();
+	if (it == characters.end())
+		return false;
+	bool space = is_space_cp(utf8_codepoint(it->str()));
+	++it;
+	return space && it == characters.end();
+}
+
 bool is_cjk_ideograph(uint32_t c) {
 	return (c >= 0x3400 && c <= 0x4DBF) ||
 	       (c >= 0x4E00 && c <= 0x9FFF) ||
@@ -579,6 +654,24 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		source_text += syl.text;
 
 	std::vector<std::string> units;
+	std::string pending_prefix;
+	auto prefixed_unit = [&pending_prefix](std::string const& unit) {
+		if (pending_prefix.empty())
+			return unit;
+		std::string ret = pending_prefix + unit;
+		pending_prefix.clear();
+		return ret;
+	};
+	auto push_lyric_unit = [&units, &prefixed_unit](std::string const& unit) {
+		units.push_back(prefixed_unit(unit));
+	};
+	auto flush_pending_prefix = [&units, &pending_prefix]() {
+		if (pending_prefix.empty())
+			return;
+		units.push_back(pending_prefix);
+		pending_prefix.clear();
+	};
+
 	using namespace boost::locale::boundary;
 	const ssegment_index characters(character, source_text.begin(), source_text.end());
 	for (auto chr : characters) {
@@ -586,6 +679,7 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		uint32_t cp = utf8_codepoint(text);
 
 		if (text == "|") {
+			flush_pending_prefix();
 			if (!units.empty() && units.back() == "|") {
 				units.back().clear();
 				continue;
@@ -595,11 +689,31 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		}
 
 		if (song_sane && is_repeat_marker(cp)) {
+			flush_pending_prefix();
 			units.push_back(text);
 			continue;
 		}
 
+		if (song_sane && is_opening_bracket(cp)) {
+			pending_prefix += text;
+			continue;
+		}
+
+		if (song_sane && is_closing_bracket(cp)) {
+			if (!pending_prefix.empty()) {
+				pending_prefix += text;
+			}
+			else if (units.empty() || units.back().empty() || is_repeat_marker_unit(units.back()) || is_space_unit(units.back())) {
+				units.push_back(text);
+			}
+			else {
+				units.back() += text;
+			}
+			continue;
+		}
+
 		if (is_space_cp(cp)) {
+			flush_pending_prefix();
 			if (spaces_as_slots)
 				units.push_back(text);
 			else if (units.empty() || units.back().empty())
@@ -610,7 +724,9 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		}
 
 		if (is_combining_voicing_mark(cp) || is_small_kana_modifier(cp) || is_punctuation(cp)) {
-			if (units.empty() || units.back().empty())
+			if (!pending_prefix.empty())
+				push_lyric_unit(text);
+			else if (units.empty() || units.back().empty())
 				units.push_back(text);
 			else
 				units.back() += text;
@@ -618,20 +734,22 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 		}
 
 		if (is_kana_unit_starter(cp)) {
-			if (song_sane && !units.empty() && !units.back().empty() && attaches_in_song_sane_mode(units.back(), cp))
+			if (song_sane && pending_prefix.empty() && !units.empty() && !units.back().empty() && attaches_in_song_sane_mode(units.back(), cp))
 				units.back() += text;
 			else
-				units.push_back(text);
+				push_lyric_unit(text);
 			continue;
 		}
 
 		if (song_sane && is_cjk_ideograph(cp)) {
-			units.push_back(text);
+			push_lyric_unit(text);
 			continue;
 		}
 
 		if (!is_fallback_run(cp)) {
-			if (units.empty() || units.back().empty())
+			if (!pending_prefix.empty())
+				push_lyric_unit(text);
+			else if (units.empty() || units.back().empty())
 				units.push_back(text);
 			else if (song_sane)
 				units.back() += text;
@@ -642,13 +760,17 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 			continue;
 		}
 
-		if (units.empty() || units.back().empty())
+		if (!pending_prefix.empty())
+			push_lyric_unit(text);
+		else if (units.empty() || units.back().empty())
 			units.push_back(text);
 		else if (is_fallback_run(utf8_codepoint(units.back())))
 			units.back() += text;
 		else
 			units.push_back(text);
 	}
+	if (!pending_prefix.empty())
+		units.push_back(pending_prefix);
 
 	units.erase(std::remove(units.begin(), units.end(), "|"), units.end());
 	if (units.empty())
