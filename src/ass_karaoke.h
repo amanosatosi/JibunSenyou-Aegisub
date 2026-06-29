@@ -81,7 +81,7 @@ public:
 	/// Add a split before character pos in syllable syl_idx, preserving existing timings
 	/// [Satoshi preserve timings on cut]
 	void AddSplitPreserveTimes(size_t syl_idx, size_t pos);
-	/// Add a New K-Timing split while preserving existing timing and giving the new slot 0 duration
+	/// Add a Toshiki K-Timing split while preserving existing timing and giving the new slot 0 duration
 	void AddSplitKTiming(size_t syl_idx, size_t pos);
 	/// Remove the split at the given index
 	void RemoveSplit(size_t syl_idx);

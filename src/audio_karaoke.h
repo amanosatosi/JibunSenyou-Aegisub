@@ -111,7 +111,7 @@ class AudioKaraoke final : public wxWindow {
 
 	wxButton *accept_button; ///< Accept pending splits button
 	wxButton *cancel_button; ///< Revert pending changes
-	wxToggleButton *auto_cut_button; ///< Toggle automatic K-Timing slot cutting
+	wxToggleButton *auto_cut_button; ///< Toggle automatic Toshiki K-Timing slot cutting
 
 	wxWindow *split_area; ///< The split/join window
 
@@ -169,7 +169,7 @@ public:
 	void SetEnabled(bool enable);
 	/// Enable or disable dedicated k-timing mode
 	void SetKTimingEnabled(bool enable);
-	/// Enable or disable automatic K-Timing slot cutting for this window
+	/// Enable or disable automatic Toshiki K-Timing slot cutting for this window
 	void SetKTimingAutoCutEnabled(bool enable);
 	/// Auto-split the active line into Japanese kana k-timing slots
 	void AutoSplitJapaneseKana(bool commit = true, bool spaces_as_slots = false, bool song_sane = false);

@@ -55,7 +55,7 @@
 		"Karaoke" : {
 			"Font Face" : "",
 			"Font Size" : 9,
-			"K Timing Auto Cut" : "Default",
+			"Toshiki K Timing Auto Cut" : "Default",
 			"Preserve Timings on Cut" : true
 		},
 		"Lead" : {

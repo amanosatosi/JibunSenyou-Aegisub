@@ -215,7 +215,7 @@
         { "command" : "audio/view/spectrum" },
         { "command" : "audio/view/waveform" },
         {},
-        { "command" : "audio/karaoke/ktiming" },
+        { "command" : "audio/karaoke/toshiki_ktiming" },
         { "command" : "audio/karaoke/auto_cut_kana" },
         { "command" : "audio/open/blank" },
         { "command" : "audio/open/noise" }

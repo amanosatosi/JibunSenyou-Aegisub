@@ -542,12 +542,12 @@ struct audio_karaoke final : public Command {
 	}
 };
 
-struct audio_karaoke_ktiming final : public validate_audio_open {
-	CMD_NAME("audio/karaoke/ktiming")
+struct audio_karaoke_toshiki_ktiming final : public validate_audio_open {
+	CMD_NAME("audio/karaoke/toshiki_ktiming")
 	CMD_ICON(kara_spectrogram_timing)
-	STR_MENU("K-Timing Mode")
-	STR_DISP("K-Timing Mode")
-	STR_HELP("Time karaoke syllables directly from the spectrogram")
+	STR_MENU("Toshiki K-Timing Mode")
+	STR_DISP("Toshiki K-Timing Mode")
+	STR_HELP("Spectrogram-based karaoke timing with slot previews")
 	CMD_TYPE(COMMAND_VALIDATE | COMMAND_TOGGLE)
 
 	bool Validate(const agi::Context *c) override {
@@ -564,9 +564,9 @@ struct audio_karaoke_ktiming final : public validate_audio_open {
 
 struct audio_karaoke_auto_cut_kana final : public Command {
 	CMD_NAME("audio/karaoke/auto_cut_kana")
-	STR_MENU("Auto Split Japanese Kana")
-	STR_DISP("Auto Split Japanese Kana")
-	STR_HELP("Split the active line into Japanese kana karaoke timing slots")
+	STR_MENU("Toshiki K-Timing Auto Cut")
+	STR_DISP("Toshiki K-Timing Auto Cut")
+	STR_HELP("Enable automatic Toshiki K-Timing slot cutting")
 	CMD_TYPE(COMMAND_VALIDATE)
 
 	bool Validate(const agi::Context *c) override {
@@ -574,7 +574,7 @@ struct audio_karaoke_auto_cut_kana final : public Command {
 	}
 	void operator()(agi::Context *c) override {
 		if (c->karaoke) {
-			std::string mode = OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString();
+			std::string mode = OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString();
 			if (mode == "Off")
 				return;
 			c->karaoke->SetKTimingEnabled(true);
@@ -598,7 +598,7 @@ namespace cmd {
 		reg(agi::make_unique<audio_go_to>());
 		reg(agi::make_unique<audio_karaoke>());
 		reg(agi::make_unique<audio_karaoke_auto_cut_kana>());
-		reg(agi::make_unique<audio_karaoke_ktiming>());
+		reg(agi::make_unique<audio_karaoke_toshiki_ktiming>());
 		reg(agi::make_unique<audio_open>());
 		reg(agi::make_unique<audio_open_blank>());
 		reg(agi::make_unique<audio_open_noise>());

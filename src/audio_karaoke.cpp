@@ -78,7 +78,7 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 	accept_button->Bind(wxEVT_BUTTON, bind(&AudioKaraoke::AcceptSplit, this));
 
 	auto_cut_button = new wxToggleButton(this, -1, _("Auto Cut"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
-	auto_cut_button->SetToolTip(_("Enable automatic K-Timing slot cutting"));
+	auto_cut_button->SetToolTip(_("Enable automatic Toshiki K-Timing slot cutting"));
 	auto_cut_button->Bind(wxEVT_TOGGLEBUTTON, bind(&AudioKaraoke::AutoCutKTiming, this));
 
 	split_area = new wxPanel(this);
@@ -510,14 +510,14 @@ void AudioKaraoke::UpdateAutoCutButton() {
 	if (!auto_cut_button) return;
 
 	bool show = ktiming_enabled;
-	bool usable = show && active_line && OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString() != "Off";
+	bool usable = show && active_line && OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString() != "Off";
 	auto_cut_button->Show(show);
 	auto_cut_button->Enable(usable);
 	auto_cut_button->SetToolTip(!usable ?
-		_("K-Timing auto cut is disabled in preferences") :
+		_("Toshiki K-Timing auto cut is disabled in preferences") :
 		auto_cut_button->GetValue() ?
-		_("Automatic K-Timing slot cutting is enabled") :
-		_("Enable automatic K-Timing slot cutting"));
+		_("Automatic Toshiki K-Timing slot cutting is enabled") :
+		_("Enable automatic Toshiki K-Timing slot cutting"));
 	Layout();
 }
 
@@ -525,7 +525,7 @@ void AudioKaraoke::ApplyKTimingAutoCutIfNeeded() {
 	if (!ktiming_enabled || !active_line || !auto_cut_button || !auto_cut_button->GetValue())
 		return;
 
-	std::string mode = OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString();
+	std::string mode = OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString();
 	if (mode == "Off" || kara->HasKaraokeTags() || kara->size() != 1)
 		return;
 
@@ -551,7 +551,7 @@ void AudioKaraoke::AutoCutKTiming() {
 	if (!ktiming_enabled || !active_line || !auto_cut_button->GetValue())
 		return;
 
-	if (OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString() == "Off") {
+	if (OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString() == "Off") {
 		auto_cut_button->SetValue(false);
 		UpdateAutoCutButton();
 		return;
@@ -564,7 +564,7 @@ void AudioKaraoke::SetKTimingAutoCutEnabled(bool enable) {
 	if (!auto_cut_button)
 		return;
 
-	if (OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString() == "Off")
+	if (OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString() == "Off")
 		enable = false;
 
 	auto_cut_button->SetValue(enable);
