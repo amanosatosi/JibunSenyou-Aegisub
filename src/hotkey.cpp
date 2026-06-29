@@ -68,6 +68,8 @@ namespace {
 		{"subtitle/set_alignment/an4", "Default", "Ctrl-Alt-KP_4"},
 		{"subtitle/set_alignment/an5", "Default", "Ctrl-Alt-5"},
 		{"subtitle/set_alignment/an5", "Default", "Ctrl-Alt-KP_5"},
+		{"subtitle/set_alignment/an5", "Default", "Ctrl-Alt-Enter"},
+		{"subtitle/set_alignment/an5", "Default", "Ctrl-Alt-KP_Enter"},
 		{"subtitle/set_alignment/an6", "Default", "Ctrl-Alt-6"},
 		{"subtitle/set_alignment/an6", "Default", "Ctrl-Alt-KP_6"},
 		{"subtitle/set_alignment/an7", "Default", "Ctrl-Alt-7"},

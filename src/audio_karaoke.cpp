@@ -517,7 +517,7 @@ void AudioKaraoke::AutoCutKTiming() {
 	if (mode == "Off")
 		return;
 
-	AutoSplitJapaneseKana(false, mode == "Kana only");
+	AutoSplitJapaneseKana(false, true, true);
 }
 
 void AudioKaraoke::CancelSplit() {
@@ -554,13 +554,13 @@ void AudioKaraoke::SetTagType(std::string const& new_tag) {
 	AcceptSplit();
 }
 
-void AudioKaraoke::AutoSplitJapaneseKana(bool commit, bool spaces_as_slots) {
+void AudioKaraoke::AutoSplitJapaneseKana(bool commit, bool spaces_as_slots, bool song_sane) {
 	if (!active_line)
 		active_line = c->selectionController->GetActiveLine();
 	if (!active_line) return;
 
 	kara->SetLine(active_line, false, commit);
-	kara->AutoSplitJapaneseKana(commit, spaces_as_slots);
+	kara->AutoSplitJapaneseKana(commit, spaces_as_slots, song_sane);
 
 	if (commit) {
 		active_line->Text = kara->GetText();

@@ -205,7 +205,9 @@
 		],
 		"subtitle/set_alignment/an5" : [
 			"Ctrl-Alt-5",
-			"Ctrl-Alt-KP_5"
+			"Ctrl-Alt-KP_5",
+			"Ctrl-Alt-Enter",
+			"Ctrl-Alt-KP_Enter"
 		],
 		"subtitle/set_alignment/an6" : [
 			"Ctrl-Alt-6",

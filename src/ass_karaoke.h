@@ -97,7 +97,7 @@ public:
 	/// Clear all syllable timing while preserving the current slot text/order
 	void ClearTiming();
 	/// Recut the current text into Japanese kana timing slots
-	void AutoSplitJapaneseKana(bool distribute_timings = true, bool spaces_as_slots = false);
+	void AutoSplitJapaneseKana(bool distribute_timings = true, bool spaces_as_slots = false, bool song_sane = false);
 	/// Set the start time of a syllable in ms
 	void SetStartTime(size_t syl_idx, int time);
 	/// Adjust the line's start and end times without shifting the syllables

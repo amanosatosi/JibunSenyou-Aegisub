@@ -578,7 +578,7 @@ struct audio_karaoke_auto_cut_kana final : public Command {
 			if (mode == "Off")
 				return;
 			c->karaoke->SetKTimingEnabled(true);
-			c->karaoke->AutoSplitJapaneseKana(false, mode == "Kana only");
+			c->karaoke->AutoSplitJapaneseKana(false, true, true);
 		}
 	}
 };

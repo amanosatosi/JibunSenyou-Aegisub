@@ -67,6 +67,21 @@ bool is_space_cp(uint32_t c) {
 	return c == ' ' || c == '\t' || c == 0x3000;
 }
 
+bool is_repeat_marker(uint32_t c) {
+	return c == '#' || c == 0xFF03;
+}
+
+bool is_cjk_ideograph(uint32_t c) {
+	return (c >= 0x3400 && c <= 0x4DBF) ||
+	       (c >= 0x4E00 && c <= 0x9FFF) ||
+	       (c >= 0xF900 && c <= 0xFAFF) ||
+	       (c >= 0x20000 && c <= 0x2EBEF);
+}
+
+bool is_roman_text(uint32_t c) {
+	return c < 0x80 && std::isalnum(static_cast<unsigned char>(c));
+}
+
 bool is_ascii_punctuation(uint32_t c) {
 	return c < 0x80 && !std::isalnum(static_cast<unsigned char>(c)) && !is_space_cp(c);
 }
@@ -77,6 +92,53 @@ bool is_japanese_punctuation(uint32_t c) {
 
 bool is_punctuation(uint32_t c) {
 	return is_ascii_punctuation(c) || is_japanese_punctuation(c);
+}
+
+bool is_kana_unit_starter(uint32_t c) {
+	return is_small_tsu(c) || is_long_vowel_mark(c) || is_kana(c);
+}
+
+bool is_fallback_run(uint32_t c) {
+	return is_roman_text(c);
+}
+
+uint32_t last_codepoint(std::string const& text) {
+	uint32_t last = 0;
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, text.begin(), text.end());
+	for (auto chr : characters)
+		last = utf8_codepoint(chr.str());
+	return last;
+}
+
+bool is_hiragana_o_row(uint32_t c) {
+	switch (c) {
+	case 0x3053: case 0x3054: case 0x305D: case 0x305E: case 0x3068: case 0x3069:
+	case 0x306E: case 0x307B: case 0x307C: case 0x307D: case 0x3082: case 0x3088:
+	case 0x3087: case 0x308D: case 0x3092:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_katakana_o_row(uint32_t c) {
+	switch (c) {
+	case 0x30B3: case 0x30B4: case 0x30BD: case 0x30BE: case 0x30C8: case 0x30C9:
+	case 0x30CE: case 0x30DB: case 0x30DC: case 0x30DD: case 0x30E2: case 0x30E8:
+	case 0x30E7: case 0x30ED: case 0x30F2:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool attaches_in_song_sane_mode(std::string const& previous, uint32_t current) {
+	uint32_t last = last_codepoint(previous);
+	return is_small_tsu(current) ||
+	       is_long_vowel_mark(current) ||
+	       (current == 0x3046 && (is_hiragana_o_row(last) || is_small_kana_modifier(last))) ||
+	       (current == 0x30A6 && (is_katakana_o_row(last) || is_small_kana_modifier(last)));
 }
 } // namespace
 
@@ -450,7 +512,7 @@ void AssKaraoke::ClearTiming() {
 	}
 }
 
-void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_slots) {
+void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_slots, bool song_sane) {
 	if (syls.empty()) return;
 
 	std::string source_text;
@@ -476,6 +538,11 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 			continue;
 		}
 
+		if (is_repeat_marker(cp)) {
+			units.push_back(text);
+			continue;
+		}
+
 		if (is_space_cp(cp)) {
 			if (spaces_as_slots)
 				units.push_back(text);
@@ -494,14 +561,30 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_s
 			continue;
 		}
 
-		if (is_small_tsu(cp) || is_long_vowel_mark(cp) || is_kana(cp)) {
+		if (is_kana_unit_starter(cp)) {
+			if (song_sane && !units.empty() && !units.back().empty() && attaches_in_song_sane_mode(units.back(), cp))
+				units.back() += text;
+			else
+				units.push_back(text);
+			continue;
+		}
+
+		if (is_cjk_ideograph(cp)) {
 			units.push_back(text);
+			continue;
+		}
+
+		if (!is_fallback_run(cp)) {
+			if (units.empty() || units.back().empty())
+				units.push_back(text);
+			else
+				units.back() += text;
 			continue;
 		}
 
 		if (units.empty() || units.back().empty())
 			units.push_back(text);
-		else if (!is_kana(utf8_codepoint(units.back())) && !is_long_vowel_mark(utf8_codepoint(units.back())) && !is_small_tsu(utf8_codepoint(units.back())))
+		else if (is_fallback_run(utf8_codepoint(units.back())))
 			units.back() += text;
 		else
 			units.push_back(text);

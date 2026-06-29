@@ -196,6 +196,10 @@ static int alignment_from_number_key(int key_code) {
 	return 0;
 }
 
+static bool is_center_alignment_enter_key(int key_code) {
+	return key_code == WXK_RETURN || key_code == WXK_NUMPAD_ENTER;
+}
+
 static int alignment_from_arrow_bits(int arrows) {
 	bool left = !!(arrows & ALIGN_ARROW_LEFT);
 	bool right = !!(arrows & ALIGN_ARROW_RIGHT);
@@ -485,6 +489,12 @@ bool FrameMain::HandleAlignmentPickerKeyDown(wxKeyEvent &event) {
 	if (int an = alignment_from_number_key(key_code)) {
 		HideAlignmentPicker();
 		cmd::call(agi::format("subtitle/set_alignment/an%d", an), context.get());
+		return true;
+	}
+
+	if (is_center_alignment_enter_key(key_code)) {
+		HideAlignmentPicker();
+		cmd::call("subtitle/set_alignment/an5", context.get());
 		return true;
 	}
 
