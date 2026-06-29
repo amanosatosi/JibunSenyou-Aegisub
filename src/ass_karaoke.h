@@ -81,6 +81,8 @@ public:
 	/// Add a split before character pos in syllable syl_idx, preserving existing timings
 	/// [Satoshi preserve timings on cut]
 	void AddSplitPreserveTimes(size_t syl_idx, size_t pos);
+	/// Add a New K-Timing split while preserving existing timing and giving the new slot 0 duration
+	void AddSplitKTiming(size_t syl_idx, size_t pos);
 	/// Remove the split at the given index
 	void RemoveSplit(size_t syl_idx);
 	/// Insert an empty rest syllable before the given syllable index
@@ -95,6 +97,8 @@ public:
 	bool IsWhitespaceSyllable(size_t syl_idx) const;
 	/// Did the parsed line contain explicit karaoke timing tags?
 	bool HasKaraokeTags() const { return has_karaoke_tags; }
+	/// Does the current model have any assigned timing?
+	bool HasTiming() const;
 	/// Rebuild syllable timings from ordered boundary positions
 	void SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce = true);
 	/// Clear all syllable timing while preserving the current slot text/order

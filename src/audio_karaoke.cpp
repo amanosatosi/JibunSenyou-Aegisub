@@ -380,7 +380,9 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 		// [Satoshi preserve timings on cut] Optionally preserve existing timings when splitting
 		auto before_size = kara->size();
 		auto split_byte_pos = char_to_byte[split_pos] - 1;
-		if (OPT_GET("Audio/Karaoke/Preserve Timings on Cut")->GetBool())
+		if (ktiming_enabled)
+			kara->AddSplitKTiming(syl, split_byte_pos);
+		else if (OPT_GET("Audio/Karaoke/Preserve Timings on Cut")->GetBool())
 			kara->AddSplitPreserveTimes(syl, split_byte_pos);
 		else
 			kara->AddSplit(syl, split_byte_pos);

@@ -341,6 +341,10 @@ void AudioTimingControllerKaraoke::OnKaraokeSyllablesChanged() {
 		spectrogram_next_boundary = 0;
 		spectrogram_boundaries.clear();
 	}
+	if (spectrogram_timing) {
+		pending_changes = true;
+		commit_id = -1;
+	}
 	RebuildMarkersAndLabels();
 	AnnounceUpdatedPrimaryRange();
 	AnnounceUpdatedStyleRanges();
@@ -351,7 +355,7 @@ void AudioTimingControllerKaraoke::OnKaraokeSyllablesChanged() {
 void AudioTimingControllerKaraoke::ResetSpectrogramBoundaryStateFromKaraoke() {
 	spectrogram_boundaries.clear();
 
-	if (!kara->HasKaraokeTags()) {
+	if (!kara->HasKaraokeTags() && !kara->HasTiming()) {
 		spectrogram_next_boundary = 0;
 		kara->ClearTiming();
 		return;
@@ -509,6 +513,13 @@ std::vector<AudioMarker*> AudioTimingControllerKaraoke::OnLeftClick(int ms, bool
 
 	size_t syl = distance(markers.begin(), lower_bound(markers.begin(), markers.end(), ms));
 	if (syl < markers.size() && range.contains(markers[syl])) {
+		if (spectrogram_timing) {
+			size_t drag_syl = syl;
+			while (drag_syl + 1 < markers.size() && markers[drag_syl + 1].GetPosition() == markers[syl].GetPosition())
+				++drag_syl;
+			cur_syl = drag_syl;
+			return copy_ptrs<AudioMarker>(markers, drag_syl, ctrl_down ? markers.size() : drag_syl + 1);
+		}
 		if (spectrogram_timing)
 			cur_syl = syl;
 		return copy_ptrs<AudioMarker>(markers, syl, ctrl_down ? markers.size() : syl + 1);

@@ -412,6 +412,49 @@ void AssKaraoke::AddSplitPreserveTimes(size_t syl_idx, size_t pos) {
 	if (!no_announce) AnnounceSyllablesChanged();
 }
 
+void AssKaraoke::AddSplitKTiming(size_t syl_idx, size_t pos) {
+	if (syl_idx >= syls.size()) return;
+
+	const auto& orig = syls[syl_idx].text;
+	const size_t split_at = std::min(pos, orig.size());
+
+	bool split_at_boundary = (split_at == 0 || split_at == orig.size());
+	using namespace boost::locale::boundary;
+	const ssegment_index characters(character, orig.begin(), orig.end());
+	for (auto chr : characters) {
+		if (static_cast<size_t>(chr.begin() - orig.begin()) == split_at) {
+			split_at_boundary = true;
+			break;
+		}
+	}
+	if (!split_at_boundary) return;
+
+	syls.insert(syls.begin() + syl_idx + 1, Syllable());
+	Syllable &syl = syls[syl_idx];
+	Syllable &new_syl = syls[syl_idx + 1];
+
+	if (split_at < syl.text.size()) {
+		new_syl.text = syl.text.substr(split_at);
+		syl.text = syl.text.substr(0, split_at);
+	}
+
+	new_syl.duration = 0;
+	new_syl.start_time = syl.start_time + syl.duration;
+	new_syl.tag_type = syl.tag_type;
+
+	size_t text_len = syl.text.size();
+	for (auto it = syl.ovr_tags.begin(); it != syl.ovr_tags.end(); ) {
+		if (it->first < text_len)
+			++it;
+		else {
+			new_syl.ovr_tags[it->first - text_len] = it->second;
+			syl.ovr_tags.erase(it++);
+		}
+	}
+
+	if (!no_announce) AnnounceSyllablesChanged();
+}
+
 void AssKaraoke::RemoveSplit(size_t syl_idx) {
 	// Don't allow removing the first syllable
 	if (syl_idx == 0) return;
@@ -495,6 +538,12 @@ bool AssKaraoke::IsWhitespaceSyllable(size_t syl_idx) const {
 			return false;
 	}
 	return true;
+}
+
+bool AssKaraoke::HasTiming() const {
+	return std::any_of(syls.begin(), syls.end(), [](Syllable const& syl) {
+		return syl.duration > 0;
+	});
 }
 
 void AssKaraoke::SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce) {
