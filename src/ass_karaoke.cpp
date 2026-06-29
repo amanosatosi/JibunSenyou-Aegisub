@@ -414,6 +414,20 @@ bool AssKaraoke::IsEmptySyllable(size_t syl_idx) const {
 	return syls[syl_idx].text.empty() && syls[syl_idx].ovr_tags.empty();
 }
 
+bool AssKaraoke::IsWhitespaceSyllable(size_t syl_idx) const {
+	if (syl_idx >= syls.size() || syls[syl_idx].text.empty() || !syls[syl_idx].ovr_tags.empty())
+		return false;
+
+	using namespace boost::locale::boundary;
+	const auto& text = syls[syl_idx].text;
+	const ssegment_index characters(character, text.begin(), text.end());
+	for (auto chr : characters) {
+		if (!is_space_cp(utf8_codepoint(chr.str())))
+			return false;
+	}
+	return true;
+}
+
 void AssKaraoke::SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce) {
 	if (syls.empty()) return;
 
@@ -436,7 +450,7 @@ void AssKaraoke::ClearTiming() {
 	}
 }
 
-void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings) {
+void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings, bool spaces_as_slots) {
 	if (syls.empty()) return;
 
 	std::string source_text;
@@ -462,7 +476,17 @@ void AssKaraoke::AutoSplitJapaneseKana(bool distribute_timings) {
 			continue;
 		}
 
-		if (is_combining_voicing_mark(cp) || is_small_kana_modifier(cp) || is_space_cp(cp) || is_punctuation(cp)) {
+		if (is_space_cp(cp)) {
+			if (spaces_as_slots)
+				units.push_back(text);
+			else if (units.empty() || units.back().empty())
+				units.push_back(text);
+			else
+				units.back() += text;
+			continue;
+		}
+
+		if (is_combining_voicing_mark(cp) || is_small_kana_modifier(cp) || is_punctuation(cp)) {
 			if (units.empty() || units.back().empty())
 				units.push_back(text);
 			else

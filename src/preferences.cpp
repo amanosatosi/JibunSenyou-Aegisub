@@ -236,6 +236,9 @@ void Audio(wxTreebook *book, Preferences *parent) {
 
 	auto label = p->PageSizer(_("Audio labels"));
 	p->OptionAdd(label, _("Preserve existing timings when cutting/splitting"), "Audio/Karaoke/Preserve Timings on Cut");
+	const wxString ktiming_auto_cut_arr[] = { _("Default"), _("Kana only"), _("Off") };
+	wxArrayString ktiming_auto_cut_choice(3, ktiming_auto_cut_arr);
+	p->OptionChoice(label, _("New K-Timing mode auto cut"), ktiming_auto_cut_choice, "Audio/Karaoke/K Timing Auto Cut");
 	p->OptionFont(label, "Audio/Karaoke/");
 
 	p->SetSizerAndFit(p->sizer);

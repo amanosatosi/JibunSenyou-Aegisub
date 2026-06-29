@@ -76,12 +76,18 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 	accept_button->SetToolTip(_("Commit splits"));
 	accept_button->Bind(wxEVT_BUTTON, bind(&AudioKaraoke::AcceptSplit, this));
 
+	auto_cut_button = new wxButton(this, -1, _("Auto Cut"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+	auto_cut_button->SetToolTip(_("Automatically split the current line into K-Timing slots"));
+	auto_cut_button->Bind(wxEVT_BUTTON, bind(&AudioKaraoke::AutoCutKTiming, this));
+
 	split_area = new wxPanel(this);
 
 	wxSizer *main_sizer = new wxBoxSizer(wxHORIZONTAL);
 	main_sizer->Add(cancel_button);
 	main_sizer->Add(accept_button);
 	main_sizer->Add(split_area, wxSizerFlags(1).Expand());
+	main_sizer->Add(auto_cut_button, wxSizerFlags().Expand().Border(wxLEFT, 4));
+	auto_cut_button->Show(false);
 	SetSizerAndFit(main_sizer);
 
 	/// @todo subscribe
@@ -107,6 +113,7 @@ AudioKaraoke::~AudioKaraoke() {
 
 void AudioKaraoke::OnActiveLineChanged(AssDialogue *new_line) {
 	active_line = new_line;
+	UpdateAutoCutButton();
 	if (enabled || ktiming_enabled) {
 		LoadFromLine();
 		split_area->Refresh(false);
@@ -140,6 +147,7 @@ void AudioKaraoke::SetEnabled(bool en) {
 	enabled = en;
 
 	c->audioBox->ShowKaraokeBar(enabled);
+	UpdateAutoCutButton();
 	if (enabled) {
 		LoadFromLine();
 		c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
@@ -160,6 +168,7 @@ void AudioKaraoke::SetKTimingController() {
 
 	LoadFromLine();
 	c->audioBox->ShowKaraokeBar(true);
+	UpdateAutoCutButton();
 	c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
 	if (auto timing = c->audioController->GetTimingController())
 		timing->SetSpectrogramKaraokeTiming(true);
@@ -178,6 +187,7 @@ void AudioKaraoke::SetKTimingEnabled(bool en) {
 		SetKTimingController();
 	else if (!enabled) {
 		c->audioBox->ShowKaraokeBar(false);
+		UpdateAutoCutButton();
 		c->audioController->SetTimingController(CreateDialogueTimingController(c));
 	}
 }
@@ -273,7 +283,7 @@ void AudioKaraoke::RenderText() {
 	dc.SetPen(rest_pen);
 	dc.SetBrush(*wxTRANSPARENT_BRUSH);
 	for (size_t i = 0; i < kara->size(); ++i) {
-		if (!kara->IsEmptySyllable(i)) continue;
+		if (!kara->IsEmptySyllable(i) && !kara->IsWhitespaceSyllable(i)) continue;
 		int left = syl_start_points[i] * char_width + char_width / 4;
 		dc.DrawRectangle(left, bmp_size.GetHeight() / 3, char_width / 2 + 1, bmp_size.GetHeight() / 3);
 	}
@@ -486,6 +496,30 @@ void AudioKaraoke::SetDisplayText() {
 	RenderText();
 }
 
+void AudioKaraoke::UpdateAutoCutButton() {
+	if (!auto_cut_button) return;
+
+	bool show = ktiming_enabled;
+	bool enabled = show && active_line && OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString() != "Off";
+	auto_cut_button->Show(show);
+	auto_cut_button->Enable(enabled);
+	auto_cut_button->SetToolTip(enabled ?
+		_("Automatically split the current line into K-Timing slots") :
+		_("K-Timing auto cut is disabled in preferences"));
+	Layout();
+}
+
+void AudioKaraoke::AutoCutKTiming() {
+	if (!ktiming_enabled || !active_line)
+		return;
+
+	std::string mode = OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString();
+	if (mode == "Off")
+		return;
+
+	AutoSplitJapaneseKana(false, mode == "Kana only");
+}
+
 void AudioKaraoke::CancelSplit() {
 	if (ktiming_enabled) {
 		if (auto timing = c->audioController->GetTimingController())
@@ -520,13 +554,13 @@ void AudioKaraoke::SetTagType(std::string const& new_tag) {
 	AcceptSplit();
 }
 
-void AudioKaraoke::AutoSplitJapaneseKana(bool commit) {
+void AudioKaraoke::AutoSplitJapaneseKana(bool commit, bool spaces_as_slots) {
 	if (!active_line)
 		active_line = c->selectionController->GetActiveLine();
 	if (!active_line) return;
 
 	kara->SetLine(active_line, false, commit);
-	kara->AutoSplitJapaneseKana(commit);
+	kara->AutoSplitJapaneseKana(commit, spaces_as_slots);
 
 	if (commit) {
 		active_line->Text = kara->GetText();

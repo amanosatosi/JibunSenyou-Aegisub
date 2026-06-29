@@ -90,12 +90,14 @@ public:
 	void RemoveEmptySyllable(size_t syl_idx);
 	/// Is the given syllable an empty rest?
 	bool IsEmptySyllable(size_t syl_idx) const;
+	/// Is the given syllable a literal whitespace slot?
+	bool IsWhitespaceSyllable(size_t syl_idx) const;
 	/// Rebuild syllable timings from ordered boundary positions
 	void SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce = true);
 	/// Clear all syllable timing while preserving the current slot text/order
 	void ClearTiming();
 	/// Recut the current text into Japanese kana timing slots
-	void AutoSplitJapaneseKana(bool distribute_timings = true);
+	void AutoSplitJapaneseKana(bool distribute_timings = true, bool spaces_as_slots = false);
 	/// Set the start time of a syllable in ms
 	void SetStartTime(size_t syl_idx, int time);
 	/// Adjust the line's start and end times without shifting the syllables

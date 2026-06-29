@@ -574,8 +574,11 @@ struct audio_karaoke_auto_cut_kana final : public Command {
 	}
 	void operator()(agi::Context *c) override {
 		if (c->karaoke) {
+			std::string mode = OPT_GET("Audio/Karaoke/K Timing Auto Cut")->GetString();
+			if (mode == "Off")
+				return;
 			c->karaoke->SetKTimingEnabled(true);
-			c->karaoke->AutoSplitJapaneseKana(false);
+			c->karaoke->AutoSplitJapaneseKana(false, mode == "Kana only");
 		}
 	}
 };

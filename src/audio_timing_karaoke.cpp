@@ -215,12 +215,12 @@ void AudioTimingControllerKaraoke::GetRenderingStyles(AudioRenderingStyleRanges 
 {
 	if (spectrogram_timing) {
 		for (size_t i = 0; i < labels.size() && i < spectrogram_next_boundary; ++i) {
-			auto style = kara->IsEmptySyllable(i) ? AudioStyle_Inactive : AudioStyle_Selected;
+			auto style = (kara->IsEmptySyllable(i) || kara->IsWhitespaceSyllable(i)) ? AudioStyle_Inactive : AudioStyle_Selected;
 			ranges.AddRange(labels[i].range.begin(), labels[i].range.end(), style);
 		}
 
 		if (cur_syl < labels.size()) {
-			auto style = kara->IsEmptySyllable(cur_syl) ? AudioStyle_Selected : AudioStyle_Primary;
+			auto style = (kara->IsEmptySyllable(cur_syl) || kara->IsWhitespaceSyllable(cur_syl)) ? AudioStyle_Selected : AudioStyle_Primary;
 			ranges.AddRange(labels[cur_syl].range.begin(), labels[cur_syl].range.end(), style);
 		}
 		return;
@@ -366,7 +366,8 @@ void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {
 			else if (idx == spectrogram_boundaries.size())
 				label_end = end_marker.GetPosition();
 
-			wxString label_text = it->text.empty() ? wxString(wxS("rest")) : to_wx(it->text);
+			wxString label_text = it->text.empty() ? wxString(wxS("rest")) :
+				kara->IsWhitespaceSyllable(idx) ? wxString(wxS("space")) : to_wx(it->text);
 			labels.push_back(AudioLabel{label_text, TimeRange(label_start, label_end)});
 			++idx;
 			continue;
@@ -374,7 +375,8 @@ void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {
 
 		if (it != kara->begin())
 			markers.emplace_back(it->start_time, &separator_pen, AudioMarker::Feet_None);
-		wxString label_text = it->text.empty() ? wxString(wxS("rest")) : to_wx(it->text);
+		wxString label_text = it->text.empty() ? wxString(wxS("rest")) :
+			kara->IsWhitespaceSyllable(idx) ? wxString(wxS("space")) : to_wx(it->text);
 		labels.push_back(AudioLabel{label_text, TimeRange(it->start_time, it->start_time + it->duration)});
 		++idx;
 	}
