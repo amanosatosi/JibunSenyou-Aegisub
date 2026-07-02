@@ -39,6 +39,7 @@
 #include <algorithm>
 #include <boost/gil.hpp>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -907,7 +908,8 @@ void LibassModSubtitlesProvider::DrawSubtitles(VideoFrame &frame, double time) {
 	api.ass_set_storage_size(ass_renderer, frame.width, frame.height);
 
 	int detect_change = 0;
-	ASS_RenderResult render_result = api.ass_render_frame_auto(ass_renderer, ass_track, int(time * 1000), &detect_change);
+	const int time_ms = static_cast<int>(std::floor(time * 1000.0 + 1e-6));
+	ASS_RenderResult render_result = api.ass_render_frame_auto(ass_renderer, ass_track, time_ms, &detect_change);
 
 	// libassmod returns either premultiplied RGBA images or the legacy alpha-masked monochrome list.
 	// Blend whichever list is preferred by the renderer into the frame.

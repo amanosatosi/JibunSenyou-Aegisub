@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 #include <ass/ass.h>
 
@@ -112,8 +113,9 @@ int csri_request_fmt(csri_inst *inst, const struct csri_fmt *fmt)
 
 void csri_render(csri_inst *inst, struct csri_frame *frame, double time)
 {
+	const int time_ms = (int)floor(time * 1000.0 + 1e-6);
 	ass_image_t *img = ass_render_frame(inst->ass_renderer,
-		inst->ass_track, (int)(time * 1000), NULL);
+		inst->ass_track, time_ms, NULL);
 
 	while (img) {
 		unsigned bpp, alpha = 256 - (img->color && 0xFF);
