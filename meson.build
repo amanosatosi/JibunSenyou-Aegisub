@@ -105,11 +105,11 @@ deps += dependency('libass', version: '>=0.9.7',
 libassmod_sp = subproject('libassmod', default_options: ['default_library=shared'])
 libassmod_lib = libassmod_sp.get_variable('libass')
 if host_machine.system() == 'windows'
-    libassmod_output = 'ass.dll'
+    libassmod_output = 'libassmod.dll'
 elif host_machine.system() == 'darwin'
-    libassmod_output = 'libass.dylib'
+    libassmod_output = 'libassmod.dylib'
 else
-    libassmod_output = 'libass.so'
+    libassmod_output = 'libassmod.so'
 endif
 libassmod_copy = custom_target('libassmod_copy',
     input: libassmod_lib,

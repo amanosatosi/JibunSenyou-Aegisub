@@ -175,6 +175,30 @@ struct AssCompatBackend {
 AssCompatBackend libassmod_backend({ "libassmod", "libassmod", "subtitle/provider/libassmod", "libassmod.dll" });
 AssCompatBackend mangetsu_backend({ "Mangetsu", "Mangetsu", "subtitle/provider/mangetsu", "mangetsu.dll" });
 
+#ifdef _WIN32
+std::string wide_to_utf8(const wchar_t *value) {
+	int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+	if (size <= 1)
+		return {};
+	std::string out(size - 1, '\0');
+	WideCharToMultiByte(CP_UTF8, 0, value, -1, &out[0], size, nullptr, nullptr);
+	return out;
+}
+#endif
+
+void UpdateLoadedLibraryPath(AssCompatBackend &backend) {
+#ifdef _WIN32
+	wchar_t path[MAX_PATH];
+	DWORD len = GetModuleFileNameW(backend.api.handle, path, std::size(path));
+	if (len > 0 && len < std::size(path))
+		backend.loaded_library_name = wide_to_utf8(path);
+#else
+	Dl_info info;
+	if (dladdr(reinterpret_cast<void *>(backend.api.ass_library_init), &info) && info.dli_fname)
+		backend.loaded_library_name = info.dli_fname;
+#endif
+}
+
 void msg_callback(int level, const char *fmt, va_list args, void *data) {
 	if (level >= 7) return;
 	char buf[1024];
@@ -243,8 +267,8 @@ bool LoadSharedLibrary(AssCompatBackend &backend, std::string &error) {
 		return false;
 	}
 
-	static const wchar_t *kLibassmodNames[] = { L"libassmod.dll", L"assmod.dll", L"ass.dll", L"libass.dll" };
-	static const char *kLibassmodNamesUtf8[] = { "libassmod.dll", "assmod.dll", "ass.dll", "libass.dll" };
+	static const wchar_t *kLibassmodNames[] = { L"libassmod.dll", L"assmod.dll" };
+	static const char *kLibassmodNamesUtf8[] = { "libassmod.dll", "assmod.dll" };
 	for (size_t i = 0; i < std::size(kLibassmodNames); ++i) {
 		backend.api.handle = LoadLibraryW(kLibassmodNames[i]);
 		if (backend.api.handle) {
@@ -253,7 +277,7 @@ bool LoadSharedLibrary(AssCompatBackend &backend, std::string &error) {
 		}
 	}
 	if (!backend.api.handle) {
-		error = "Could not load libassmod (tried libassmod.dll, assmod.dll, ass.dll, libass.dll).";
+		error = "Could not load libassmod (tried libassmod.dll, assmod.dll).";
 		return false;
 	}
 	return true;
@@ -268,9 +292,9 @@ bool LoadSharedLibrary(AssCompatBackend &backend, std::string &error) {
 	}
 	else {
 #ifdef __APPLE__
-		names = { "libassmod.dylib", "libassmod.so", "libass.dylib", "libass.so" };
+		names = { "libassmod.dylib", "libassmod.so" };
 #else
-		names = { "libassmod.so", "libass.so" };
+		names = { "libassmod.so" };
 #endif
 	}
 
@@ -285,7 +309,7 @@ bool LoadSharedLibrary(AssCompatBackend &backend, std::string &error) {
 		if (backend.config.provider_name == std::string("Mangetsu"))
 			error = "Could not load Mangetsu (tried libmangetsu).";
 		else
-			error = "Could not load libassmod (tried libassmod and libass shared library names).";
+			error = "Could not load libassmod (tried libassmod shared library names).";
 		return false;
 	}
 	return true;
@@ -318,6 +342,7 @@ bool LoadLibassModApi(AssCompatBackend &backend, std::string &error) {
 	LoadOptionalSymbol(backend, "ass_set_tag_image_rgba", api.ass_set_tag_image_rgba);
 #endif
 
+	UpdateLoadedLibraryPath(backend);
 	backend.library = api.ass_library_init();
 	if (!backend.library) {
 		error = std::string(backend.config.display_name) + " initialization failed.";
@@ -328,6 +353,8 @@ bool LoadLibassModApi(AssCompatBackend &backend, std::string &error) {
 	api.ass_set_message_cb(backend.library, msg_callback, &backend);
 	LOG_I(backend.config.log_name) << "Subtitle renderer " << backend.config.display_name
 		<< ": available (loaded " << backend.loaded_library_name << ")";
+	if (backend.config.provider_name == std::string("Mangetsu"))
+		LOG_I(backend.config.log_name) << "Mangetsu loaded from " << backend.loaded_library_name;
 	return true;
 }
 

@@ -45,6 +45,10 @@ This project is open source for transparency, and tested by actually using it.
 - Fixed a bug where scrolling in the grid view appeared jittery.
 - Added **libassmod** as an additional subtitle provider, supporting many
   VSFilterMod's tags.
+- Added optional **Mangetsu** subtitle provider packaging support. Mangetsu is
+  currently built from the `mangetsu` branch of
+  <https://github.com/amanosatosi/libassmod/tree/mangetsu>; see
+  [docs/mangetsu.md](docs/mangetsu.md) for build and packaging notes.
 
 ---
 
