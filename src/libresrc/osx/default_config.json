@@ -50,8 +50,14 @@
 			"Waveform Style" : 0
 		},
 		"Downmixer" : "ConvertToMono",
+		"Dialog Time Changer" : {
+			"Auto Preview" : true
+		},
 		"Drag Timing" : true,
 		"Inactive Lines Display Mode" : 3,
+		"Join Next" : {
+			"Auto Preview" : true
+		},
 		"Karaoke" : {
 			"Font Face" : "",
 			"Font Size" : 9,

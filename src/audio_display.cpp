@@ -41,6 +41,7 @@
 #include "include/aegisub/hotkey.h"
 #include "options.h"
 #include "project.h"
+#include "time_range.h"
 #include "utils.h"
 #include "video_controller.h"
 
@@ -569,6 +570,50 @@ public:
 	int GetPosition() const { return markers.front()->GetPosition(); }
 };
 
+class DialogTimeChangerInteractionObject final : public AudioDisplayInteractionObject {
+	AudioDisplay *display;
+	AudioTimingController *timing_controller;
+	AudioController *audio_controller;
+	int drag_start_ms;
+	int drag_end_ms;
+
+	void UpdateOverlay()
+	{
+		display->SetDialogTimeChangerOverlay(drag_start_ms, drag_end_ms);
+	}
+
+public:
+	DialogTimeChangerInteractionObject(AudioDisplay *display, AudioTimingController *timing_controller, AudioController *audio_controller, int drag_start_ms)
+	: display(display)
+	, timing_controller(timing_controller)
+	, audio_controller(audio_controller)
+	, drag_start_ms(drag_start_ms)
+	, drag_end_ms(drag_start_ms)
+	{
+		UpdateOverlay();
+	}
+
+	bool OnMouseEvent(wxMouseEvent &event) override
+	{
+		drag_end_ms = display->TimeFromRelativeX(event.GetPosition().x);
+		UpdateOverlay();
+
+		if (!event.LeftUp())
+			return true;
+
+		display->ClearDialogTimeChangerOverlay();
+
+		TimeRange preview_range(0, 0);
+		if (timing_controller->ApplyDialogTimeChanger(drag_start_ms, drag_end_ms, &preview_range) &&
+			OPT_GET("Audio/Dialog Time Changer/Auto Preview")->GetBool())
+		{
+			audio_controller->PlayRange(preview_range);
+		}
+
+		return false;
+	}
+};
+
 AudioDisplay::AudioDisplay(wxWindow *parent, AudioController *controller, agi::Context *context)
 : wxWindow(parent, -1, wxDefaultPosition, wxDefaultSize, wxWANTS_CHARS|wxBORDER_SIMPLE)
 , audio_open_connection(context->project->AddAudioProviderListener(&AudioDisplay::OnAudioOpen, this))
@@ -842,6 +887,7 @@ void AudioDisplay::OnPaint(wxPaintEvent&)
 				std::max(0, TimeFromRelativeX(updrect.x + updrect.width + foot_size)));
 
 			PaintAudio(dc, updtime, updrect);
+			PaintDialogTimeChangerOverlay(dc);
 			PaintMarkers(dc, updtime);
 			PaintLabels(dc, updtime);
 		}
@@ -900,6 +946,23 @@ void AudioDisplay::PaintMarkers(wxDC &dc, TimeRange updtime)
 		if (marker->GetFeet() & AudioMarker::Feet_Right)
 			PaintFoot(dc, marker_x, 1);
 	}
+}
+
+void AudioDisplay::PaintDialogTimeChangerOverlay(wxDC &dc)
+{
+	if (!dialog_time_changer_overlay)
+		return;
+
+	const int range_start = std::min(dialog_time_changer_start, dialog_time_changer_end);
+	const int range_end = std::max(dialog_time_changer_start, dialog_time_changer_end);
+	if (range_start == range_end)
+		return;
+
+	const int x = RelativeXFromTime(range_start);
+	const int width = std::max(1, RelativeXFromTime(range_end) - x);
+	wxDCPenChanger pen_retainer(dc, wxPen(wxColour(255, 220, 0), 2));
+	wxDCBrushChanger brush_retainer(dc, wxBrush(wxColour(255, 220, 0), wxBRUSHSTYLE_FDIAGONAL_HATCH));
+	dc.DrawRectangle(x, audio_top, width, audio_height);
 }
 
 void AudioDisplay::PaintFoot(wxDC &dc, int marker_x, int dir)
@@ -996,7 +1059,41 @@ void AudioDisplay::SetDraggedObject(AudioDisplayInteractionObject *new_obj)
 		ReleaseMouse();
 
 	if (!dragged_object)
+	{
 		audio_marker.reset();
+		dialog_time_changer.reset();
+	}
+}
+
+void AudioDisplay::SetDialogTimeChangerOverlay(int start_ms, int end_ms)
+{
+	const int old_start = std::min(dialog_time_changer_start, dialog_time_changer_end);
+	const int old_end = std::max(dialog_time_changer_start, dialog_time_changer_end);
+	const bool had_overlay = dialog_time_changer_overlay;
+
+	dialog_time_changer_overlay = true;
+	dialog_time_changer_start = start_ms;
+	dialog_time_changer_end = end_ms;
+
+	if (had_overlay && old_start != old_end)
+		RefreshRect(wxRect(RelativeXFromTime(old_start) - 2, audio_top, RelativeXFromTime(old_end) - RelativeXFromTime(old_start) + 4, audio_height), false);
+
+	const int new_start = std::min(dialog_time_changer_start, dialog_time_changer_end);
+	const int new_end = std::max(dialog_time_changer_start, dialog_time_changer_end);
+	if (new_start != new_end)
+		RefreshRect(wxRect(RelativeXFromTime(new_start) - 2, audio_top, RelativeXFromTime(new_end) - RelativeXFromTime(new_start) + 4, audio_height), false);
+}
+
+void AudioDisplay::ClearDialogTimeChangerOverlay()
+{
+	if (!dialog_time_changer_overlay)
+		return;
+
+	dialog_time_changer_overlay = false;
+	const int range_start = std::min(dialog_time_changer_start, dialog_time_changer_end);
+	const int range_end = std::max(dialog_time_changer_start, dialog_time_changer_end);
+	if (range_start != range_end)
+		RefreshRect(wxRect(RelativeXFromTime(range_start) - 2, audio_top, RelativeXFromTime(range_end) - RelativeXFromTime(range_start) + 4, audio_height), false);
 }
 
 void AudioDisplay::SetTrackCursor(int new_pos, bool show_time)
@@ -1088,6 +1185,14 @@ void AudioDisplay::OnMouseEvent(wxMouseEvent& event)
 	if (!timing) return;
 	const int drag_sensitivity = int(OPT_GET("Audio/Start Drag Sensitivity")->GetInt() * ms_per_pixel);
 	const int snap_sensitivity = OPT_GET("Audio/Snap/Enable")->GetBool() != event.ShiftDown() ? int(OPT_GET("Audio/Snap/Distance")->GetInt() * ms_per_pixel) : 0;
+
+	if (event.LeftDown() && event.ShiftDown() && event.GetPosition().y >= audio_top && event.GetPosition().y < audio_top + audio_height)
+	{
+		RemoveTrackCursor();
+		dialog_time_changer = agi::make_unique<DialogTimeChangerInteractionObject>(this, timing, controller, TimeFromRelativeX(mouse_x));
+		SetDraggedObject(dialog_time_changer.get());
+		return;
+	}
 
 	// Not scrollbar, not timeline, no button action
 	if (event.Moving())

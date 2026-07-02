@@ -172,6 +172,13 @@ public:
 	/// @param snap_range   Maximum snapping range in milliseconds
 	virtual void OnMarkerDrag(std::vector<AudioMarker*> const& marker, int new_position, int snap_range) = 0;
 
+	/// @brief Apply a Dialog Time Changer drag
+	/// @param drag_start_ms Initial drag time in milliseconds
+	/// @param drag_end_ms Final drag time in milliseconds
+	/// @param preview_range Range to preview after a successful edit
+	/// @return Was an edit applied?
+	virtual bool ApplyDialogTimeChanger(int drag_start_ms, int drag_end_ms, TimeRange *preview_range) { return false; }
+
 	/// Enable or disable ordered spectrogram karaoke boundary assignment.
 	virtual void SetSpectrogramKaraokeTiming(bool) { }
 

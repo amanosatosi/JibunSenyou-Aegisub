@@ -35,6 +35,8 @@
 #include "../ass_file.h"
 #include "../ass_karaoke.h"
 #include "../ass_style.h"
+#include "../audio_controller.h"
+#include "../audio_timing.h"
 #include "../compat.h"
 #include "../dialog_search_replace.h"
 #include "../dialogs.h"
@@ -49,6 +51,7 @@
 #include "../subs_controller.h"
 #include "../subs_edit_box.h"
 #include "../text_selection_controller.h"
+#include "../time_range.h"
 #include "../utils.h"
 #include "../video_controller.h"
 
@@ -2783,6 +2786,16 @@ static std::string build_joined_text(std::string const& first, std::string const
 	return lhs + ' ' + rhs;
 }
 
+static void preview_joined_line(agi::Context *c, AssDialogue *line) {
+	if (!line || !c->audioController || !OPT_GET("Audio/Join Next/Auto Preview")->GetBool())
+		return;
+
+	if (auto timing = c->audioController->GetTimingController())
+		timing->Revert();
+
+	c->audioController->PlayRange(TimeRange(line->Start, line->End));
+}
+
 struct edit_line_join_as_karaoke final : public validate_sel_multiple {
 	CMD_NAME("edit/line/join/as_karaoke")
 	STR_MENU("As &Karaoke")
@@ -2846,9 +2859,7 @@ struct edit_line_join_next final : public Command {
 			base_original = current_text;
 		std::string const joined_original = build_joined_text(base_original, next_text);
 
-		Selection new_sel = c->selectionController->GetSelectedSet();
-		new_sel.erase(next);
-		new_sel.insert(line);
+		Selection new_sel{ line };
 
 		auto it = c->ass->iterator_to(*next);
 		c->ass->Events.erase(it);
@@ -2859,6 +2870,7 @@ struct edit_line_join_next final : public Command {
 		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+		preview_joined_line(c, line);
 	}
 };
 
@@ -2887,9 +2899,7 @@ struct edit_line_join_next_translatormode final : public Command {
 			base_original = line->Text.get();
 		std::string joined_original = build_joined_text(base_original, next->Text.get());
 
-		Selection new_sel = c->selectionController->GetSelectedSet();
-		new_sel.erase(next);
-		new_sel.insert(line);
+		Selection new_sel{ line };
 
 		auto it = c->ass->iterator_to(*next);
 		c->ass->Events.erase(it);
@@ -2900,6 +2910,7 @@ struct edit_line_join_next_translatormode final : public Command {
 		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+		preview_joined_line(c, line);
 	}
 };
 
