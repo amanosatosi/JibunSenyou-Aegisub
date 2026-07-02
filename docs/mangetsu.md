@@ -37,6 +37,11 @@ The libassmod provider is intentionally separate. It only probes:
 It does not load plain `ass.dll`, `libass.dll`, `libass.so`, or `libass.dylib`
 as libassmod. Built-in `libass` is the fallback provider.
 
+On Windows, libassmod is packaged as `libassmod.dll`. The old `ass.dll` and
+`libass.dll` names are obsolete for this fork. Installer upgrades delete those
+stale names from the install directory, and the uninstaller removes them as
+cleanup in case they came from older Aegisub_Toshi-ban builds.
+
 ## Provider UI Behavior
 
 The current preferences UI uses a simple read-only dropdown that cannot disable

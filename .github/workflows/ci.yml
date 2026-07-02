@@ -194,6 +194,47 @@ jobs:
         if: matrix.config.os == 'windows-latest'
         run: cd build && ninja win-portable
 
+      - name: Verify Windows provider DLL packaging
+        if: matrix.config.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build\libassmod.dll")) {
+            throw "Build output is missing libassmod.dll"
+          }
+          if (Test-Path "build\ass.dll") {
+            throw "Build output must not contain stale ass.dll"
+          }
+          if (Test-Path "build\libass.dll") {
+            throw "Build output must not contain stale libass.dll"
+          }
+          if (-not (Test-Path "build\aegisub-portable\libassmod.dll")) {
+            throw "Portable staging is missing libassmod.dll"
+          }
+          if (Test-Path "build\aegisub-portable\ass.dll") {
+            throw "Portable staging must not contain stale ass.dll"
+          }
+          if (Test-Path "build\aegisub-portable\libass.dll") {
+            throw "Portable staging must not contain stale libass.dll"
+          }
+          $zipList = 7z l "build\aegisub-portable-64.zip"
+          if ($zipList -notmatch 'libassmod\.dll') {
+            throw "Portable zip is missing libassmod.dll"
+          }
+          if ($zipList -match '(^|\s)ass\.dll(\s|$)') {
+            throw "Portable zip must not contain stale ass.dll"
+          }
+          if ($zipList -match 'libass\.dll') {
+            throw "Portable zip must not contain stale libass.dll"
+          }
+          if (Test-Path "build\mangetsu.dll") {
+            if (-not (Test-Path "build\aegisub-portable\mangetsu.dll")) {
+              throw "Portable staging is missing mangetsu.dll even though it was built/provided"
+            }
+            if ($zipList -notmatch 'mangetsu\.dll') {
+              throw "Portable zip is missing mangetsu.dll even though it was built/provided"
+            }
+          }
+
       - name: Upload artifacts - win_installer
         uses: actions/upload-artifact@v4
         if: matrix.config.os == 'windows-latest'

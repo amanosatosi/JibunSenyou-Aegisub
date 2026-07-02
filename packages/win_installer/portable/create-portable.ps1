@@ -50,7 +50,12 @@ Write-Output 'Make install'
 meson install --no-rebuild --destdir $InstallerDir
 Write-Output 'Gathering files'
 Copy-New-Item $InstallerDir\bin\aegisub.exe  $PortableOutputDir
-Copy-New-Item $InstallerDir\bin\ass.dll  $PortableOutputDir
+Copy-New-Item $InstallerDir\bin\libassmod.dll  $PortableOutputDir
+if (Test-Path "$InstallerDir\bin\mangetsu.dll") {
+    Copy-New-Item $InstallerDir\bin\mangetsu.dll  $PortableOutputDir
+}
+Remove-Item -LiteralPath "$PortableOutputDir\ass.dll" -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath "$PortableOutputDir\libass.dll" -Force -ErrorAction SilentlyContinue
 Write-Output 'Copying - OpenCV runtime'
 $OpenCVRuntimeSetup = Join-Path $SourceRoot "tools\copy-opencv-runtime.ps1"
 & $OpenCVRuntimeSetup -DestinationDir $PortableOutputDir

@@ -22,7 +22,8 @@ Name: "checkforupdates"; Description: "{cm:CheckForUpdates}"; GroupDescription: 
 [Files]
 ; main
 DestDir: {app}; Source: "{#BUILD_ROOT}\aegisub.exe"; Flags: ignoreversion; Components: main
-DestDir: {app}; Source: "{#BUILD_ROOT}\ass.dll"; Flags: ignoreversion; Components: main
+DestDir: {app}; Source: "{#BUILD_ROOT}\libassmod.dll"; Flags: ignoreversion; Components: main
+DestDir: {app}; Source: "{#BUILD_ROOT}\mangetsu.dll"; Flags: ignoreversion skipifsourcedoesntexist; Components: main
 DestDir: {app}; Source: "{#BUILD_ROOT}\opencv-runtime\*.dll"; Flags: ignoreversion skipifsourcedoesntexist; Components: main
 DestDir: {app}\ocr; Source: "{#DEPS_DIR}\ocr\*"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist; Components: ocr
 DestDir: {app}; Source: "{#INSTALLER_DIR}\license.txt"; Flags: ignoreversion; Components: main
@@ -39,9 +40,15 @@ Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\aegisub
 Filename: {app}\aegisub.exe; Description: {cm:LaunchProgram,Aegisub}; Flags: nowait postinstall skipifsilent
 
 [InstallDelete]
+Type: files; Name: "{app}\ass.dll"
+Type: files; Name: "{app}\libass.dll"
 Type: files; Name: "{app}\ffms2_64.dll"
 Type: files; Name: "{app}\ffms2_32.dll"
 Type: filesandordirs; Name: "{app}\ocr"
 
 [UninstallDelete]
+Type: files; Name: "{app}\libassmod.dll"
+Type: files; Name: "{app}\mangetsu.dll"
+Type: files; Name: "{app}\ass.dll"
+Type: files; Name: "{app}\libass.dll"
 Type: filesandordirs; Name: "{app}\ocr"

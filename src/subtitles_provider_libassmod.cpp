@@ -353,7 +353,9 @@ bool LoadLibassModApi(AssCompatBackend &backend, std::string &error) {
 	api.ass_set_message_cb(backend.library, msg_callback, &backend);
 	LOG_I(backend.config.log_name) << "Subtitle renderer " << backend.config.display_name
 		<< ": available (loaded " << backend.loaded_library_name << ")";
-	if (backend.config.provider_name == std::string("Mangetsu"))
+	if (backend.config.provider_name == std::string("libassmod"))
+		LOG_I(backend.config.log_name) << "libassmod loaded from " << backend.loaded_library_name;
+	else if (backend.config.provider_name == std::string("Mangetsu"))
 		LOG_I(backend.config.log_name) << "Mangetsu loaded from " << backend.loaded_library_name;
 	return true;
 }
