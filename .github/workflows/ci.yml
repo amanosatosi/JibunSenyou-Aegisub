@@ -217,7 +217,7 @@ jobs:
             throw "Portable staging must not contain stale libass.dll"
           }
           $zipList = 7z l "build\aegisub-portable-64.zip"
-          if ($zipList -notmatch 'libassmod\.dll') {
+          if (-not ($zipList -match 'libassmod\.dll')) {
             throw "Portable zip is missing libassmod.dll"
           }
           if ($zipList -match '(^|\s)ass\.dll(\s|$)') {
@@ -230,7 +230,7 @@ jobs:
             if (-not (Test-Path "build\aegisub-portable\mangetsu.dll")) {
               throw "Portable staging is missing mangetsu.dll even though it was built/provided"
             }
-            if ($zipList -notmatch 'mangetsu\.dll') {
+            if (-not ($zipList -match 'mangetsu\.dll')) {
               throw "Portable zip is missing mangetsu.dll even though it was built/provided"
             }
           }
