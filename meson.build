@@ -120,6 +120,27 @@ libassmod_copy = custom_target('libassmod_copy',
     install_dir: bindir,
 )
 
+if get_option('with_mangetsu')
+    mangetsu_path = get_option('mangetsu_path')
+    if mangetsu_path == ''
+        error('-Dwith_mangetsu=true requires -Dmangetsu_path=/path/to/mangetsu library')
+    endif
+    if host_machine.system() == 'windows'
+        mangetsu_output = 'mangetsu.dll'
+    elif host_machine.system() == 'darwin'
+        mangetsu_output = 'libmangetsu.dylib'
+    else
+        mangetsu_output = 'libmangetsu.so'
+    endif
+    configure_file(
+        input: mangetsu_path,
+        output: mangetsu_output,
+        copy: true,
+        install: true,
+        install_dir: bindir,
+    )
+endif
+
 boost_modules = ['chrono', 'filesystem', 'thread', 'locale', 'regex']
 if not get_option('local_boost')
     boost_dep = dependency('boost', version: '>=1.70.0',

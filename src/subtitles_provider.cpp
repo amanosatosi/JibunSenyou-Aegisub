@@ -42,18 +42,20 @@ namespace {
 		bool hidden;
 	};
 
-	void WarnLibassmodFallback(std::string const& libassmod_error) {
-		static std::once_flag warned_once;
+	void WarnFallbackOnce(std::string const& provider, std::string const& primary_library, std::string const& error) {
+		static std::once_flag libassmod_warned_once;
+		static std::once_flag mangetsu_warned_once;
+		auto &warned_once = provider == "Mangetsu" ? mangetsu_warned_once : libassmod_warned_once;
 		std::call_once(warned_once, [&] {
 			std::string message;
-			if (libassmod_error.find("Could not load libassmod") != std::string::npos) {
-				message = libassmod::PrimaryLibraryName() + " doesn't exist. Falling back to libass.";
+			if (error.find("Could not load") != std::string::npos) {
+				message = primary_library + " not found. Falling back to libass.";
 			}
 			else {
-				message = "libassmod unavailable. Falling back to libass.";
+				message = provider + " unavailable. Falling back to libass.";
 			}
-			if (!libassmod_error.empty())
-				message += " (" + libassmod_error + ")";
+			if (!error.empty())
+				message += " (" + error + ")";
 
 			LOG_W("subtitle/provider") << message;
 			wxLogWarning("%s", to_wx(message));
@@ -68,11 +70,17 @@ namespace {
 			factories.push_back(factory{"CSRI/" + subtype, subtype, csri::Create, false});
 #endif
 		factories.push_back(factory{"libass", "", libass::Create, false});
+		LOG_I("subtitle/provider") << "Subtitle renderer libass: available (built-in)";
 		std::string libassmod_error;
 		if (libassmod::IsAvailable(&libassmod_error))
 			factories.push_back(factory{"libassmod", "", libassmod::Create, false});
 		else
 			LOG_D("subtitle/provider") << "libassmod provider hidden: " << libassmod_error;
+		std::string mangetsu_error;
+		if (mangetsu::IsAvailable(&mangetsu_error))
+			factories.push_back(factory{"Mangetsu", "", mangetsu::Create, false});
+		else
+			LOG_D("subtitle/provider") << "Mangetsu provider hidden: " << mangetsu_error;
 		return factories;
 	}
 }
@@ -81,12 +89,33 @@ std::vector<std::string> SubtitlesProviderFactory::GetClasses() {
 	return ::GetClasses(factories());
 }
 
+std::vector<std::string> SubtitlesProviderFactory::GetUnavailableClasses() {
+	std::vector<std::string> unavailable;
+
+	std::string libassmod_error;
+	if (!libassmod::IsAvailable(&libassmod_error))
+		unavailable.push_back("libassmod unavailable: missing " + libassmod::PrimaryLibraryName());
+
+	std::string mangetsu_error;
+	if (!mangetsu::IsAvailable(&mangetsu_error))
+		unavailable.push_back("Mangetsu unavailable: missing " + mangetsu::PrimaryLibraryName());
+
+	return unavailable;
+}
+
 std::unique_ptr<SubtitlesProvider> SubtitlesProviderFactory::GetProvider(agi::BackgroundRunner *br) {
 	auto preferred = OPT_GET("Subtitle/Provider")->GetString();
 	if (preferred == "libassmod") {
 		std::string libassmod_error;
 		if (!libassmod::IsAvailable(&libassmod_error)) {
-			WarnLibassmodFallback(libassmod_error);
+			WarnFallbackOnce("libassmod", libassmod::PrimaryLibraryName(), libassmod_error);
+			preferred = "libass";
+		}
+	}
+	else if (preferred == "Mangetsu") {
+		std::string mangetsu_error;
+		if (!mangetsu::IsAvailable(&mangetsu_error)) {
+			WarnFallbackOnce("Mangetsu", mangetsu::PrimaryLibraryName(), mangetsu_error);
 			preferred = "libass";
 		}
 	}

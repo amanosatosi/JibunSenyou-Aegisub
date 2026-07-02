@@ -623,6 +623,18 @@ void Advanced_Video(wxTreebook *book, Preferences *parent) {
 	wxArrayString sp_choice = to_wx(SubtitlesProviderFactory::GetClasses());
 	p->OptionChoice(expert, _("Subtitles provider"), sp_choice, "Subtitle/Provider");
 
+	auto unavailable_subtitles = SubtitlesProviderFactory::GetUnavailableClasses();
+	if (!unavailable_subtitles.empty()) {
+		wxString unavailable_text;
+		for (auto const& line : unavailable_subtitles) {
+			if (!unavailable_text.empty())
+				unavailable_text += "\n";
+			unavailable_text += to_wx(line);
+		}
+		expert->Add(new wxStaticText(p, wxID_ANY, _("Unavailable subtitles providers")), 1, wxALIGN_CENTRE_VERTICAL);
+		expert->Add(new wxStaticText(p, wxID_ANY, unavailable_text), wxSizerFlags().Expand());
+	}
+
 
 #ifdef WITH_AVISYNTH
 	auto avisynth = p->PageSizer("Avisynth");
