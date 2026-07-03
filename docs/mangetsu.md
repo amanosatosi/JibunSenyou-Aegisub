@@ -10,8 +10,8 @@ https://github.com/amanosatosi/libassmod/tree/mangetsu
 
 ## Build And Package
 
-Build the `mangetsu` branch of `libassmod` as a shared library, then package the
-output beside `aegisub.exe` or the installed Aegisub binary as:
+Build/package the `mangetsu` branch of `libassmod` as a shared library, then
+place the output beside `aegisub.exe` or the installed Aegisub binary as:
 
 - Windows: `mangetsu.dll`
 - Linux: `libmangetsu.so`
@@ -20,13 +20,24 @@ output beside `aegisub.exe` or the installed Aegisub binary as:
 Configure Aegisub packaging with:
 
 ```sh
+meson setup build -Dwith_mangetsu=true
+```
+
+When `mangetsu_path` is omitted, Meson builds the `mangetsu` branch from
+`subprojects/libassmod-mangetsu.wrap` and installs it under the platform name
+above. Release Windows installer and portable builds enable this, so
+`mangetsu.dll` is bundled in shipped artifacts.
+
+To package a prebuilt external library instead, use:
+
+```sh
 meson setup build -Dwith_mangetsu=true -Dmangetsu_path=/path/to/mangetsu.dll
 ```
 
-Use the platform-appropriate path for `mangetsu_path`. The Aegisub build does
-not require Mangetsu by default; without this option, Aegisub still builds and
-runs, and the Mangetsu provider is simply unavailable unless a matching library
-is placed beside the executable by other packaging.
+Use the platform-appropriate path for `mangetsu_path`. Without
+`-Dwith_mangetsu=true`, Aegisub still builds and runs, and the Mangetsu provider
+is simply unavailable unless a matching library is placed beside the executable
+by other packaging.
 
 The libassmod provider is intentionally separate. It only probes:
 

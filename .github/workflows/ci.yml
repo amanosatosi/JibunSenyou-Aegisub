@@ -43,6 +43,7 @@ jobs:
               -Dvapoursynth=enabled
               -Dpaddleocr=enabled
               -Dopencv=enabled
+              -Dwith_mangetsu=true
           - name: Windows MSVC Release (wx master)
             os: windows-latest
             msvc: true
@@ -68,6 +69,7 @@ jobs:
               -Dpaddleocr=enabled
               -Dwx_version='3.3.1'
               -Dopencv=enabled
+              -Dwith_mangetsu=true
           #- {
           #  name: Windows MinGW,
           #  os: windows-latest,
@@ -226,12 +228,15 @@ jobs:
           if ($zipList -match 'libass\.dll') {
             throw "Portable zip must not contain stale libass.dll"
           }
-          if (Test-Path "build\mangetsu.dll") {
+          if ("${{ matrix.config.args }}" -match '-Dwith_mangetsu=true') {
+            if (-not (Test-Path "build\mangetsu.dll")) {
+              throw "Build output is missing mangetsu.dll"
+            }
             if (-not (Test-Path "build\aegisub-portable\mangetsu.dll")) {
-              throw "Portable staging is missing mangetsu.dll even though it was built/provided"
+              throw "Portable staging is missing mangetsu.dll"
             }
             if (-not ($zipList -match 'mangetsu\.dll')) {
-              throw "Portable zip is missing mangetsu.dll even though it was built/provided"
+              throw "Portable zip is missing mangetsu.dll"
             }
           }
 

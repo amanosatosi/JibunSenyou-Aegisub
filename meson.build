@@ -122,9 +122,6 @@ libassmod_copy = custom_target('libassmod_copy',
 
 if get_option('with_mangetsu')
     mangetsu_path = get_option('mangetsu_path')
-    if mangetsu_path == ''
-        error('-Dwith_mangetsu=true requires -Dmangetsu_path=/path/to/mangetsu library')
-    endif
     if host_machine.system() == 'windows'
         mangetsu_output = 'mangetsu.dll'
     elif host_machine.system() == 'darwin'
@@ -132,13 +129,27 @@ if get_option('with_mangetsu')
     else
         mangetsu_output = 'libmangetsu.so'
     endif
-    configure_file(
-        input: mangetsu_path,
-        output: mangetsu_output,
-        copy: true,
-        install: true,
-        install_dir: bindir,
-    )
+
+    if mangetsu_path == ''
+        mangetsu_sp = subproject('libassmod-mangetsu', default_options: ['default_library=shared'])
+        mangetsu_lib = mangetsu_sp.get_variable('libass')
+        custom_target('mangetsu_copy',
+            input: mangetsu_lib,
+            output: mangetsu_output,
+            command: [py, '-c', 'import shutil,sys; shutil.copy2(sys.argv[1], sys.argv[2])', '@INPUT@', '@OUTPUT@'],
+            build_by_default: true,
+            install: true,
+            install_dir: bindir,
+        )
+    else
+        configure_file(
+            input: mangetsu_path,
+            output: mangetsu_output,
+            copy: true,
+            install: true,
+            install_dir: bindir,
+        )
+    endif
 endif
 
 boost_modules = ['chrono', 'filesystem', 'thread', 'locale', 'regex']
