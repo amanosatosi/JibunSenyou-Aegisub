@@ -2786,14 +2786,14 @@ static std::string build_joined_text(std::string const& first, std::string const
 	return lhs + ' ' + rhs;
 }
 
-static void preview_joined_line(agi::Context *c, AssDialogue *line) {
-	if (!line || !c->audioController || !OPT_GET("Audio/Join Next/Auto Preview")->GetBool())
+static void preview_join_next_source(agi::Context *c, TimeRange const& preview_range) {
+	if (!c->audioController || !OPT_GET("Audio/Join Next/Auto Preview")->GetBool())
 		return;
 
 	if (auto timing = c->audioController->GetTimingController())
 		timing->Revert();
 
-	c->audioController->PlayRange(TimeRange(line->Start, line->End));
+	c->audioController->PlayRange(preview_range);
 }
 
 struct edit_line_join_as_karaoke final : public validate_sel_multiple {
@@ -2846,6 +2846,7 @@ struct edit_line_join_next final : public Command {
 		AssDialogue *next = get_adjacent_line(c, line, 1);
 		if (!next) return;
 
+		TimeRange preview_range(next->Start, next->End);
 		std::string const current_text = line->Text.get();
 		std::string const next_text = next->Text.get();
 		std::string const joined_text = build_joined_text(current_text, next_text);
@@ -2870,7 +2871,7 @@ struct edit_line_join_next final : public Command {
 		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
-		preview_joined_line(c, line);
+		preview_join_next_source(c, preview_range);
 	}
 };
 
@@ -2891,6 +2892,7 @@ struct edit_line_join_next_translatormode final : public Command {
 		AssDialogue *next = get_adjacent_line(c, line, 1);
 		if (!next) return;
 
+		TimeRange preview_range(next->Start, next->End);
 		line->Start = std::min(line->Start, next->Start);
 		line->End = std::max(line->End, next->End);
 
@@ -2910,7 +2912,7 @@ struct edit_line_join_next_translatormode final : public Command {
 		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
-		preview_joined_line(c, line);
+		preview_join_next_source(c, preview_range);
 	}
 };
 
