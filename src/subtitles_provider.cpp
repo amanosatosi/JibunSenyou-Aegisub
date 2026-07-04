@@ -30,6 +30,8 @@
 
 #include <libaegisub/log.h>
 
+#include <boost/algorithm/string/trim.hpp>
+
 #include <mutex>
 
 #include <wx/log.h>
@@ -60,6 +62,15 @@ namespace {
 			LOG_W("subtitle/provider") << message;
 			wxLogWarning("%s", to_wx(message));
 		});
+	}
+
+	static bool is_mangetsu_actor_colorcoding_metadata_comment(AssDialogue const& line) {
+		std::string effect = line.Effect.get();
+		boost::trim(effect);
+
+		return line.Comment
+			&& !line.Actor.get().empty()
+			&& effect == "mangetsu-colorcoding";
 	}
 
 	std::vector<factory> const& factories() {
@@ -167,6 +178,13 @@ void SubtitlesProvider::LoadSubtitles(AssFile *subs, int time) {
 	}
 
 	push_header("[Events]\n");
+	for (auto const& line : subs->Events) {
+		if (is_mangetsu_actor_colorcoding_metadata_comment(line))
+			push_line(line.GetEntryData());
+		else
+			break;
+	}
+
 	for (auto const& line : subs->Events) {
 		if (!line.Comment && (time < 0 || !(line.Start > time || line.End <= time)))
 			push_line(line.GetEntryData());
