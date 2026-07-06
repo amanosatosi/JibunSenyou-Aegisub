@@ -178,6 +178,7 @@ void SubtitlesProvider::LoadSubtitles(AssFile *subs, int time) {
 	}
 
 	push_header("[Events]\n");
+	push_header("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
 	for (auto const& line : subs->Events) {
 		if (is_mangetsu_actor_colorcoding_metadata_comment(line))
 			push_line(line.GetEntryData());
