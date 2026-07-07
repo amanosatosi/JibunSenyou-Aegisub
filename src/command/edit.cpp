@@ -77,8 +77,13 @@
 
 #include <optional>
 
+#include <wx/brush.h>
 #include <wx/clipbrd.h>
+#include <wx/colour.h>
+#include <wx/dcmemory.h>
+#include <wx/font.h>
 #include <wx/fontdlg.h>
+#include <wx/pen.h>
 #include <wx/textentry.h>
 
 namespace {
@@ -2324,6 +2329,47 @@ struct edit_color_shadow final : public Command {
 	}
 };
 
+struct edit_color_insert_value final : public Command {
+	CMD_NAME("edit/color/insert_value")
+	STR_MENU("Insert Color Value...")
+	STR_DISP("Color Value")
+	STR_HELP("Insert an ASS color value at the cursor position")
+
+	wxBitmap Icon(int size, double scale = 1.0, wxLayoutDirection = wxLayout_LeftToRight) const override {
+		int pixel_size = std::max(16, static_cast<int>(size * scale));
+		wxBitmap bmp(pixel_size, pixel_size, 32);
+		wxMemoryDC dc(bmp);
+		dc.SetBackground(*wxTRANSPARENT_BRUSH);
+		dc.Clear();
+
+		dc.SetPen(wxPen(wxColour(40, 40, 40)));
+		dc.SetBrush(wxBrush(wxColour(245, 245, 245)));
+		dc.DrawRoundedRectangle(0, 0, pixel_size, pixel_size, std::max(2, pixel_size / 8));
+
+		wxFont font(std::max(8, pixel_size * 3 / 5), wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+		dc.SetFont(font);
+		dc.SetTextForeground(wxColour(20, 20, 20));
+
+		wxString label = wxS("C");
+		wxSize text_size = dc.GetTextExtent(label);
+		dc.DrawText(label, (pixel_size - text_size.GetWidth()) / 2, (pixel_size - text_size.GetHeight()) / 2);
+		dc.SelectObject(wxNullBitmap);
+		return bmp;
+	}
+
+	void operator()(agi::Context *c) override {
+		agi::Color initial_color{255, 255, 255};
+		if (auto active_line = c->selectionController->GetActiveLine()) {
+			if (auto style = c->ass->GetStyle(active_line->Style))
+				initial_color = style->primary;
+		}
+
+		GetColorFromUserShin(c->parent, initial_color, false, [=](agi::Color new_color) {
+			c->subsEditBox->InsertTextAtCaret(to_wx(new_color.GetAssOverrideFormatted()));
+		});
+	}
+};
+
 struct edit_style_bold final : public Command {
 	CMD_NAME("edit/style/bold")
 	CMD_ICON(button_bold)
@@ -3450,6 +3496,7 @@ namespace cmd {
 		reg(agi::make_unique<edit_color_secondary>());
 		reg(agi::make_unique<edit_color_outline>());
 		reg(agi::make_unique<edit_color_shadow>());
+		reg(agi::make_unique<edit_color_insert_value>());
 		reg(agi::make_unique<edit_font>());
 		reg(agi::make_unique<edit_find_replace>());
 		reg(agi::make_unique<edit_line_copy>());
