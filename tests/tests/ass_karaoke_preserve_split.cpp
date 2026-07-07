@@ -219,6 +219,19 @@ TEST(AssKaraoke, TimingBoundariesAssignEverySyllable) {
 	EXPECT_EQ("{\\ko12}a{\\ko17}b{\\ko21}c", kara.GetText());
 }
 
+TEST(AssKaraoke, GetTextCanOmitKaraokeTags) {
+	AssDialogue dia;
+	dia.Start = 0;
+	dia.End = 500;
+	dia.Text = "{\\k20}hello{\\k30} world";
+
+	AssKaraoke kara(&dia, false, false);
+	kara.SetTagType("\\kf");
+
+	EXPECT_EQ("{\\kf20}hello{\\kf30} world", kara.GetText());
+	EXPECT_EQ("hello world", kara.GetText(false));
+}
+
 TEST(AssKaraoke, AutoSplitJapaneseKana_BasicKana) {
 	AssDialogue dia;
 	dia.Start = 0;

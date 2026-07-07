@@ -120,14 +120,14 @@ public:
 	iterator end() const { return syls.end(); }
 	size_t size() const { return syls.size(); }
 
-	/// Get the line's text with k tags
-	std::string GetText() const;
+	/// Get the line's text, optionally with karaoke tags
+	std::string GetText(bool k_tags = true) const;
 
 	/// Get the karaoke tag type used, with leading slash
 	/// @returns "\k", "\kf", or "\ko"
 	std::string GetTagType() const;
 	/// Set the tag type for all karaoke tags in this line
-	void SetTagType(std::string const& new_type);
+	void SetTagType(std::string const& new_type, bool announce = true);
 
 	DEFINE_SIGNAL_ADDERS(AnnounceSyllablesChanged, AddSyllablesChangedListener)
 };

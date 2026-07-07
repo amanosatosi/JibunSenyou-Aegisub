@@ -42,6 +42,7 @@
 #include <boost/locale/boundary.hpp>
 #include <wx/bmpbuttn.h>
 #include <wx/button.h>
+#include <wx/choice.h>
 #include <wx/dcclient.h>
 #include <wx/dcmemory.h>
 #include <wx/menu.h>
@@ -77,6 +78,14 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 	accept_button->SetToolTip(_("Commit splits"));
 	accept_button->Bind(wxEVT_BUTTON, bind(&AudioKaraoke::AcceptSplit, this));
 
+	tag_type_choice = new wxChoice(this, -1);
+	tag_type_choice->Append(wxS("\\k"));
+	tag_type_choice->Append(wxS("\\kf"));
+	tag_type_choice->Append(wxS("\\ko"));
+	tag_type_choice->SetSelection(0);
+	tag_type_choice->SetToolTip(_("Karaoke tag type used when committing Toshiki K-Timing"));
+	tag_type_choice->Bind(wxEVT_CHOICE, &AudioKaraoke::OnKTimingTagTypeChoice, this);
+
 	auto_cut_button = new wxToggleButton(this, -1, _("Auto Cut"), wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
 	auto_cut_button->SetToolTip(_("Enable automatic Toshiki K-Timing slot cutting"));
 	auto_cut_button->Bind(wxEVT_TOGGLEBUTTON, bind(&AudioKaraoke::AutoCutKTiming, this));
@@ -87,7 +96,9 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 	main_sizer->Add(cancel_button);
 	main_sizer->Add(accept_button);
 	main_sizer->Add(split_area, wxSizerFlags(1).Expand());
+	main_sizer->Add(tag_type_choice, wxSizerFlags().Expand().Border(wxLEFT, 4));
 	main_sizer->Add(auto_cut_button, wxSizerFlags().Expand().Border(wxLEFT, 4));
+	tag_type_choice->Show(false);
 	auto_cut_button->Show(false);
 	SetSizerAndFit(main_sizer);
 
@@ -116,18 +127,54 @@ void AudioKaraoke::OnActiveLineChanged(AssDialogue *new_line) {
 	active_line = new_line;
 	UpdateAutoCutButton();
 	if (enabled || ktiming_enabled) {
-		LoadFromLine();
-		if (ktiming_enabled)
+		if (ktiming_enabled) {
+			if (auto timing = c->audioController->GetTimingController()) {
+				if (active_line) {
+					timing->Revert();
+					SyncKTimingTagTypeAfterLoad();
+					SetDisplayText();
+					accept_button->Enable(true);
+					cancel_button->Enable(true);
+				}
+				else {
+					LoadFromLine();
+				}
+			}
+			else {
+				LoadFromLine();
+			}
 			ApplyKTimingAutoCutIfNeeded();
+		}
+		else {
+			LoadFromLine();
+		}
 		split_area->Refresh(false);
 	}
 }
 
 void AudioKaraoke::OnFileChanged(int type, const AssDialogue *changed) {
 	if ((enabled || ktiming_enabled) && (type & AssFile::COMMIT_DIAG_FULL) && (!changed || changed == active_line)) {
-		LoadFromLine();
-		if (ktiming_enabled)
+		if (ktiming_enabled) {
+			if (auto timing = c->audioController->GetTimingController()) {
+				if (active_line) {
+					timing->Revert();
+					SyncKTimingTagTypeAfterLoad();
+					SetDisplayText();
+					accept_button->Enable(true);
+					cancel_button->Enable(true);
+				}
+				else {
+					LoadFromLine();
+				}
+			}
+			else {
+				LoadFromLine();
+			}
 			ApplyKTimingAutoCutIfNeeded();
+		}
+		else {
+			LoadFromLine();
+		}
 		split_area->Refresh(false);
 	}
 }
@@ -201,6 +248,20 @@ void AudioKaraoke::SetKTimingEnabled(bool en) {
 void AudioKaraoke::OnSize(wxSizeEvent &evt) {
 	RenderText();
 	Refresh(false);
+}
+
+void AudioKaraoke::SyncKTimingTagTypeAfterLoad() {
+	if (!ktiming_enabled || !active_line)
+		return;
+
+	if (kara->HasKaraokeTags()) {
+		ktiming_tag_type = kara->GetTagType();
+		if (tag_type_choice)
+			tag_type_choice->SetStringSelection(to_wx(ktiming_tag_type));
+	}
+	else {
+		kara->SetTagType(ktiming_tag_type, false);
+	}
 }
 
 void AudioKaraoke::OnPaint(wxPaintEvent &) {
@@ -302,6 +363,24 @@ void AudioKaraoke::AddMenuItem(wxMenu &menu, std::string const& tag, wxString co
 }
 
 void AudioKaraoke::OnContextMenu(wxContextMenuEvent&) {
+	if (ktiming_enabled) {
+		if (!active_line) return;
+
+		wxMenu context_menu(_("Toshiki K-Timing tag"));
+		auto add_commit_item = [&](std::string const& tag) {
+			wxString label = wxString::Format(_("Use %s and commit"), to_wx(tag).c_str());
+			wxMenuItem *item = context_menu.Append(-1, label);
+			context_menu.Bind(wxEVT_MENU, [=](wxCommandEvent&) { SetKTimingTagTypeAndCommit(tag); }, item->GetId());
+		};
+
+		add_commit_item("\\k");
+		add_commit_item("\\kf");
+		add_commit_item("\\ko");
+
+		PopupMenu(&context_menu);
+		return;
+	}
+
 	if (!enabled) return;
 
 	wxMenu context_menu(_("Karaoke tag"));
@@ -393,7 +472,7 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 	}
 
 	SetDisplayText();
-	accept_button->Enable(!ktiming_enabled);
+	accept_button->Enable(true);
 	cancel_button->Enable(true);
 	split_area->Refresh(false);
 }
@@ -432,9 +511,10 @@ void AudioKaraoke::LoadFromLine() {
 	kara->SetLine(active_line, !ktiming_enabled, !ktiming_enabled);
 	if (ktiming_enabled && kara->HasKaraokeTags())
 		kara->SetLine(active_line, false, true);
+	SyncKTimingTagTypeAfterLoad();
 	SetDisplayText();
-	accept_button->Enable(!ktiming_enabled && kara->GetText() != active_line->Text);
-	cancel_button->Enable(false);
+	accept_button->Enable(ktiming_enabled && active_line ? true : kara->GetText() != active_line->Text);
+	cancel_button->Enable(ktiming_enabled && active_line);
 }
 
 void AudioKaraoke::SetDisplayText() {
@@ -511,6 +591,8 @@ void AudioKaraoke::UpdateAutoCutButton() {
 
 	bool show = ktiming_enabled;
 	bool usable = show && active_line && OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString() != "Off";
+	tag_type_choice->Show(show);
+	tag_type_choice->Enable(show && active_line);
 	auto_cut_button->Show(show);
 	auto_cut_button->Enable(usable);
 	auto_cut_button->SetToolTip(!usable ?
@@ -539,8 +621,9 @@ void AudioKaraoke::ApplyKTimingAutoCutIfNeeded() {
 		AutoSplitJapaneseKana(false, true, true);
 	else {
 		kara->AutoSplitWords(false);
+		kara->SetTagType(ktiming_tag_type, false);
 		SetDisplayText();
-		accept_button->Enable(false);
+		accept_button->Enable(true);
 		cancel_button->Enable(true);
 		split_area->Refresh(false);
 	}
@@ -577,7 +660,16 @@ void AudioKaraoke::CancelSplit() {
 	if (ktiming_enabled) {
 		if (auto timing = c->audioController->GetTimingController())
 			timing->Revert();
-		LoadFromLine();
+		active_line = c->selectionController->GetActiveLine();
+		if (active_line) {
+			SyncKTimingTagTypeAfterLoad();
+			SetDisplayText();
+			accept_button->Enable(true);
+			cancel_button->Enable(true);
+		}
+		else {
+			LoadFromLine();
+		}
 		split_area->Refresh(false);
 		return;
 	}
@@ -588,6 +680,7 @@ void AudioKaraoke::CancelSplit() {
 
 void AudioKaraoke::AcceptSplit() {
 	if (ktiming_enabled) {
+		kara->SetTagType(ktiming_tag_type, false);
 		if (auto timing = c->audioController->GetTimingController())
 			timing->Commit();
 		return;
@@ -605,6 +698,24 @@ void AudioKaraoke::AcceptSplit() {
 void AudioKaraoke::SetTagType(std::string const& new_tag) {
 	kara->SetTagType(new_tag);
 	AcceptSplit();
+}
+
+void AudioKaraoke::SetKTimingTagType(std::string const& new_tag) {
+	ktiming_tag_type = new_tag;
+	if (tag_type_choice)
+		tag_type_choice->SetStringSelection(to_wx(new_tag));
+	if (ktiming_enabled && active_line)
+		kara->SetTagType(new_tag);
+}
+
+void AudioKaraoke::SetKTimingTagTypeAndCommit(std::string const& new_tag) {
+	SetKTimingTagType(new_tag);
+	AcceptSplit();
+}
+
+void AudioKaraoke::OnKTimingTagTypeChoice(wxCommandEvent&) {
+	if (!tag_type_choice) return;
+	SetKTimingTagType(from_wx(tag_type_choice->GetStringSelection()));
 }
 
 void AudioKaraoke::AutoSplitJapaneseKana(bool commit, bool spaces_as_slots, bool song_sane) {
@@ -626,8 +737,9 @@ void AudioKaraoke::AutoSplitJapaneseKana(bool commit, bool spaces_as_slots, bool
 	if (commit && (enabled || ktiming_enabled))
 		LoadFromLine();
 	else if (!commit && ktiming_enabled) {
+		kara->SetTagType(ktiming_tag_type, false);
 		SetDisplayText();
-		accept_button->Enable(false);
+		accept_button->Enable(true);
 		cancel_button->Enable(true);
 	}
 	if (enabled || ktiming_enabled)

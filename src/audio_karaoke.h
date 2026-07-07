@@ -27,6 +27,7 @@
 class AssDialogue;
 class AssKaraoke;
 class wxButton;
+class wxChoice;
 class wxToggleButton;
 namespace agi { class AudioProvider; }
 namespace agi { struct Context; }
@@ -108,9 +109,11 @@ class AudioKaraoke final : public wxWindow {
 
 	bool enabled = false; ///< Is karaoke mode enabled?
 	bool ktiming_enabled = false; ///< Is dedicated k-timing mode enabled?
+	std::string ktiming_tag_type = "\\k"; ///< Session-local Toshiki K-Timing commit tag type
 
 	wxButton *accept_button; ///< Accept pending splits button
 	wxButton *cancel_button; ///< Revert pending changes
+	wxChoice *tag_type_choice; ///< Toshiki K-Timing karaoke tag type selector
 	wxToggleButton *auto_cut_button; ///< Toggle automatic Toshiki K-Timing slot cutting
 
 	wxWindow *split_area; ///< The split/join window
@@ -124,6 +127,9 @@ class AudioKaraoke final : public wxWindow {
 	void AddMenuItem(wxMenu &menu, std::string const& tag, wxString const& help, std::string const& selected);
 	/// Set the karaoke tags for the selected syllables to the indicated one
 	void SetTagType(std::string const& new_type);
+	void SetKTimingTagType(std::string const& new_type);
+	void SetKTimingTagTypeAndCommit(std::string const& new_type);
+	void OnKTimingTagTypeChoice(wxCommandEvent &evt);
 
 	/// Prerender the current line along with syllable split lines
 	void RenderText();
@@ -140,6 +146,7 @@ class AudioKaraoke final : public wxWindow {
 	void ApplyKTimingAutoCutIfNeeded();
 	void UpdateAutoCutButton();
 	void SetKTimingController();
+	void SyncKTimingTagTypeAfterLoad();
 
 	void OnActiveLineChanged(AssDialogue *new_line);
 	void OnContextMenu(wxContextMenuEvent&);

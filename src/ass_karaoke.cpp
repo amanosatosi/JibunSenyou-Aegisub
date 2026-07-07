@@ -350,12 +350,12 @@ void AssKaraoke::ParseSyllables(const AssDialogue *line, Syllable &syl) {
 	syls.push_back(syl);
 }
 
-std::string AssKaraoke::GetText() const {
+std::string AssKaraoke::GetText(bool k_tags) const {
 	std::string text;
 	text.reserve(size() * 10);
 
 	for (auto const& syl : syls)
-		text += syl.GetText(true);
+		text += syl.GetText(k_tags);
 
 	return text;
 }
@@ -364,9 +364,14 @@ std::string AssKaraoke::GetTagType() const {
 	return begin()->tag_type;
 }
 
-void AssKaraoke::SetTagType(std::string const& new_type) {
-	for (auto& syl : syls)
+void AssKaraoke::SetTagType(std::string const& new_type, bool announce) {
+	bool changed = false;
+	for (auto& syl : syls) {
+		changed = changed || syl.tag_type != new_type;
 		syl.tag_type = new_type;
+	}
+	if (announce && changed && !no_announce)
+		AnnounceSyllablesChanged();
 }
 
 void AssKaraoke::AddSplit(size_t syl_idx, size_t pos) {
