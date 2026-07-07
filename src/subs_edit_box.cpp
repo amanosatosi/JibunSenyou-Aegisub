@@ -460,6 +460,54 @@ bool SubsEditBox::InsertTextAtCaret(wxString const& text) {
 	return true;
 }
 
+wxString SubsEditBox::GetTextRange(int start, int end) const {
+	if (!edit_ctrl)
+		return wxString();
+
+	start = std::clamp(start, 0, edit_ctrl->GetTextLength());
+	end = std::clamp(end, 0, edit_ctrl->GetTextLength());
+	if (start > end)
+		std::swap(start, end);
+	return edit_ctrl->GetTextRange(start, end);
+}
+
+bool SubsEditBox::ReplaceTextRange(int start, int end, wxString const& text, int *new_end, bool focus) {
+	if (!line)
+		return false;
+
+	start = std::clamp(start, 0, edit_ctrl->GetTextLength());
+	end = std::clamp(end, 0, edit_ctrl->GetTextLength());
+	if (start > end)
+		std::swap(start, end);
+
+	std::string text_utf8 = from_wx(text);
+	edit_ctrl->BeginUndoAction();
+	edit_ctrl->SetTargetStart(start);
+	edit_ctrl->SetTargetEnd(end);
+	edit_ctrl->ReplaceTarget(text);
+
+	int caret = start + static_cast<int>(text_utf8.size());
+	edit_ctrl->SetSelection(caret, caret);
+	edit_ctrl->GotoPos(caret);
+	edit_ctrl->EndUndoAction();
+
+	if (new_end)
+		*new_end = caret;
+	if (focus)
+		FocusTextCtrl();
+	return true;
+}
+
+void SubsEditBox::SetTextSelection(int start, int end) {
+	if (!edit_ctrl)
+		return;
+
+	start = std::clamp(start, 0, edit_ctrl->GetTextLength());
+	end = std::clamp(end, 0, edit_ctrl->GetTextLength());
+	edit_ctrl->SetSelection(start, end);
+	edit_ctrl->GotoPos(end);
+}
+
 void SubsEditBox::FocusTextCtrl() {
 	if (edit_ctrl)
 		edit_ctrl->SetFocus();

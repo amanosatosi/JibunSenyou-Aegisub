@@ -2364,9 +2364,37 @@ struct edit_color_insert_value final : public Command {
 				initial_color = style->primary;
 		}
 
-		GetColorFromUserShin(c->parent, initial_color, false, [=](agi::Color new_color) {
-			c->subsEditBox->InsertTextAtCaret(to_wx(new_color.GetAssOverrideFormatted()));
+		int original_sel_start = c->textSelectionController->GetSelectionStart();
+		int original_sel_end = c->textSelectionController->GetSelectionEnd();
+		int preview_start = std::min(original_sel_start, original_sel_end);
+		int preview_end = std::max(original_sel_start, original_sel_end);
+		wxString original_text = c->subsEditBox->GetTextRange(preview_start, preview_end);
+		bool preview_inserted = false;
+		agi::Color selected_color = initial_color;
+
+		bool ok = GetColorFromUserShin(c->parent, initial_color, false, [&](agi::Color new_color) {
+			selected_color = new_color;
+			int new_end = preview_end;
+			if (c->subsEditBox->ReplaceTextRange(preview_start, preview_end, to_wx(new_color.GetAssOverrideFormatted()), &new_end, false)) {
+				preview_end = new_end;
+				preview_inserted = true;
+			}
 		});
+		if (ok) {
+			if (!preview_inserted)
+				c->subsEditBox->ReplaceTextRange(preview_start, preview_end, to_wx(selected_color.GetAssOverrideFormatted()), &preview_end);
+			c->subsEditBox->SetTextSelection(preview_end, preview_end);
+			c->subsEditBox->FocusTextCtrl();
+		}
+		else if (preview_inserted) {
+			int restored_end = preview_start;
+			c->subsEditBox->ReplaceTextRange(preview_start, preview_end, original_text, &restored_end);
+			c->subsEditBox->SetTextSelection(original_sel_start, original_sel_end);
+			c->subsEditBox->FocusTextCtrl();
+		}
+		else {
+			c->subsEditBox->FocusTextCtrl();
+		}
 	}
 };
 
