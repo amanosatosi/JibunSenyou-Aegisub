@@ -25,6 +25,8 @@
 
 #include <libaegisub/dispatch.h>
 
+#include <boost/algorithm/string/trim.hpp>
+
 #if BOOST_VERSION >= 106900
 #include <boost/gil.hpp>
 #else
@@ -35,6 +37,28 @@ enum {
 	NEW_SUBS_FILE = -1,
 	SUBS_FILE_ALREADY_LOADED = -2
 };
+
+namespace {
+	bool is_mangetsu_actor_colorcoding_metadata_comment(AssDialogue const& line) {
+		std::string effect = line.Effect.get();
+		boost::trim(effect);
+
+		return line.Comment
+			&& !line.Actor.get().empty()
+			&& effect == "mangetsu-colorcoding";
+	}
+
+	bool may_affect_top_mangetsu_actor_colorcoding_metadata(AssFile const& subs, AssDialogue const& target) {
+		for (auto const& line : subs.Events) {
+			if (line.Row == target.Row)
+				return line.Comment;
+			if (!is_mangetsu_actor_colorcoding_metadata_comment(line))
+				return false;
+		}
+
+		return false;
+	}
+}
 
 std::shared_ptr<VideoFrame> AsyncVideoProvider::ProcFrame(int frame_number, double time, bool raw) {
 	// Find an unused buffer to use or allocate a new one if needed
@@ -176,16 +200,24 @@ void AsyncVideoProvider::UpdateSubtitles(const AssFile *new_subs, const AssDialo
 	// Copy just the line which were changed, then replace the line at the
 	// same index in the worker's copy of the file with the new entry
 	auto copy = new AssDialogue(*changed);
+	bool new_line_affects_mangetsu_actor_colorcoding =
+		may_affect_top_mangetsu_actor_colorcoding_metadata(*new_subs, *copy);
+
 	worker->Async([=]{
 		int i = 0;
 		auto it = subs->Events.begin();
 		std::advance(it, copy->Row - i);
 		i = copy->Row;
+
+		bool affects_mangetsu_actor_colorcoding =
+			may_affect_top_mangetsu_actor_colorcoding_metadata(*subs, *it) ||
+			new_line_affects_mangetsu_actor_colorcoding;
+
 		subs->Events.insert(it, *copy);
 		delete &*it--;
 
 		single_frame = NEW_SUBS_FILE;
-		ProcAsync(req_version, true);
+		ProcAsync(req_version, !affects_mangetsu_actor_colorcoding);
 	});
 }
 
@@ -214,6 +246,7 @@ bool AsyncVideoProvider::NeedUpdate(std::vector<AssDialogueBase const*> const& v
 		if (last.Layer  != cur.Layer)  return true;
 		if (last.Margin != cur.Margin) return true;
 		if (last.Style  != cur.Style)  return true;
+		if (last.Actor  != cur.Actor)  return true;
 		if (last.Effect != cur.Effect) return true;
 		if (last.Text   != cur.Text)   return true;
 
