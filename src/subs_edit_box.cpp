@@ -297,6 +297,7 @@ SubsEditBox::SubsEditBox(wxWindow *parent, agi::Context *context)
 	MakeButton("edit/color/outline");
 	MakeButton("edit/color/shadow");
 	MakeButton("edit/color/insert_value");
+	MakeButton("edit/color/gradient");
 	middle_right_sizer->AddSpacer(5);
 	MakeButton("grid/line/next/create");
 	middle_right_sizer->AddSpacer(10);

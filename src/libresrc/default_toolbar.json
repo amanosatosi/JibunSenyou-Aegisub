@@ -78,7 +78,6 @@
         "video/tool/scale",
         "video/tool/clip",
         "video/tool/vector_clip",
-        "video/tool/gradient",
         "",
         "help/video",
         "video/tool/motion_track"

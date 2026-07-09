@@ -72,6 +72,7 @@
 #include <boost/tokenizer.hpp>
 
 #include <cctype>
+#include <cmath>
 #include <functional>
 #include <cstring>
 
@@ -2446,6 +2447,58 @@ struct edit_style_strikeout final : public Command {
 	}
 };
 
+struct edit_color_gradient final : public Command {
+	CMD_NAME("edit/color/gradient")
+	STR_MENU("Mangetsu Gradient Color/Alpha...")
+	STR_DISP("Gradient")
+	STR_HELP("Edit Mangetsu gradient color/alpha tags")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return c->selectionController && c->selectionController->GetActiveLine();
+	}
+
+	wxBitmap Icon(int size, double scale = 1.0, wxLayoutDirection = wxLayout_LeftToRight) const override {
+		int pixel_size = std::max(16, static_cast<int>(size * scale));
+		wxBitmap bmp(pixel_size, pixel_size, 32);
+		wxMemoryDC dc(bmp);
+		dc.SetBackground(*wxTRANSPARENT_BRUSH);
+		dc.Clear();
+
+		dc.SetBrush(wxBrush(wxColour(245, 245, 245)));
+		dc.SetPen(wxPen(wxColour(35, 35, 35)));
+		dc.DrawRoundedRectangle(0, 0, pixel_size, pixel_size, std::max(2, pixel_size / 8));
+
+		wxRect rect(pixel_size / 6, pixel_size / 5, pixel_size * 2 / 3, pixel_size / 3);
+		for (int x = 0; x < rect.GetWidth(); ++x) {
+			double t = rect.GetWidth() <= 1 ? 0.0 : static_cast<double>(x) / (rect.GetWidth() - 1);
+			wxColour col(
+				static_cast<unsigned char>(std::lround(20 + 180 * t)),
+				static_cast<unsigned char>(std::lround(165 - 70 * t)),
+				static_cast<unsigned char>(std::lround(215 - 110 * t)));
+			dc.SetPen(wxPen(col));
+			dc.DrawLine(rect.GetX() + x, rect.GetY(), rect.GetX() + x, rect.GetY() + rect.GetHeight());
+		}
+		dc.SetBrush(*wxTRANSPARENT_BRUSH);
+		dc.SetPen(wxPen(wxColour(20, 20, 20), std::max(1, pixel_size / 18)));
+		dc.DrawRectangle(rect);
+
+		wxFont font(std::max(6, pixel_size / 4), wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+		dc.SetFont(font);
+		dc.SetTextForeground(wxColour(20, 20, 20));
+		wxString label = wxS("Grd");
+		wxSize text_size = dc.GetTextExtent(label);
+		dc.DrawText(label, (pixel_size - text_size.GetWidth()) / 2, pixel_size - text_size.GetHeight() - std::max(1, pixel_size / 12));
+
+		dc.SelectObject(wxNullBitmap);
+		return bmp;
+	}
+
+	void operator()(agi::Context *c) override {
+		ShowMangetsuGradientDialog(c);
+	}
+};
+
 struct edit_font final : public Command {
 	CMD_NAME("edit/font")
 	CMD_ICON(button_fontname)
@@ -3525,6 +3578,7 @@ namespace cmd {
 		reg(agi::make_unique<edit_color_outline>());
 		reg(agi::make_unique<edit_color_shadow>());
 		reg(agi::make_unique<edit_color_insert_value>());
+		reg(agi::make_unique<edit_color_gradient>());
 		reg(agi::make_unique<edit_font>());
 		reg(agi::make_unique<edit_find_replace>());
 		reg(agi::make_unique<edit_line_copy>());
