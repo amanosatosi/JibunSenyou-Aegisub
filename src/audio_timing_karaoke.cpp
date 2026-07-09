@@ -84,7 +84,8 @@ class AudioTimingControllerKaraoke final : public AudioTimingController {
 	size_t cur_syl = 0; ///< Index of currently selected syllable in the line
 	bool spectrogram_timing = false; ///< Assign boundaries by ordered audio clicks
 	size_t spectrogram_next_boundary = 0; ///< Next boundary to assign in spectrogram timing mode
-	std::vector<int> spectrogram_boundaries; ///< Explicitly assigned boundaries
+	std::vector<int> spectrogram_boundaries; ///< Assigned prefix plus provisional display boundaries
+	int pending_split_syl = -1; ///< Syllable index currently being split by the Toshiki splitter bar
 	bool reloading_karaoke = false; ///< Suppress refresh signal while reparsing on revert
 
 	/// Pen used for the mid-syllable markers
@@ -120,12 +121,12 @@ class AudioTimingControllerKaraoke final : public AudioTimingController {
 	int MoveMarker(KaraokeMarker *marker, int new_position);
 	void AnnounceChanges(int syl);
 	void RebuildMarkersAndLabels();
-	void UpdateSpectrogramLabelsFromBoundaries();
+	void ReflowSpectrogramBoundaries(size_t assigned_count);
+	void ApplySpectrogramDisplayBoundaries(bool rebuild = true);
 	void OnKaraokeSyllablesChanged();
 	void ResetSpectrogramBoundaryStateFromKaraoke();
-	void ApplyBoundaryVector(std::vector<int> const& boundaries, int selected_syl);
-	bool AssignSpectrogramBoundary(int ms);
-	int FindNearbyMarker(int ms, int sensitivity) const;
+	int AssignSpectrogramBoundary(int ms);
+	int FindNearbyMarker(int ms, int sensitivity, bool assigned_only = false) const;
 	bool ShouldNoOpSingleSlotCommit() const;
 
 public:
@@ -150,6 +151,7 @@ public:
 	std::vector<AudioMarker*> OnRightClick(int ms, bool, int, int) override;
 	void OnMarkerDrag(std::vector<AudioMarker*> const& marker, int new_position, int) override;
 	void SetSpectrogramKaraokeTiming(bool enabled) override;
+	void PrepareKaraokeSplit(size_t syl_idx) override;
 
 	AudioTimingControllerKaraoke(agi::Context *c, AssKaraoke *kara, agi::signal::Connection& file_changed);
 };
@@ -280,10 +282,7 @@ void AudioTimingControllerKaraoke::Commit() {
 				pending_changes = false;
 			return;
 		}
-		if (kara->size() > 1 && spectrogram_next_boundary < kara->size() - 1)
-			return;
-		if (kara->size() == 1)
-			kara->SetTimingBoundaries(start_marker, end_marker, {}, false);
+		kara->SetTimingBoundaries(start_marker, end_marker, spectrogram_boundaries, false);
 	}
 
 	if ((spectrogram_timing || !auto_commit) && pending_changes)
@@ -296,6 +295,7 @@ void AudioTimingControllerKaraoke::Revert() {
 		cur_syl = 0;
 		spectrogram_next_boundary = 0;
 		spectrogram_boundaries.clear();
+		pending_split_syl = -1;
 		commit_id = -1;
 		pending_changes = false;
 		start_marker.Move(0);
@@ -310,6 +310,8 @@ void AudioTimingControllerKaraoke::Revert() {
 	}
 
 	reloading_karaoke = true;
+	start_marker.Move(active_line->Start);
+	end_marker.Move(active_line->End);
 	kara->SetLine(active_line, !spectrogram_timing, !spectrogram_timing);
 	if (spectrogram_timing && kara->HasKaraokeTags())
 		kara->SetLine(active_line, false, true);
@@ -324,9 +326,6 @@ void AudioTimingControllerKaraoke::Revert() {
 	cur_syl = 0;
 	commit_id = -1;
 	pending_changes = false;
-
-	start_marker.Move(active_line->Start);
-	end_marker.Move(active_line->End);
 
 	RebuildMarkersAndLabels();
 
@@ -346,8 +345,22 @@ void AudioTimingControllerKaraoke::OnKaraokeSyllablesChanged() {
 	start_marker.Move(active_line->Start);
 	end_marker.Move(active_line->End);
 	cur_syl = std::min(cur_syl, kara->size() ? kara->size() - 1 : 0);
-	if (spectrogram_timing)
-		ResetSpectrogramBoundaryStateFromKaraoke();
+	if (spectrogram_timing) {
+		size_t boundary_count = kara->size() ? kara->size() - 1 : 0;
+		size_t assigned_count = std::min(spectrogram_next_boundary, boundary_count);
+		if (pending_split_syl >= 0) {
+			size_t split_idx = static_cast<size_t>(pending_split_syl);
+			if (split_idx < spectrogram_next_boundary) {
+				int inserted = split_idx < spectrogram_boundaries.size() ?
+					spectrogram_boundaries[split_idx] : end_marker.GetPosition();
+				spectrogram_boundaries.insert(spectrogram_boundaries.begin() + std::min(split_idx, spectrogram_boundaries.size()), inserted);
+				assigned_count = std::min(spectrogram_next_boundary + 1, boundary_count);
+			}
+			pending_split_syl = -1;
+		}
+		ReflowSpectrogramBoundaries(assigned_count);
+		ApplySpectrogramDisplayBoundaries();
+	}
 	else {
 		spectrogram_next_boundary = 0;
 		spectrogram_boundaries.clear();
@@ -369,6 +382,8 @@ void AudioTimingControllerKaraoke::ResetSpectrogramBoundaryStateFromKaraoke() {
 	if (!kara->HasKaraokeTags() && !kara->HasTiming()) {
 		spectrogram_next_boundary = 0;
 		kara->ClearTiming();
+		ReflowSpectrogramBoundaries(0);
+		ApplySpectrogramDisplayBoundaries();
 		return;
 	}
 
@@ -377,6 +392,7 @@ void AudioTimingControllerKaraoke::ResetSpectrogramBoundaryStateFromKaraoke() {
 			spectrogram_boundaries.push_back(it->start_time);
 	}
 	spectrogram_next_boundary = spectrogram_boundaries.size();
+	ReflowSpectrogramBoundaries(spectrogram_next_boundary);
 }
 
 void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {
@@ -420,55 +436,81 @@ void AudioTimingControllerKaraoke::RebuildMarkersAndLabels() {
 	}
 }
 
-void AudioTimingControllerKaraoke::UpdateSpectrogramLabelsFromBoundaries() {
-	if (!spectrogram_timing) return;
+void AudioTimingControllerKaraoke::ReflowSpectrogramBoundaries(size_t assigned_count) {
+	size_t syl_count = kara->size();
+	size_t boundary_count = syl_count ? syl_count - 1 : 0;
+	assigned_count = std::min(assigned_count, boundary_count);
+
+	std::vector<int> old = spectrogram_boundaries;
+	spectrogram_boundaries.assign(boundary_count, end_marker.GetPosition());
+
+	int prev = start_marker.GetPosition();
+	for (size_t i = 0; i < assigned_count; ++i) {
+		int max_pos = end_marker.GetPosition();
+		if (i + 1 < old.size())
+			max_pos = old[i + 1];
+		int value = i < old.size() ? old[i] : prev;
+		spectrogram_boundaries[i] = mid(prev, value, max_pos);
+		prev = spectrogram_boundaries[i];
+	}
+
+	int pending_start = assigned_count == 0 ? start_marker.GetPosition() : spectrogram_boundaries[assigned_count - 1];
+	int remaining = std::max(0, end_marker.GetPosition() - pending_start);
+	size_t pending_slots = syl_count > assigned_count ? syl_count - assigned_count : 0;
+	for (size_t i = assigned_count; i < boundary_count && pending_slots > 0; ++i) {
+		size_t step = i - assigned_count + 1;
+		spectrogram_boundaries[i] = (pending_start + remaining * static_cast<int>(step) / static_cast<int>(pending_slots) + 5) / 10 * 10;
+	}
+
+	spectrogram_next_boundary = assigned_count;
+}
+
+void AudioTimingControllerKaraoke::ApplySpectrogramDisplayBoundaries(bool rebuild) {
+	kara->SetTimingBoundaries(start_marker, end_marker, spectrogram_boundaries, false);
+	if (rebuild || markers.size() != spectrogram_boundaries.size() || labels.size() != kara->size()) {
+		RebuildMarkersAndLabels();
+		return;
+	}
+
+	for (size_t i = 0; i < markers.size(); ++i)
+		markers[i].Move(spectrogram_boundaries[i]);
 
 	for (size_t idx = 0; idx < labels.size(); ++idx) {
-		int label_start = idx == 0 ? start_marker.GetPosition() :
-			idx - 1 < spectrogram_boundaries.size() ? spectrogram_boundaries[idx - 1] : end_marker.GetPosition();
+		int label_start = idx == 0 ? start_marker.GetPosition() : spectrogram_boundaries[idx - 1];
 		int label_end = idx < spectrogram_boundaries.size() ? spectrogram_boundaries[idx] : end_marker.GetPosition();
 		labels[idx].range = TimeRange(label_start, label_end);
 	}
 }
 
-void AudioTimingControllerKaraoke::ApplyBoundaryVector(std::vector<int> const& boundaries, int selected_syl) {
-	kara->SetTimingBoundaries(start_marker, end_marker, boundaries, false);
-	RebuildMarkersAndLabels();
-	cur_syl = labels.empty() ? 0 : mid<size_t>(0, static_cast<size_t>(std::max(0, selected_syl)), labels.size() - 1);
-	AnnounceChanges(cur_syl);
-}
-
-bool AudioTimingControllerKaraoke::AssignSpectrogramBoundary(int ms) {
+int AudioTimingControllerKaraoke::AssignSpectrogramBoundary(int ms) {
 	size_t syl_count = kara->size();
-	if (syl_count == 0) return false;
+	if (syl_count == 0) return -1;
 
-	int end_time = end_marker.GetPosition();
 	int position = (ms + 5) / 10 * 10;
+	size_t boundary_count = syl_count - 1;
+	if (spectrogram_next_boundary >= boundary_count)
+		return -1;
 
-	if (spectrogram_next_boundary >= syl_count - 1)
-		return false;
-
-	int prev = spectrogram_next_boundary == 0 ? start_marker.GetPosition() : spectrogram_boundaries[spectrogram_next_boundary - 1];
-	int min_pos = prev;
-	int max_pos = end_time;
-	if (max_pos < min_pos)
-		return false;
-
+	size_t idx = spectrogram_next_boundary;
+	int min_pos = idx == 0 ? start_marker.GetPosition() : spectrogram_boundaries[idx - 1];
+	int max_pos = end_marker.GetPosition();
 	position = mid(min_pos, position, max_pos);
-	if (spectrogram_next_boundary == spectrogram_boundaries.size())
-		spectrogram_boundaries.push_back(position);
-	else
-		spectrogram_boundaries[spectrogram_next_boundary] = position;
-	++spectrogram_next_boundary;
 
-	ApplyBoundaryVector(spectrogram_boundaries, spectrogram_next_boundary);
-	return true;
+	if (spectrogram_boundaries.size() != boundary_count)
+		ReflowSpectrogramBoundaries(spectrogram_next_boundary);
+	spectrogram_boundaries[idx] = position;
+	ReflowSpectrogramBoundaries(idx + 1);
+	ApplySpectrogramDisplayBoundaries();
+	cur_syl = std::min(idx + 1, labels.empty() ? size_t(0) : labels.size() - 1);
+	AnnounceChanges(static_cast<int>(cur_syl));
+	return static_cast<int>(idx);
 }
 
-int AudioTimingControllerKaraoke::FindNearbyMarker(int ms, int sensitivity) const {
+int AudioTimingControllerKaraoke::FindNearbyMarker(int ms, int sensitivity, bool assigned_only) const {
 	int best = -1;
 	int best_distance = sensitivity + 1;
-	for (size_t i = 0; i < markers.size(); ++i) {
+	size_t limit = assigned_only ? std::min(spectrogram_next_boundary, markers.size()) : markers.size();
+	for (size_t i = 0; i < limit; ++i) {
 		int distance = std::abs(markers[i].GetPosition() - ms);
 		if (distance <= sensitivity && distance < best_distance) {
 			best = static_cast<int>(i);
@@ -536,8 +578,15 @@ void AudioTimingControllerKaraoke::ModifyStart(int delta) {
 }
 
 bool AudioTimingControllerKaraoke::IsNearbyMarker(int ms, int sensitivity, bool) const {
-	if (spectrogram_timing)
-		return FindNearbyMarker(ms, sensitivity) >= 0;
+	if (spectrogram_timing) {
+		if (FindNearbyMarker(ms, sensitivity, true) >= 0)
+			return true;
+		if (spectrogram_next_boundary < markers.size()) {
+			TimeRange range(ms - sensitivity, ms + sensitivity);
+			return range.contains(markers[spectrogram_next_boundary]);
+		}
+		return false;
+	}
 
 	TimeRange range(ms - sensitivity, ms + sensitivity);
 	return any_of(markers.begin(), markers.end(), [&](KaraokeMarker const& km) {
@@ -558,7 +607,12 @@ std::vector<AudioMarker*> AudioTimingControllerKaraoke::OnLeftClick(int ms, bool
 	TimeRange range(ms - sensitivity, ms + sensitivity);
 
 	if (spectrogram_timing) {
-		int marker_idx = FindNearbyMarker(ms, sensitivity);
+		int marker_idx = FindNearbyMarker(ms, sensitivity, true);
+		if (marker_idx < 0 && spectrogram_next_boundary < markers.size()) {
+			TimeRange next_range(ms - sensitivity, ms + sensitivity);
+			if (next_range.contains(markers[spectrogram_next_boundary]))
+				marker_idx = static_cast<int>(spectrogram_next_boundary);
+		}
 		if (marker_idx >= 0) {
 			cur_syl = static_cast<size_t>(marker_idx) + 1;
 			AnnounceUpdatedPrimaryRange();
@@ -566,8 +620,14 @@ std::vector<AudioMarker*> AudioTimingControllerKaraoke::OnLeftClick(int ms, bool
 			return copy_ptrs<AudioMarker>(markers, marker_idx, marker_idx + 1);
 		}
 
-		if (AssignSpectrogramBoundary(ms))
-			return {};
+		marker_idx = AssignSpectrogramBoundary(ms);
+		if (marker_idx >= 0)
+			return copy_ptrs<AudioMarker>(markers, marker_idx, marker_idx + 1);
+
+		cur_syl = distance(markers.begin(), lower_bound(markers.begin(), markers.end(), ms));
+		AnnounceUpdatedPrimaryRange();
+		AnnounceUpdatedStyleRanges();
+		return {};
 	}
 
 	size_t syl = distance(markers.begin(), lower_bound(markers.begin(), markers.end(), ms));
@@ -601,23 +661,21 @@ int AudioTimingControllerKaraoke::MoveMarker(KaraokeMarker *marker, int new_posi
 		if (markers.empty()) return -1;
 
 		size_t marker_idx = marker - &markers.front();
-		if (marker_idx >= markers.size() || marker_idx >= spectrogram_boundaries.size())
+		if (marker_idx >= markers.size() || marker_idx >= spectrogram_boundaries.size() || marker_idx > spectrogram_next_boundary)
 			return -1;
 
 		new_position = (new_position + 5) / 10 * 10;
 		new_position = mid(
 			marker_idx == 0 ? start_marker.GetPosition() : markers[marker_idx - 1].GetPosition(),
 			new_position,
-			marker_idx + 1 == markers.size() ? end_marker.GetPosition() : markers[marker_idx + 1].GetPosition());
+			marker_idx + 1 < spectrogram_next_boundary ? markers[marker_idx + 1].GetPosition() : end_marker.GetPosition());
 
 		if (new_position == marker->GetPosition())
 			return -1;
 
-		marker->Move(new_position);
 		spectrogram_boundaries[marker_idx] = new_position;
-		spectrogram_next_boundary = std::max(spectrogram_next_boundary, marker_idx + 1);
-		kara->SetTimingBoundaries(start_marker, end_marker, spectrogram_boundaries, false);
-		UpdateSpectrogramLabelsFromBoundaries();
+		ReflowSpectrogramBoundaries(std::max(spectrogram_next_boundary, marker_idx + 1));
+		ApplySpectrogramDisplayBoundaries(false);
 
 		return static_cast<int>(marker_idx + 1);
 	}
@@ -691,6 +749,11 @@ void AudioTimingControllerKaraoke::SetSpectrogramKaraokeTiming(bool enabled) {
 	AnnounceUpdatedPrimaryRange();
 	AnnounceUpdatedStyleRanges();
 	AnnounceMarkerMoved();
+}
+
+void AudioTimingControllerKaraoke::PrepareKaraokeSplit(size_t syl_idx) {
+	if (spectrogram_timing)
+		pending_split_syl = static_cast<int>(syl_idx);
 }
 
 void AudioTimingControllerKaraoke::GetLabels(TimeRange const& range, std::vector<AudioLabel> &out) const {

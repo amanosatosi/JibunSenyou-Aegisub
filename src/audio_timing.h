@@ -39,6 +39,8 @@ namespace agi { struct Context; }
 
 #include "audio_marker.h"
 
+#include <cstddef>
+
 /// @class AudioTimingController
 /// @brief Base class for objects controlling audio timing
 ///
@@ -181,6 +183,9 @@ public:
 
 	/// Enable or disable ordered spectrogram karaoke boundary assignment.
 	virtual void SetSpectrogramKaraokeTiming(bool) { }
+
+	/// Notify the timing controller that the karaoke splitter is about to add a slot.
+	virtual void PrepareKaraokeSplit(size_t) { }
 
 	/// @brief Destructor
 	virtual ~AudioTimingController() = default;
