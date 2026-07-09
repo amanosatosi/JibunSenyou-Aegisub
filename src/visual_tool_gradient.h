@@ -60,6 +60,7 @@ class VisualToolGradient final : public VisualToolBase {
 	int main_index = 1;
 	int border_index = 1;
 	int angle = 0;
+	std::string loaded_value;
 	bool dirty = false;
 	bool existing = false;
 	bool keep_current_on_switch = false;
@@ -109,6 +110,7 @@ class VisualToolGradient final : public VisualToolBase {
 	void ResetDefaultGradient();
 	bool LoadTagValue(std::string const& value);
 	std::string FormatTagValue() const;
+	void UpdateDirtyState();
 	void ApplyCurrent(bool mark_dirty = true);
 	void ClearCurrent();
 	void ReverseStops();

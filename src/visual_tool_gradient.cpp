@@ -257,11 +257,13 @@ void VisualToolGradient::RefreshFromLine(bool allow_prompt) {
 		existing = true;
 		if (!LoadTagValue(found.value))
 			ResetDefaultGradient();
+		loaded_value = FormatTagValue();
 		dirty = false;
 	}
 	else {
 		existing = false;
 		ResetDefaultGradient();
+		loaded_value.clear();
 	}
 
 	RefreshToolbarState();
@@ -541,17 +543,22 @@ std::string VisualToolGradient::FormatTagValue() const {
 	return value;
 }
 
+void VisualToolGradient::UpdateDirtyState() {
+	dirty = FormatTagValue() != loaded_value;
+}
+
 void VisualToolGradient::ApplyCurrent(bool mark_dirty) {
 	if (!active_line)
 		return;
 
 	if (mark_dirty)
-		dirty = true;
+		UpdateDirtyState();
 	existing = true;
 	active_line->Text = ReplaceOrInsertTag(active_line->Text.get(), CurrentTag(), FormatTagValue());
 	Commit(_("set gradient"));
 	RefreshAvailableTargets();
 	RefreshToolbarState();
+	parent->Render();
 }
 
 void VisualToolGradient::ClearCurrent() {
@@ -693,6 +700,7 @@ static int matching_paren(std::string const& text, int open) {
 
 VisualToolGradient::TagRange VisualToolGradient::FindTag(std::string const& text, std::string const& tag, std::string const& alias) {
 	bool in_block = false;
+	TagRange last_found;
 	for (int i = 0; i < static_cast<int>(text.size()); ++i) {
 		if (!in_block) {
 			if (text[i] == '{')
@@ -740,14 +748,16 @@ VisualToolGradient::TagRange VisualToolGradient::FindTag(std::string const& text
 				++value_end;
 		}
 
-		TagRange found;
-		found.start = i;
-		found.end = value_end;
-		found.value = text.substr(value_start, value_end - value_start);
-		return found;
+		// Mangetsu gradients are normal static override tags here. When a line
+		// already contains duplicates, edit the effective static tag, which is the
+		// last matching tag outside \t(...). Transform contents are skipped above.
+		last_found.start = i;
+		last_found.end = value_end;
+		last_found.value = text.substr(value_start, value_end - value_start);
+		i = value_end - 1;
 	}
 
-	return {};
+	return last_found;
 }
 
 std::string VisualToolGradient::ReplaceOrInsertTag(std::string const& text, TagRef const& tag, std::string const& value) {
@@ -763,7 +773,7 @@ std::string VisualToolGradient::ReplaceOrInsertTag(std::string const& text, TagR
 		int close = static_cast<int>(text.find('}'));
 		if (close >= 0) {
 			std::string out = text;
-			out.insert(close, replacement);
+			out.insert(1, replacement);
 			return out;
 		}
 	}
@@ -885,8 +895,10 @@ void VisualToolGradient::OnMouseEvent(wxMouseEvent &event) {
 		if (hit >= 0) {
 			selected_stop = hit;
 			dragging_stop = hit > 0 && hit < static_cast<int>(stops.size()) - 1;
-			if (dragging_stop)
+			if (dragging_stop) {
+				commit_id = -1;
 				parent->CaptureMouse();
+			}
 			RefreshToolbarState();
 			parent->Render();
 			return;
