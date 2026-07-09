@@ -1088,6 +1088,9 @@ void VideoDisplay::OnKeyDown(wxKeyEvent &event) {
 			return;
 	}
 
+	if (tool && tool->OnKeyDown(event))
+		return;
+
 	hotkey::check("Video", con, event);
 }
 

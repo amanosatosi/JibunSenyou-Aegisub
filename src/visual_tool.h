@@ -31,6 +31,7 @@
 
 class AssDialogue;
 class VideoDisplay;
+class wxKeyEvent;
 class wxMouseCaptureLostEvent;
 class wxMouseEvent;
 class wxToolBar;
@@ -166,6 +167,7 @@ public:
 
 	// Stuff called by VideoDisplay
 	virtual void OnMouseEvent(wxMouseEvent &event)=0;
+	virtual bool OnKeyDown(wxKeyEvent &) { return false; }
 	virtual void Draw()=0;
 	virtual void SetClientSize(int w, int h);
 	virtual void SetDisplayArea(int x, int y, int w, int h);

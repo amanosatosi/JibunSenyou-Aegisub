@@ -31,10 +31,14 @@
 #include "../visual_tool_rotatexy.h"
 #include "../visual_tool_rotatez.h"
 #include "../visual_tool_scale.h"
+#include "../visual_tool_gradient.h"
 #include "../visual_tool_vector_clip.h"
 
 #include <libaegisub/make_unique.h>
 
+#include <algorithm>
+#include <cmath>
+#include <wx/dcmemory.h>
 #include <wx/msgdlg.h>
 
 namespace {
@@ -164,6 +168,37 @@ namespace {
 		STR_MENU("Vector Clip")
 		STR_DISP("Vector Clip")
 		STR_HELP("Clip subtitles to a vectorial area")
+	};
+
+	struct visual_mode_gradient final : public visual_tool_command<VisualToolGradient> {
+		CMD_NAME("video/tool/gradient")
+		STR_MENU("Visual Gradient Tool")
+		STR_DISP("Gradient")
+		STR_HELP("Edit Mangetsu true-gradient tags")
+
+		wxBitmap Icon(int size, double scale = 1.0, wxLayoutDirection = wxLayout_LeftToRight) const override {
+			int px = std::max(16, static_cast<int>(size * scale));
+			wxBitmap bmp(px, px);
+			wxMemoryDC dc(bmp);
+			dc.SetBackground(*wxTRANSPARENT_BRUSH);
+			dc.Clear();
+
+			wxRect rect(px / 8, px / 3, px * 3 / 4, px / 3);
+			for (int x = 0; x < rect.width; ++x) {
+				double t = rect.width <= 1 ? 0.0 : static_cast<double>(x) / (rect.width - 1);
+				wxColour col(
+					static_cast<unsigned char>(std::lround(20 + 180 * t)),
+					static_cast<unsigned char>(std::lround(165 - 70 * t)),
+					static_cast<unsigned char>(std::lround(215 - 110 * t)));
+				dc.SetPen(wxPen(col));
+				dc.DrawLine(rect.x + x, rect.y, rect.x + x, rect.y + rect.height);
+			}
+			dc.SetBrush(*wxTRANSPARENT_BRUSH);
+			dc.SetPen(wxPen(wxColour(20, 20, 20), std::max(1, px / 16)));
+			dc.DrawRectangle(rect);
+			dc.SelectObject(wxNullBitmap);
+			return bmp;
+		}
 	};
 
 	struct visual_motion_track final : public Command {
@@ -367,6 +402,7 @@ namespace cmd {
 		reg(agi::make_unique<visual_mode_scale>());
 		reg(agi::make_unique<visual_mode_clip>());
 		reg(agi::make_unique<visual_mode_vector_clip>());
+		reg(agi::make_unique<visual_mode_gradient>());
 		reg(agi::make_unique<visual_motion_track>());
 
 		reg(agi::make_unique<visual_mode_perspective_plane>());
