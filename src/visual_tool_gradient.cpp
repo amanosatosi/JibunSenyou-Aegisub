@@ -103,8 +103,8 @@ void VisualToolGradient::BuildToolbar() {
 	if (!tool_bar)
 		return;
 
-	auto add_control = [&](wxWindow *window) {
-		tool_bar->AddControl(window);
+	auto add_control = [&](wxControl *control) {
+		tool_bar->AddControl(control);
 	};
 
 	tool_bar->AddSeparator();
@@ -287,7 +287,7 @@ void VisualToolGradient::RefreshToolbarState() {
 			int old_main = main_index;
 			group = TargetGroup::Main;
 			main_index = target.first;
-			bool has = FindCurrentTag(active_line);
+			bool has = static_cast<bool>(FindCurrentTag(active_line));
 			group = old_group;
 			main_index = old_main;
 			main_choice->Append(target.second + (has ? wxS(" *") : wxString()));
@@ -305,7 +305,7 @@ void VisualToolGradient::RefreshToolbarState() {
 			int old_border = border_index;
 			group = TargetGroup::Border;
 			border_index = layer;
-			bool has = FindCurrentTag(active_line);
+			bool has = static_cast<bool>(FindCurrentTag(active_line));
 			group = old_group;
 			border_index = old_border;
 			border_choice->Append(wxString::Format(_("Border %d"), layer) + (has ? wxS(" *") : wxString()));
@@ -321,14 +321,14 @@ void VisualToolGradient::RefreshToolbarState() {
 	if (color_button) {
 		ChannelMode old_mode = mode;
 		mode = ChannelMode::Color;
-		bool has = FindCurrentTag(active_line);
+		bool has = static_cast<bool>(FindCurrentTag(active_line));
 		mode = old_mode;
 		color_button->SetLabel(mode == ChannelMode::Color ? (has ? _("[Color *]") : _("[Color]")) : (has ? _("Color *") : _("Color")));
 	}
 	if (alpha_button) {
 		ChannelMode old_mode = mode;
 		mode = ChannelMode::Alpha;
-		bool has = FindCurrentTag(active_line);
+		bool has = static_cast<bool>(FindCurrentTag(active_line));
 		mode = old_mode;
 		alpha_button->SetLabel(mode == ChannelMode::Alpha ? (has ? _("[Alpha *]") : _("[Alpha]")) : (has ? _("Alpha *") : _("Alpha")));
 	}
