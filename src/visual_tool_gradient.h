@@ -75,6 +75,7 @@ class VisualToolGradient final : public VisualToolBase {
 	wxSpinCtrl *angle_ctrl = nullptr;
 	wxChoice *main_choice = nullptr;
 	wxChoice *border_choice = nullptr;
+	wxChoice *box_choice = nullptr;
 	wxButton *color_button = nullptr;
 	wxButton *alpha_button = nullptr;
 	wxButton *remove_button = nullptr;

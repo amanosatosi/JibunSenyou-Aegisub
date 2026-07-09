@@ -161,6 +161,14 @@ void VisualToolGradient::BuildToolbar() {
 		SelectBorder(border_layers[sel]);
 	});
 
+	add_control(new wxStaticText(tool_bar, wxID_ANY, _("Box")));
+	box_choice = new wxChoice(tool_bar, wxID_ANY, wxDefaultPosition, wxSize(118, -1));
+	box_choice->Append(_("No box gradients"));
+	box_choice->SetSelection(0);
+	box_choice->Enable(false);
+	box_choice->SetToolTip(_("Box gradient tags are not supported by this branch."));
+	add_control(box_choice);
+
 	color_button = new wxButton(tool_bar, wxID_ANY, _("Color"), wxDefaultPosition, wxSize(72, -1));
 	alpha_button = new wxButton(tool_bar, wxID_ANY, _("Alpha"), wxDefaultPosition, wxSize(72, -1));
 	add_control(color_button);
@@ -318,6 +326,13 @@ void VisualToolGradient::RefreshToolbarState() {
 		}
 		else
 			border_choice->SetSelection(wxNOT_FOUND);
+	}
+
+	if (box_choice) {
+		box_choice->Clear();
+		box_choice->Append(_("No box gradients"));
+		box_choice->SetSelection(0);
+		box_choice->Enable(false);
 	}
 
 	if (color_button) {
