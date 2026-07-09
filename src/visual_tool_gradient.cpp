@@ -290,7 +290,7 @@ void VisualToolGradient::RefreshToolbarState() {
 			bool has = static_cast<bool>(FindCurrentTag(active_line));
 			group = old_group;
 			main_index = old_main;
-			main_choice->Append(target.second + (has ? wxS(" *") : wxString()));
+			main_choice->Append(target.second + wxString(has ? wxS(" *") : wxS("")));
 		}
 		if (group == TargetGroup::Main)
 			main_choice->SetSelection(std::clamp(main_index - 1, 0, static_cast<int>(main_choice->GetCount()) - 1));
@@ -308,7 +308,7 @@ void VisualToolGradient::RefreshToolbarState() {
 			bool has = static_cast<bool>(FindCurrentTag(active_line));
 			group = old_group;
 			border_index = old_border;
-			border_choice->Append(wxString::Format(_("Border %d"), layer) + (has ? wxS(" *") : wxString()));
+			border_choice->Append(wxString::Format(_("Border %d"), layer) + wxString(has ? wxS(" *") : wxS("")));
 		}
 		if (group == TargetGroup::Border) {
 			auto it = std::find(border_layers.begin(), border_layers.end(), border_index);
