@@ -2451,7 +2451,7 @@ struct edit_color_gradient final : public Command {
 	CMD_NAME("edit/color/gradient")
 	STR_MENU("Mangetsu Gradient Color/Alpha...")
 	STR_DISP("Gradient")
-	STR_HELP("Edit Mangetsu gradient color/alpha tags")
+	STR_HELP("Mangetsu Gradient Color/Alpha")
 	CMD_TYPE(COMMAND_VALIDATE)
 
 	bool Validate(const agi::Context *c) override {
@@ -2465,17 +2465,34 @@ struct edit_color_gradient final : public Command {
 		dc.SetBackground(*wxTRANSPARENT_BRUSH);
 		dc.Clear();
 
-		dc.SetBrush(wxBrush(wxColour(245, 245, 245)));
+		dc.SetBrush(wxBrush(wxColour(248, 248, 248)));
 		dc.SetPen(wxPen(wxColour(35, 35, 35)));
 		dc.DrawRoundedRectangle(0, 0, pixel_size, pixel_size, std::max(2, pixel_size / 8));
 
-		wxRect rect(pixel_size / 6, pixel_size / 5, pixel_size * 2 / 3, pixel_size / 3);
+		wxRect rect(pixel_size / 7, pixel_size * 11 / 16, pixel_size * 5 / 7, std::max(3, pixel_size / 5));
 		for (int x = 0; x < rect.GetWidth(); ++x) {
 			double t = rect.GetWidth() <= 1 ? 0.0 : static_cast<double>(x) / (rect.GetWidth() - 1);
-			wxColour col(
-				static_cast<unsigned char>(std::lround(20 + 180 * t)),
-				static_cast<unsigned char>(std::lround(165 - 70 * t)),
-				static_cast<unsigned char>(std::lround(215 - 110 * t)));
+			wxColour col;
+			if (t < 0.35) {
+				double u = t / 0.35;
+				col = wxColour(
+					static_cast<unsigned char>(std::lround(255 * (1.0 - u))),
+					static_cast<unsigned char>(std::lround(102 * u)),
+					255);
+			}
+			else if (t < 0.70) {
+				double u = (t - 0.35) / 0.35;
+				col = wxColour(0,
+					static_cast<unsigned char>(std::lround(102 + 102 * u)),
+					static_cast<unsigned char>(std::lround(255 * (1.0 - u) + 68 * u)));
+			}
+			else {
+				double u = (t - 0.70) / 0.30;
+				col = wxColour(
+					static_cast<unsigned char>(std::lround(255 * u)),
+					static_cast<unsigned char>(std::lround(204 + 51 * u)),
+					static_cast<unsigned char>(std::lround(68 * (1.0 - u))));
+			}
 			dc.SetPen(wxPen(col));
 			dc.DrawLine(rect.GetX() + x, rect.GetY(), rect.GetX() + x, rect.GetY() + rect.GetHeight());
 		}
@@ -2483,12 +2500,40 @@ struct edit_color_gradient final : public Command {
 		dc.SetPen(wxPen(wxColour(20, 20, 20), std::max(1, pixel_size / 18)));
 		dc.DrawRectangle(rect);
 
-		wxFont font(std::max(6, pixel_size / 4), wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+		wxFont font(std::max(9, pixel_size * 5 / 8), wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+#ifdef __WXMSW__
+		font.SetFaceName(wxS("Yu Gothic UI"));
+#endif
 		dc.SetFont(font);
-		dc.SetTextForeground(wxColour(20, 20, 20));
-		wxString label = wxS("Grd");
+		wxString label = wxString::FromUTF8("\xE8\x89\xB2");
 		wxSize text_size = dc.GetTextExtent(label);
-		dc.DrawText(label, (pixel_size - text_size.GetWidth()) / 2, pixel_size - text_size.GetHeight() - std::max(1, pixel_size / 12));
+		for (int font_size = std::max(8, pixel_size * 5 / 8); text_size.GetWidth() > pixel_size - 4 && font_size > 7; --font_size) {
+			font.SetPointSize(font_size);
+			dc.SetFont(font);
+			text_size = dc.GetTextExtent(label);
+		}
+		int text_x = (pixel_size - text_size.GetWidth()) / 2;
+		int text_y = std::max(0, (pixel_size * 11 / 16 - text_size.GetHeight()) / 2 + 1);
+
+		dc.SetTextForeground(wxColour(15, 15, 15));
+		for (int dy = -1; dy <= 1; ++dy) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				if (dx || dy)
+					dc.DrawText(label, text_x + dx, text_y + dy);
+			}
+		}
+
+		for (int x = 0; x < std::max(1, text_size.GetWidth()); ++x) {
+			double t = text_size.GetWidth() <= 1 ? 0.0 : static_cast<double>(x) / (text_size.GetWidth() - 1);
+			wxColour col(
+				static_cast<unsigned char>(std::lround(255 * t)),
+				static_cast<unsigned char>(std::lround(60 + 150 * (1.0 - std::abs(t - 0.5) * 2.0))),
+				static_cast<unsigned char>(std::lround(255 * (1.0 - t))));
+			dc.SetClippingRegion(text_x + x, 0, 1, pixel_size);
+			dc.SetTextForeground(col);
+			dc.DrawText(label, text_x, text_y);
+			dc.DestroyClippingRegion();
+		}
 
 		dc.SelectObject(wxNullBitmap);
 		return bmp;
