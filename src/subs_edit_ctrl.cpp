@@ -56,6 +56,7 @@
 #include <wx/intl.h>
 #include <wx/menu.h>
 #include <wx/settings.h>
+#include <wx/utils.h>
 
 // Define macros for wxWidgets 3.1
 #ifndef wxSTC_KEYMOD_CTRL
@@ -186,8 +187,12 @@ SubsTextEditCtrl::SubsTextEditCtrl(wxWindow* parent, wxSize wsize, long style, a
 	}
 
 	Bind(wxEVT_CONTEXT_MENU, &SubsTextEditCtrl::OnContextMenu, this);
+	Bind(wxEVT_LEFT_DOWN, &SubsTextEditCtrl::OnMouseSelection, this);
+	Bind(wxEVT_LEFT_UP, &SubsTextEditCtrl::OnMouseSelection, this);
+	Bind(wxEVT_MOUSE_CAPTURE_LOST, [=](wxMouseCaptureLostEvent&) { ClearFontNameWordDrag(); });
 	Bind(wxEVT_IDLE, std::bind(&SubsTextEditCtrl::UpdateCallTip, this));
 	Bind(wxEVT_STC_DOUBLECLICK, &SubsTextEditCtrl::OnDoubleClick, this);
+	Bind(wxEVT_STC_UPDATEUI, &SubsTextEditCtrl::OnSelectionUpdate, this);
 	Bind(wxEVT_STC_STYLENEEDED, [=](wxStyledTextEvent&) {
 		{
 			std::string text = GetTextRaw().data();
@@ -251,11 +256,13 @@ BEGIN_EVENT_TABLE(SubsTextEditCtrl,wxStyledTextCtrl)
 END_EVENT_TABLE()
 
 void SubsTextEditCtrl::OnLoseFocus(wxFocusEvent &event) {
+	ClearFontNameWordDrag();
 	CallTipCancel();
 	event.Skip();
 }
 
 void SubsTextEditCtrl::OnKeyDown(wxKeyEvent &event) {
+	ClearFontNameWordDrag();
 	if (osx::ime::process_key_event(this, event)) return;
 	event.Skip();
 
@@ -394,6 +401,7 @@ void SubsTextEditCtrl::UpdateCallTip() {
 }
 
 void SubsTextEditCtrl::SetTextTo(std::string const& text) {
+	ClearFontNameWordDrag();
 	osx::ime::invalidate(this);
 
 	// Remember where the user was looking before the text gets replaced.
@@ -464,6 +472,7 @@ void SubsTextEditCtrl::Paste() {
 }
 
 void SubsTextEditCtrl::OnContextMenu(wxContextMenuEvent &event) {
+	ClearFontNameWordDrag();
 	wxPoint pos = event.GetPosition();
 	int activePos;
 	if (pos == wxDefaultPosition)
@@ -509,6 +518,22 @@ void SubsTextEditCtrl::OnContextMenu(wxContextMenuEvent &event) {
 
 void SubsTextEditCtrl::OnDoubleClick(wxStyledTextEvent &evt) {
 	int pos = evt.GetPosition();
+	ClearFontNameWordDrag();
+	if (pos != -1 && BeginFontNameWordDrag(pos)) {
+		auto clamp = [&](int value) {
+			return std::max(font_name_word_drag.start, std::min(value, font_name_word_drag.end));
+		};
+
+		// Scintilla has already made its ordinary word selection. Preserve that
+		// word-level behavior, changing only an edge which crossed the \fn
+		// tag/value boundary.
+		int anchor = clamp(GetAnchor());
+		int current = clamp(GetCurrentPos());
+		if (anchor != GetAnchor() || current != GetCurrentPos())
+			SetSelection(anchor, current);
+		return;
+	}
+
 	if (pos == -1 && !tokenized_line.empty()) {
 		auto tok = tokenized_line.back();
 		SetSelection(line_text.size() - tok.length, line_text.size());
@@ -520,6 +545,49 @@ void SubsTextEditCtrl::OnDoubleClick(wxStyledTextEvent &evt) {
 		else
 			evt.Skip();
 	}
+}
+
+void SubsTextEditCtrl::OnMouseSelection(wxMouseEvent &event) {
+	if (event.LeftDown() || event.LeftUp())
+		ClearFontNameWordDrag();
+	event.Skip();
+}
+
+void SubsTextEditCtrl::OnSelectionUpdate(wxStyledTextEvent &event) {
+	if (!font_name_word_drag || adjusting_font_name_word_drag ||
+		!(event.GetUpdated() & wxSTC_UPDATE_SELECTION)) {
+		event.Skip();
+		return;
+	}
+
+	if (!wxGetMouseState().LeftIsDown()) {
+		ClearFontNameWordDrag();
+		event.Skip();
+		return;
+	}
+
+	auto clamp = [&](int value) {
+		return std::max(font_name_word_drag.start, std::min(value, font_name_word_drag.end));
+	};
+	int const anchor = GetAnchor();
+	int const current = GetCurrentPos();
+	int const clamped_anchor = clamp(anchor);
+	int const clamped_current = clamp(current);
+	if (clamped_anchor != anchor || clamped_current != current) {
+		adjusting_font_name_word_drag = true;
+		SetSelection(clamped_anchor, clamped_current);
+		adjusting_font_name_word_drag = false;
+	}
+	event.Skip();
+}
+
+void SubsTextEditCtrl::ClearFontNameWordDrag() {
+	font_name_word_drag = {};
+}
+
+bool SubsTextEditCtrl::BeginFontNameWordDrag(int position) {
+	font_name_word_drag = FindAssFontNameValueAt(GetTextRaw().data(), position);
+	return static_cast<bool>(font_name_word_drag);
 }
 
 void SubsTextEditCtrl::AddSpellCheckerEntries(wxMenu &menu) {

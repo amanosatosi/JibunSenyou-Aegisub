@@ -8,6 +8,7 @@ aegisub_src = files(
     'ass_dialogue.cpp',
     'ass_entry.cpp',
     'ass_export_filter.cpp',
+    'ass_font_tag_selection.cpp',
     'ass_exporter.cpp',
     'ass_file.cpp',
     'ass_karaoke.cpp',

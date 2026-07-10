@@ -25,6 +25,7 @@ all_test_sources += [
 
     # Compile minimal Aegisub sources needed for AssKaraoke tests
     '../src/ass_dialogue.cpp',
+    '../src/ass_font_tag_selection.cpp',
     '../src/ass_override.cpp',
     '../src/ass_karaoke.cpp',
     '../src/motion_tracking/motion_track_export_ae.cpp',
@@ -44,6 +45,7 @@ all_test_sources += [
     'tests/iconv.cpp',
     'tests/ifind.cpp',
     'tests/ass_karaoke_preserve_split.cpp',
+    'tests/ass_font_tag_selection.cpp',
     'tests/toshiki_k_timing_model.cpp',
     'tests/karaoke_split.cpp',
     'tests/karaoke_matcher.cpp',
