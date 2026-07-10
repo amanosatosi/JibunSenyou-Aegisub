@@ -11,18 +11,23 @@
 #include "ass_file.h"
 #include "compat.h"
 #include "dialogs.h"
+#include "gradient_placement_session.h"
 #include "include/aegisub/context.h"
+#include "mangetsu_gradient_placement.h"
 #include "selection_controller.h"
 #include "subs_controller.h"
 #include "video_display.h"
+#include "visual_tool_gradient_placement.h"
 
 #include <libaegisub/format.h>
 #include <libaegisub/color.h>
+#include <libaegisub/make_unique.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <string>
+#include <memory>
 #include <vector>
 
 #include <wx/button.h>
@@ -37,6 +42,8 @@
 #include <wx/stattext.h>
 #include <wx/tglbtn.h>
 #include <wx/timer.h>
+
+#include <libaegisub/signal.h>
 
 namespace {
 
@@ -58,6 +65,8 @@ static double clamp_percent(double pos) {
 static int clamp_alpha(int alpha) {
 	return std::max(0, std::min(255, alpha));
 }
+
+static int matching_paren(std::string const& text, int open);
 
 static wxColour to_wx_color(agi::Color const& color) {
 	return wxColour(color.r, color.g, color.b);
@@ -113,6 +122,7 @@ struct TagRef {
 struct TagRange {
 	int start = -1;
 	int end = -1;
+	std::string name;
 	std::string value;
 
 	explicit operator bool() const { return start >= 0 && end >= start; }
@@ -149,6 +159,8 @@ class DialogMangetsuGradient final : public wxDialog {
 	bool updating_controls = false;
 	bool preview_pending = false;
 	bool tag_span_valid = false;
+	bool lock_placement = false;
+	bool placement_capture_active = false;
 	int commit_id = -1;
 	int tag_span_start = -1;
 	int tag_span_end = -1;
@@ -157,7 +169,12 @@ class DialogMangetsuGradient final : public wxDialog {
 	std::string loaded_value;
 	std::vector<GradientStop> stops;
 	std::vector<int> border_layers{1};
+	mangetsu::PlacementRect placement_rect;
+	std::shared_ptr<GradientPlacementSession> placement_session;
+	agi::signal::Connection active_line_connection;
+	agi::signal::Connection file_commit_connection;
 	wxString preview_message;
+	wxString placement_status;
 
 	wxTimer preview_timer;
 	wxSpinCtrl *angle_ctrl = nullptr;
@@ -166,11 +183,14 @@ class DialogMangetsuGradient final : public wxDialog {
 	wxChoice *box_choice = nullptr;
 	wxToggleButton *color_button = nullptr;
 	wxToggleButton *alpha_button = nullptr;
+	wxToggleButton *lock_placement_button = nullptr;
 	wxStaticText *status_label = nullptr;
 	wxButton *remove_button = nullptr;
 	GradientStopBar *stop_bar = nullptr;
 
 	TagRef CurrentTag() const;
+	TagRef PlacementTag() const;
+	TagRef OutputTag() const;
 	std::string CurrentGroupName() const;
 	std::string CurrentTargetName() const;
 	std::string CurrentModeName() const;
@@ -183,8 +203,24 @@ class DialogMangetsuGradient final : public wxDialog {
 	bool RefreshFromLine(bool allow_prompt);
 	LoadDecision ConfirmLoadExisting(std::string const& target_label);
 	void ResetDefaultGradient();
-	bool LoadTagValue(std::string const& value);
+	bool LoadTagValue(std::string const& value, bool placement = false);
+	std::string FormatAttachedTagValue() const;
 	std::string FormatTagValue() const;
+	bool PlacementSupported() const;
+	bool PlacementTransformUnsupported() const;
+	bool PlacementTagActive() const;
+	bool HasVideo() const;
+	bool IsLockedLine() const;
+	void RefreshPlacementControl();
+	void StartPlacementSession();
+	void EndPlacementSession(bool restore_tool = true);
+	void OnPlacementAccepted(mangetsu::PlacementRect const& rect);
+	void OnPlacementInvalid();
+	void OnPlacementCancelled();
+	void OnPlacementToolDeactivated();
+	void OnActiveLineChanged(AssDialogue *line);
+	void OnFileCommit(int type, AssDialogue const* line);
+	void OnPlacementToggle(wxCommandEvent&);
 	void UpdateDirtyState();
 	void ApplyCurrent(bool mark_dirty = true);
 	void ClearCurrent();
@@ -226,9 +262,11 @@ class DialogMangetsuGradient final : public wxDialog {
 	void SchedulePreview(wxString const& message, bool immediate);
 	void FlushPreview();
 	void OnPreviewTimer(wxTimerEvent&);
+	void FinishDialog(int result);
 
 public:
 	DialogMangetsuGradient(wxWindow *parent, agi::Context *context);
+	~DialogMangetsuGradient();
 };
 
 GradientStopBar::GradientStopBar(wxWindow *parent, DialogMangetsuGradient *dialog)
@@ -390,6 +428,16 @@ DialogMangetsuGradient::DialogMangetsuGradient(wxWindow *parent, agi::Context *c
 	RefreshAvailableTargets();
 	RefreshFromLine(false);
 	RefreshControls();
+	if (context && context->selectionController)
+		active_line_connection = context->selectionController->AddActiveLineListener(&DialogMangetsuGradient::OnActiveLineChanged, this);
+	if (context && context->ass)
+		file_commit_connection = context->ass->AddCommitListener(&DialogMangetsuGradient::OnFileCommit, this);
+	if (lock_placement && placement_rect.valid)
+		StartPlacementSession();
+}
+
+DialogMangetsuGradient::~DialogMangetsuGradient() {
+	EndPlacementSession();
 }
 
 void DialogMangetsuGradient::BuildControls() {
@@ -419,6 +467,10 @@ void DialogMangetsuGradient::BuildControls() {
 		button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { OnQuickAngle(quick.angle); });
 		top->Add(button, wxSizerFlags().Center().Border(wxRIGHT, 2));
 	}
+
+	lock_placement_button = new wxToggleButton(this, wxID_ANY, _("Lock Placement"));
+	lock_placement_button->SetToolTip(_("Lock the gradient to a fixed area of the video.\nEnable this, then drag the area in the video preview.\nOutside the area, Mangetsu uses the line's normal primary color."));
+	top->Add(lock_placement_button, wxSizerFlags().Center().Border(wxRIGHT, 8));
 
 	top->AddSpacer(12);
 	main_choice = new wxChoice(this, wxID_ANY);
@@ -476,6 +528,7 @@ void DialogMangetsuGradient::BuildControls() {
 	border_choice->Bind(wxEVT_CHOICE, &DialogMangetsuGradient::OnBorderChoice, this);
 	color_button->Bind(wxEVT_TOGGLEBUTTON, [=](wxCommandEvent&) { OnMode(ChannelMode::Color); });
 	alpha_button->Bind(wxEVT_TOGGLEBUTTON, [=](wxCommandEvent&) { OnMode(ChannelMode::Alpha); });
+	lock_placement_button->Bind(wxEVT_TOGGLEBUTTON, &DialogMangetsuGradient::OnPlacementToggle, this);
 	add_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { AddStop(50.0); });
 	remove_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { RemoveSelectedStop(); });
 	reverse_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { ReverseStops(); });
@@ -507,7 +560,8 @@ void DialogMangetsuGradient::RefreshControls() {
 	angle_ctrl->SetValue(angle);
 
 	auto mark = [&](std::string label, TagRef const& tag) {
-		return FindTag(active_line ? active_line->Text.get() : std::string(), tag.name, tag.alias) ? label + " *" : label;
+		(void)tag;
+		return FindCurrentTag(active_line) ? label + " *" : label;
 	};
 
 	main_choice->Clear();
@@ -548,9 +602,9 @@ void DialogMangetsuGradient::RefreshControls() {
 	TargetGroup saved_group = group;
 	ChannelMode saved_mode = mode;
 	mode = ChannelMode::Color;
-	color_button->SetLabel(to_wx(FindTag(active_line ? active_line->Text.get() : std::string(), CurrentTag().name, CurrentTag().alias) ? "Color *" : "Color"));
+	color_button->SetLabel(to_wx(FindCurrentTag(active_line) ? "Color *" : "Color"));
 	mode = ChannelMode::Alpha;
-	alpha_button->SetLabel(to_wx(FindTag(active_line ? active_line->Text.get() : std::string(), CurrentTag().name, CurrentTag().alias) ? "Alpha *" : "Alpha"));
+	alpha_button->SetLabel(to_wx(FindCurrentTag(active_line) ? "Alpha *" : "Alpha"));
 	group = saved_group;
 	mode = saved_mode;
 
@@ -558,6 +612,7 @@ void DialogMangetsuGradient::RefreshControls() {
 	alpha_button->SetValue(mode == ChannelMode::Alpha);
 	status_label->SetLabel(to_wx(CurrentStatus()));
 	remove_button->Enable(selected_stop > 0 && selected_stop < static_cast<int>(stops.size()) - 1);
+	RefreshPlacementControl();
 
 	updating_controls = false;
 	if (stop_bar)
@@ -581,6 +636,7 @@ void DialogMangetsuGradient::RefreshLightControls() {
 	}
 	if (status_label)
 		status_label->SetLabel(to_wx(CurrentStatus()));
+	RefreshPlacementControl();
 	if (remove_button)
 		remove_button->Enable(selected_stop > 0 && selected_stop < static_cast<int>(stops.size()) - 1);
 	updating_controls = false;
@@ -611,7 +667,7 @@ bool DialogMangetsuGradient::RefreshFromLine(bool allow_prompt) {
 				return true;
 			}
 		}
-		if (LoadTagValue(found.value)) {
+		if (LoadTagValue(found.value, mangetsu::IsPlacementGradientTagName(found.name))) {
 			loaded_value = FormatTagValue();
 			dirty = false;
 			existing = true;
@@ -621,9 +677,11 @@ bool DialogMangetsuGradient::RefreshFromLine(bool allow_prompt) {
 	}
 
 	existing = false;
+	lock_placement = false;
 	InvalidateTagSpan();
 	if (!dirty) {
 		ResetDefaultGradient();
+		placement_rect = {};
 		loaded_value = FormatTagValue();
 	}
 	RefreshControls();
@@ -654,6 +712,64 @@ TagRef DialogMangetsuGradient::CurrentTag() const {
 	return {"\\" + std::to_string(border_index) + "bga", border_index == 1 ? "\\3gra" : "", "\\" + std::to_string(border_index) + "bga"};
 }
 
+TagRef DialogMangetsuGradient::PlacementTag() const {
+	return {"\\pgrd", "\\1pgrd", "\\pgrd"};
+}
+
+TagRef DialogMangetsuGradient::OutputTag() const {
+	return PlacementTagActive() ? PlacementTag() : CurrentTag();
+}
+
+bool DialogMangetsuGradient::PlacementSupported() const {
+	// Keep this small capability table explicit: Mangetsu currently has only
+	// primary RGB fixed-frame gradients, but adding a renderer channel later is
+	// a one-entry change instead of a rewrite of the dialog.
+	struct Capability { TargetGroup group; ChannelMode mode; int main; };
+	static Capability const capabilities[] = {
+		{TargetGroup::Main, ChannelMode::Color, 1},
+	};
+	for (auto const& capability : capabilities) {
+		if (group == capability.group && mode == capability.mode && main_index == capability.main)
+			return true;
+	}
+	return false;
+}
+
+bool DialogMangetsuGradient::PlacementTransformUnsupported() const {
+	if (!PlacementSupported() || !active_line || FindCurrentTag(active_line))
+		return false;
+	TagRef attached = CurrentTag();
+	TagRef placed = PlacementTag();
+	auto has_tag = [&](std::string const& text, TagRef const& tag) {
+		return text.find(tag.name) != std::string::npos ||
+			(!tag.alias.empty() && text.find(tag.alias) != std::string::npos);
+	};
+	std::string const& text = active_line->Text.get();
+	for (int pos = 0; (pos = static_cast<int>(text.find("\\t(", pos))) >= 0; ++pos) {
+		int const open = pos + 2;
+		int const close = matching_paren(text, open);
+		if (close < 0)
+			continue;
+		std::string const transform = text.substr(open + 1, close - open - 1);
+		if (has_tag(transform, attached) || has_tag(transform, placed))
+			return true;
+		pos = close;
+	}
+	return false;
+}
+
+bool DialogMangetsuGradient::PlacementTagActive() const {
+	return PlacementSupported() && lock_placement && placement_rect.valid;
+}
+
+bool DialogMangetsuGradient::HasVideo() const {
+	return context && context->videoDisplay && context->videoDisplay->HasVideo();
+}
+
+bool DialogMangetsuGradient::IsLockedLine() const {
+	return active_line && trim_copy(active_line->Effect.get()) == "LOCK";
+}
+
 std::string DialogMangetsuGradient::CurrentGroupName() const {
 	return group == TargetGroup::Main ? "Main" : "Border";
 }
@@ -677,9 +793,12 @@ std::string DialogMangetsuGradient::CurrentModeName() const {
 }
 
 std::string DialogMangetsuGradient::CurrentStatus() const {
-	TagRef tag = CurrentTag();
-	return "Editing: " + CurrentGroupName() + " / " + CurrentTargetName() + " / " + CurrentModeName() +
+	TagRef tag = OutputTag();
+	std::string status = "Editing: " + CurrentGroupName() + " / " + CurrentTargetName() + " / " + CurrentModeName() +
 		" -> " + tag.status_name + "\nExisting: " + (existing ? "yes" : "no");
+	if (!placement_status.empty())
+		status += "\n" + from_wx(placement_status);
+	return status;
 }
 
 void DialogMangetsuGradient::ResetDefaultGradient() {
@@ -696,8 +815,19 @@ void DialogMangetsuGradient::ResetDefaultGradient() {
 	stops = {start, end};
 }
 
-bool DialogMangetsuGradient::LoadTagValue(std::string const& value) {
-	auto tokens = TokenizeTagValue(value);
+bool DialogMangetsuGradient::LoadTagValue(std::string const& value, bool placement) {
+	std::string attached_value = value;
+	if (placement) {
+		if (!mangetsu::ParsePlacementGradientValue(value, placement_rect, attached_value))
+			return false;
+		lock_placement = true;
+	}
+	else {
+		placement_rect = {};
+		lock_placement = false;
+	}
+
+	auto tokens = TokenizeTagValue(attached_value);
 	if (tokens.size() < 3)
 		return false;
 
@@ -753,6 +883,11 @@ bool DialogMangetsuGradient::LoadTagValue(std::string const& value) {
 }
 
 std::string DialogMangetsuGradient::FormatTagValue() const {
+	std::string attached = FormatAttachedTagValue();
+	return PlacementTagActive() ? mangetsu::FormatPlacementGradientValue(placement_rect, attached) : attached;
+}
+
+std::string DialogMangetsuGradient::FormatAttachedTagValue() const {
 	std::string value = "(" + std::to_string(angle);
 	for (size_t i = 0; i < stops.size(); ++i) {
 		value += ",";
@@ -762,6 +897,213 @@ std::string DialogMangetsuGradient::FormatTagValue() const {
 	}
 	value += ")";
 	return value;
+}
+
+void DialogMangetsuGradient::RefreshPlacementControl() {
+	if (!lock_placement_button)
+		return;
+
+	bool const supported = PlacementSupported();
+	if (!supported || PlacementTransformUnsupported()) {
+		lock_placement = false;
+		lock_placement_button->SetValue(false);
+		lock_placement_button->Enable(false);
+		lock_placement_button->SetToolTip(supported ?
+			_("The current Gradient Editor does not edit gradients inside transforms.") :
+			_("Placement gradients currently support only the primary fill color."));
+		return;
+	}
+
+	lock_placement_button->SetValue(lock_placement);
+	bool const interactive = HasVideo();
+	lock_placement_button->Enable(interactive || placement_rect.valid);
+	if (!interactive && !placement_rect.valid)
+		lock_placement_button->SetToolTip(_("A loaded video is required to choose a fixed gradient area."));
+	else
+		lock_placement_button->SetToolTip(_("Lock the gradient to a fixed area of the video.\nEnable this, then drag the area in the video preview.\nOutside the area, Mangetsu uses the line's normal primary color."));
+}
+
+void DialogMangetsuGradient::StartPlacementSession() {
+	if (placement_capture_active || !lock_placement || !PlacementSupported())
+		return;
+	if (IsLockedLine()) {
+		placement_status = _("The active line is locked; placement editing is unavailable.");
+		RefreshLightControls();
+		return;
+	}
+	if (!HasVideo()) {
+		placement_status = _("Load a video to choose or replace the fixed gradient area.");
+		RefreshLightControls();
+		return;
+	}
+
+	auto *display = context->videoDisplay;
+	auto previous = display->TakeTool();
+	if (!previous) {
+		placement_status = _("The video tool is not ready yet. Try again after the video preview has rendered.");
+		RefreshLightControls();
+		return;
+	}
+
+	auto session = std::make_shared<GradientPlacementSession>();
+	session->previous_tool = std::move(previous);
+	session->original_line = active_line;
+	session->rectangle = placement_rect;
+	session->pending_gradient_value = FormatTagValue();
+	session->accepted = [this](mangetsu::PlacementRect const& rect) { OnPlacementAccepted(rect); };
+	session->invalid_drag = [this] { OnPlacementInvalid(); };
+	session->cancelled = [this] { OnPlacementCancelled(); };
+	session->status = [this](char const* text) {
+		placement_status = to_wx(text);
+		RefreshLightControls();
+	};
+	session->deactivated = [this] { OnPlacementToolDeactivated(); };
+	placement_session = session;
+	placement_capture_active = true;
+	display->SetTool(agi::make_unique<VisualToolGradientPlacement>(display, context, session));
+	placement_status = placement_rect.valid ? _("Drag on the video to replace the fixed gradient area.") :
+		_("Drag on the video to choose the fixed gradient area.");
+	RefreshLightControls();
+	display->Render();
+}
+
+void DialogMangetsuGradient::EndPlacementSession(bool restore_tool) {
+	auto session = placement_session;
+	placement_session.reset();
+	placement_capture_active = false;
+	if (!session)
+		return;
+
+	session->ending = true;
+	session->accepted = nullptr;
+	session->invalid_drag = nullptr;
+	session->cancelled = nullptr;
+	session->status = nullptr;
+	session->deactivated = nullptr;
+
+	auto *display = context ? context->videoDisplay : nullptr;
+	if (restore_tool && display && display->ToolIsType(typeid(VisualToolGradientPlacement))) {
+		auto placement_tool = display->TakeTool();
+		// Destroying the temporary tool restores the normal cursor. Do it before
+		// reattaching the retained tool so tools such as the crosshair can set
+		// their own cursor again.
+		placement_tool.reset();
+		if (session->previous_tool)
+			display->SetTool(std::move(session->previous_tool));
+	}
+	else
+		session->previous_tool.reset();
+}
+
+void DialogMangetsuGradient::OnPlacementAccepted(mangetsu::PlacementRect const& rect) {
+	if (!lock_placement || !PlacementSupported())
+		return;
+	placement_rect = rect;
+	if (placement_session)
+		placement_session->rectangle = rect;
+	if (placement_session)
+		placement_session->pending_gradient_value = FormatTagValue();
+	placement_status = _("Fixed gradient area captured.");
+	MarkGradientChanged(true, _("set gradient placement"));
+}
+
+void DialogMangetsuGradient::OnPlacementInvalid() {
+	placement_status = _("Drag a non-zero rectangle in the visible video area.");
+	RefreshLightControls();
+}
+
+void DialogMangetsuGradient::OnPlacementCancelled() {
+	// The tool can be on its own event stack while this callback fires. Queue
+	// restoration until it returns so it is never destroyed from inside its own
+	// mouse/key handler.
+	CallAfter([this] {
+		EndPlacementSession();
+		placement_status = _("Placement selection cancelled.");
+		RefreshLightControls();
+	});
+}
+
+void DialogMangetsuGradient::OnPlacementToolDeactivated() {
+	if (!placement_session || placement_session->ending)
+		return;
+	placement_session->previous_tool.reset();
+	placement_session.reset();
+	placement_capture_active = false;
+	placement_status = _("Placement selection ended because the video tool changed or the video was closed.");
+	RefreshLightControls();
+}
+
+void DialogMangetsuGradient::OnActiveLineChanged(AssDialogue *line) {
+	if (line == active_line)
+		return;
+	if (preview_pending) {
+		preview_timer.Stop();
+		preview_pending = false;
+	}
+	CallAfter([this] {
+		EndPlacementSession();
+		placement_status = _("Placement selection ended because the active subtitle line changed.");
+		RefreshLightControls();
+	});
+}
+
+void DialogMangetsuGradient::OnFileCommit(int type, AssDialogue const*) {
+	if (type != AssFile::COMMIT_NEW)
+		return;
+	if (preview_pending) {
+		preview_timer.Stop();
+		preview_pending = false;
+	}
+	CallAfter([this] {
+		EndPlacementSession();
+		// The line pointer and original undo snapshot no longer belong to this
+		// subtitle file. Close rather than attempting an undo into the new file.
+		Destroy();
+	});
+}
+
+void DialogMangetsuGradient::OnPlacementToggle(wxCommandEvent&) {
+	if (updating_controls || !lock_placement_button)
+		return;
+
+	bool const was_placed = PlacementTagActive();
+	if (!lock_placement_button->GetValue()) {
+		EndPlacementSession();
+		lock_placement = false;
+		placement_status = _("Gradient placement unlocked.");
+		if (was_placed || dirty)
+			MarkGradientChanged(true, _("unlock gradient placement"));
+		else
+			RefreshLightControls();
+		return;
+	}
+
+	if (!PlacementSupported() || PlacementTransformUnsupported()) {
+		lock_placement = false;
+		placement_status = PlacementTransformUnsupported() ?
+			_("Placement gradients inside transforms are not editable in this dialog.") : wxString();
+		RefreshLightControls();
+		return;
+	}
+	if (IsLockedLine()) {
+		lock_placement = false;
+		placement_status = _("The active line is locked; placement editing is unavailable.");
+		RefreshLightControls();
+		return;
+	}
+	if (!HasVideo() && !placement_rect.valid) {
+		lock_placement = false;
+		placement_status = _("Load a video before choosing a fixed gradient area.");
+		RefreshLightControls();
+		return;
+	}
+
+	lock_placement = true;
+	if (placement_rect.valid)
+		MarkGradientChanged(true, _("lock gradient placement"));
+	else
+		RefreshLightControls();
+	StartPlacementSession();
 }
 
 void DialogMangetsuGradient::UpdateDirtyState() {
@@ -778,6 +1120,8 @@ void DialogMangetsuGradient::CommitPreview(wxString const& message) {
 
 void DialogMangetsuGradient::MarkGradientChanged(bool immediate, wxString const& message) {
 	UpdateDirtyState();
+	if (placement_session)
+		placement_session->pending_gradient_value = FormatTagValue();
 	RefreshLightControls();
 	SchedulePreview(message.IsEmpty() ? _("set gradient") : message, immediate);
 }
@@ -803,6 +1147,11 @@ void DialogMangetsuGradient::FlushPreview() {
 
 	if (!active_line)
 		return;
+	// Waiting for the first placement drag is deliberately non-mutating. The
+	// controls may still be adjusted, but no ordinary fallback tag is inserted
+	// until a valid rectangle exists.
+	if (lock_placement && !placement_rect.valid)
+		return;
 
 	if (!ReplaceCurrentTagInLine(FormatTagValue()))
 		return;
@@ -820,6 +1169,8 @@ void DialogMangetsuGradient::OnPreviewTimer(wxTimerEvent&) {
 void DialogMangetsuGradient::ApplyCurrent(bool mark_dirty) {
 	if (!active_line)
 		return;
+	if (lock_placement && !placement_rect.valid)
+		return;
 	if (mark_dirty)
 		UpdateDirtyState();
 	if (!ReplaceCurrentTagInLine(FormatTagValue())) {
@@ -833,6 +1184,11 @@ void DialogMangetsuGradient::ApplyCurrent(bool mark_dirty) {
 }
 
 void DialogMangetsuGradient::ClearCurrent() {
+	if (lock_placement && !placement_rect.valid) {
+		placement_status = _("Drag a fixed gradient area before changing placement mode.");
+		RefreshLightControls();
+		return;
+	}
 	FlushPreview();
 	if (!active_line || !FindCurrentTag(active_line))
 		return;
@@ -962,7 +1318,14 @@ TagRange DialogMangetsuGradient::FindCurrentTag(AssDialogue const *line) const {
 	if (!line)
 		return {};
 	TagRef tag = CurrentTag();
-	return FindTag(line->Text.get(), tag.name, tag.alias);
+	TagRange attached = FindTag(line->Text.get(), tag.name, tag.alias);
+	if (!PlacementSupported())
+		return attached;
+	TagRef placed_tag = PlacementTag();
+	TagRange placed = FindTag(line->Text.get(), placed_tag.name, placed_tag.alias);
+	// Mangetsu uses the last valid primary source. Keep the editor targeting
+	// rule aligned when an old attached and a placed tag coexist in one block.
+	return placed && (!attached || placed.start > attached.start) ? placed : attached;
 }
 
 static int matching_paren(std::string const& text, int open) {
@@ -1032,6 +1395,7 @@ TagRange DialogMangetsuGradient::FindTag(std::string const& text, std::string co
 		// Edit the effective static tag: the last matching tag outside \t(...).
 		last_found.start = i;
 		last_found.end = value_end;
+		last_found.name = name;
 		last_found.value = text.substr(value_start, value_end - value_start);
 		i = value_end - 1;
 	}
@@ -1069,16 +1433,20 @@ bool DialogMangetsuGradient::ReplaceCurrentTagInLine(std::string const& value) {
 	if (!active_line)
 		return false;
 
-	TagRef tag = CurrentTag();
-	std::string replacement = tag.name + value;
+	TagRef output = OutputTag();
+	TagRef attached = CurrentTag();
+	TagRef placed = PlacementTag();
+	std::string replacement = output.name + value;
 	std::string text = active_line->Text.get();
 
 	auto span_matches = [&]() {
 		if (!tag_span_valid || tag_span_start < 0 || tag_span_end < tag_span_start || tag_span_end > static_cast<int>(text.size()))
 			return false;
-		if (text.compare(tag_span_start, tag.name.size(), tag.name) == 0)
-			return true;
-		return !tag.alias.empty() && text.compare(tag_span_start, tag.alias.size(), tag.alias) == 0;
+		auto matches = [&](TagRef const& tag) {
+			return text.compare(tag_span_start, tag.name.size(), tag.name) == 0 ||
+				(!tag.alias.empty() && text.compare(tag_span_start, tag.alias.size(), tag.alias) == 0);
+		};
+		return matches(attached) || (PlacementSupported() && matches(placed));
 	};
 
 	if (span_matches()) {
@@ -1090,7 +1458,7 @@ bool DialogMangetsuGradient::ReplaceCurrentTagInLine(std::string const& value) {
 		return true;
 	}
 
-	TagRange found = FindTag(text, tag.name, tag.alias);
+	TagRange found = FindCurrentTag(active_line);
 	if (found) {
 		text.replace(found.start, found.end - found.start, replacement);
 		tag_span_valid = true;
@@ -1124,15 +1492,18 @@ bool DialogMangetsuGradient::RemoveCurrentTagFromLine() {
 	if (!active_line)
 		return false;
 
-	TagRef tag = CurrentTag();
+	TagRef attached = CurrentTag();
+	TagRef placed = PlacementTag();
 	std::string text = active_line->Text.get();
 
 	auto span_matches = [&]() {
 		if (!tag_span_valid || tag_span_start < 0 || tag_span_end < tag_span_start || tag_span_end > static_cast<int>(text.size()))
 			return false;
-		if (text.compare(tag_span_start, tag.name.size(), tag.name) == 0)
-			return true;
-		return !tag.alias.empty() && text.compare(tag_span_start, tag.alias.size(), tag.alias) == 0;
+		auto matches = [&](TagRef const& tag) {
+			return text.compare(tag_span_start, tag.name.size(), tag.name) == 0 ||
+				(!tag.alias.empty() && text.compare(tag_span_start, tag.alias.size(), tag.alias) == 0);
+		};
+		return matches(attached) || (PlacementSupported() && matches(placed));
 	};
 
 	int start = -1;
@@ -1142,7 +1513,7 @@ bool DialogMangetsuGradient::RemoveCurrentTagFromLine() {
 		end = tag_span_end;
 	}
 	else {
-		TagRange found = FindTag(text, tag.name, tag.alias);
+		TagRange found = FindCurrentTag(active_line);
 		if (!found)
 			return false;
 		start = found.start;
@@ -1261,6 +1632,7 @@ void DialogMangetsuGradient::OnQuickAngle(int new_angle) {
 void DialogMangetsuGradient::OnMainChoice(wxCommandEvent&) {
 	if (updating_controls)
 		return;
+	EndPlacementSession();
 	FlushPreview();
 	TargetGroup old_group = group;
 	int old_main = main_index;
@@ -1273,11 +1645,14 @@ void DialogMangetsuGradient::OnMainChoice(wxCommandEvent&) {
 		InvalidateTagSpan();
 		RefreshControls();
 	}
+	else if (lock_placement && placement_rect.valid)
+		StartPlacementSession();
 }
 
 void DialogMangetsuGradient::OnBorderChoice(wxCommandEvent&) {
 	if (updating_controls)
 		return;
+	EndPlacementSession();
 	FlushPreview();
 	int sel = border_choice->GetSelection();
 	if (sel >= 0 && sel < static_cast<int>(border_layers.size())) {
@@ -1292,12 +1667,15 @@ void DialogMangetsuGradient::OnBorderChoice(wxCommandEvent&) {
 			InvalidateTagSpan();
 			RefreshControls();
 		}
+		else if (lock_placement && placement_rect.valid)
+			StartPlacementSession();
 	}
 }
 
 void DialogMangetsuGradient::OnMode(ChannelMode new_mode) {
 	if (updating_controls)
 		return;
+	EndPlacementSession();
 	FlushPreview();
 	ChannelMode old_mode = mode;
 	mode = new_mode;
@@ -1307,9 +1685,16 @@ void DialogMangetsuGradient::OnMode(ChannelMode new_mode) {
 		InvalidateTagSpan();
 		RefreshControls();
 	}
+	else if (lock_placement && placement_rect.valid)
+		StartPlacementSession();
 }
 
 void DialogMangetsuGradient::OnApply(wxCommandEvent&) {
+	if (lock_placement && !placement_rect.valid) {
+		placement_status = _("Drag a fixed gradient area before applying placement mode.");
+		RefreshLightControls();
+		return;
+	}
 	FlushPreview();
 	commit_id = -1;
 	if (active_line)
@@ -1321,11 +1706,13 @@ void DialogMangetsuGradient::OnApply(wxCommandEvent&) {
 
 void DialogMangetsuGradient::OnOK(wxCommandEvent&) {
 	FlushPreview();
+	EndPlacementSession();
 	commit_id = -1;
-	EndModal(wxID_OK);
+	FinishDialog(wxID_OK);
 }
 
 void DialogMangetsuGradient::OnCancel(wxCommandEvent&) {
+	EndPlacementSession();
 	if (preview_pending) {
 		preview_timer.Stop();
 		preview_pending = false;
@@ -1340,7 +1727,14 @@ void DialogMangetsuGradient::OnCancel(wxCommandEvent&) {
 	}
 	if (context && context->videoDisplay)
 		context->videoDisplay->Render();
-	EndModal(wxID_CANCEL);
+	FinishDialog(wxID_CANCEL);
+}
+
+void DialogMangetsuGradient::FinishDialog(int result) {
+	if (IsModal())
+		EndModal(result);
+	else
+		Destroy();
 }
 
 }
@@ -1349,6 +1743,6 @@ void ShowMangetsuGradientDialog(agi::Context *c) {
 	if (!c || !c->selectionController || !c->selectionController->GetActiveLine())
 		return;
 
-	DialogMangetsuGradient dlg(c->parent, c);
-	dlg.ShowModal();
+	auto *dlg = new DialogMangetsuGradient(c->parent, c);
+	dlg->Show();
 }

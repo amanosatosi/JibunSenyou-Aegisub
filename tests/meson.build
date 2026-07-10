@@ -29,6 +29,7 @@ all_test_sources += [
     '../src/ass_karaoke.cpp',
     '../src/motion_tracking/motion_track_export_ae.cpp',
     '../src/motion_tracking/motion_track_segments.cpp',
+    '../src/mangetsu_gradient_placement.cpp',
 
     'tests/access.cpp',
     'tests/audio.cpp',
@@ -50,6 +51,7 @@ all_test_sources += [
     'tests/line_wrap.cpp',
     'tests/mru.cpp',
     'tests/motion_track_segments.cpp',
+    'tests/mangetsu_gradient_placement.cpp',
     'tests/option.cpp',
     'tests/path.cpp',
     'tests/signals.cpp',

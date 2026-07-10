@@ -74,3 +74,49 @@ A later UI improvement can replace this with real disabled/gray dropdown items.
   unavailable unless `assmod.dll` or `libassmod.dll`/`libassmod.so` is present.
 - When Mangetsu is available, the log should include `Mangetsu loaded from
   <path>`.
+
+## Gradient Editor: fixed video placement
+
+The Mangetsu Gradient Editor has a **Lock Placement** button beside its angle
+controls. It changes a primary-fill attached gradient into a fixed-frame
+gradient. The angle still comes from the editor's angle control and the colors
+and percentage stops still come from the stop editor; only the coordinate space
+changes.
+
+Workflow:
+
+```text
+1. Open Gradient Editor.
+2. Configure the gradient angle and stops.
+3. Enable Lock Placement.
+4. Drag the desired area on the video.
+5. Apply the change.
+```
+
+Dragging creates `\pgrd(left,top,right,bottom,angle,stops...)`. The editor
+always normalizes the rectangle to `left,top,right,bottom`, stores it in ASS
+script coordinates, and keeps it fixed as the video frame changes. It does not
+follow `\pos`, `\move`, scaling, or rotation. Pixels outside the rectangle use
+the line's normal primary color.
+
+Current Mangetsu support is intentionally limited to the primary RGB fill.
+`\pgrd(...)` and `\1pgrd(...)` are equivalent primary-fill aliases; the editor
+generates the compact `\pgrd(...)` form. Placement is unavailable for
+secondary, outline, shadow, fifth-color, alpha, border, and box gradients. The
+button explains this when one of those channels is selected.
+
+Opening an existing placement gradient restores its rectangle, angle, and
+stops. Drag once more to replace the rectangle. Disabling **Lock Placement**
+converts it back to the regular attached `\1grd(angle,stops...)` form while
+preserving its angle and stops. The rectangle remains cached only for the open
+editor session, so toggling it back on can restore the area; it is never stored
+in an attached-gradient tag.
+
+The video overlay is available only while a video is loaded. Without one, the
+editor can still inspect a placement gradient and edit its angle and stops, but
+cannot capture a new rectangle. If the active line's Effect field is `LOCK`, no
+placement capture starts. A placement drag also ends safely if the active line
+or visual tool changes, the video closes, or Escape/lost mouse capture cancels
+the unfinished drag. The current Gradient Editor targets static tags; when the
+target gradient is inside `\t(...)`, **Lock Placement** is disabled instead of
+inserting a separate static placement tag.

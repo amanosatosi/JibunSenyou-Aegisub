@@ -254,6 +254,10 @@ public:
 	Vector2D GetMousePosition() const;
 
 	void SetTool(std::unique_ptr<VisualToolBase> new_tool);
+	/// Temporarily detach the active tool. Callers must immediately install a
+	/// replacement or retain ownership until it can safely be restored.
+	std::unique_ptr<VisualToolBase> TakeTool();
+	bool HasVideo() const;
 
 	void SetSubTool(int subtool) const { tool->SetSubTool(subtool); };
 

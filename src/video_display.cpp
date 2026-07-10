@@ -1087,6 +1087,8 @@ void VideoDisplay::OnKeyDown(wxKeyEvent &event) {
 		if (image2text_state != Image2TextState::Off && HandleImage2TextKey(event))
 			return;
 	}
+	if (tool && tool->OnKeyEvent(event))
+		return;
 
 	hotkey::check("Video", con, event);
 }
@@ -1329,6 +1331,7 @@ void VideoDisplay::SetZoomFromBoxText(wxCommandEvent &) {
 void VideoDisplay::SetTool(std::unique_ptr<VisualToolBase> new_tool) {
 	// Set the tool first to prevent repeated initialization from VideoDisplay::Render
 	tool = std::move(new_tool);
+	tool->OnAttached();
 
 	// Hide the tool bar first to eliminate unecessary size changes
 	toolBar->Show(false);
@@ -1344,6 +1347,14 @@ void VideoDisplay::SetTool(std::unique_ptr<VisualToolBase> new_tool) {
 		tool->SetDisplayArea(viewport_left / scale_factor, viewport_top / scale_factor,
 		                     viewport_width / scale_factor, viewport_height / scale_factor);
 	}
+}
+
+std::unique_ptr<VisualToolBase> VideoDisplay::TakeTool() {
+	return std::move(tool);
+}
+
+bool VideoDisplay::HasVideo() const {
+	return con && con->project && con->project->VideoProvider();
 }
 
 bool VideoDisplay::ToolIsType(std::type_info const& type) const {
