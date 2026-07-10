@@ -374,6 +374,15 @@ void AssKaraoke::SetTagType(std::string const& new_type, bool announce) {
 		AnnounceSyllablesChanged();
 }
 
+void AssKaraoke::SetSyllableTagType(size_t syl_idx, std::string const& new_type, bool announce) {
+	if (syl_idx >= syls.size()) return;
+	if (syls[syl_idx].tag_type == new_type) return;
+
+	syls[syl_idx].tag_type = new_type;
+	if (announce && !no_announce)
+		AnnounceSyllablesChanged();
+}
+
 void AssKaraoke::AddSplit(size_t syl_idx, size_t pos) {
 	syls.insert(syls.begin() + syl_idx + 1, Syllable());
 	Syllable &syl = syls[syl_idx];

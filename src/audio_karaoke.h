@@ -180,4 +180,6 @@ public:
 	void SetKTimingAutoCutEnabled(bool enable);
 	/// Auto-split the active line into Japanese kana k-timing slots
 	void AutoSplitJapaneseKana(bool commit = true, bool spaces_as_slots = false, bool song_sane = false);
+	/// Show the Toshiki tag menu for a selected audio segment
+	void ShowKTimingTagMenu();
 };

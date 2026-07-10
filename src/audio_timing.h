@@ -40,6 +40,7 @@ namespace agi { struct Context; }
 #include "audio_marker.h"
 
 #include <cstddef>
+#include <string>
 
 /// @class AudioTimingController
 /// @brief Base class for objects controlling audio timing
@@ -187,6 +188,12 @@ public:
 	/// Notify the timing controller that the karaoke splitter is about to add a slot.
 	virtual void PrepareKaraokeSplit(size_t) { }
 
+	/// Notify the timing controller that the karaoke splitter is about to remove a slot.
+	virtual void PrepareKaraokeRemove(size_t) { }
+
+	/// Change the karaoke tag type for the current Toshiki target.
+	virtual void SetKaraokeTagType(std::string const&) { }
+
 	/// @brief Destructor
 	virtual ~AudioTimingController() = default;
 
@@ -202,3 +209,9 @@ std::unique_ptr<AudioTimingController> CreateDialogueTimingController(agi::Conte
 /// @param c Project context
 /// @param kara Karaoke model
 std::unique_ptr<AudioTimingController> CreateKaraokeTimingController(agi::Context *c, AssKaraoke *kara, agi::signal::Connection& file_changed);
+
+/// @brief Create the Toshiki K-Timing slot-plan timing controller
+/// @param c Project context
+/// @param kara Karaoke model
+/// @param file_changed Project file change connection
+std::unique_ptr<AudioTimingController> CreateToshikiKTimingController(agi::Context *c, AssKaraoke *kara, agi::signal::Connection& file_changed);

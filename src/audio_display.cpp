@@ -31,6 +31,7 @@
 #include "audio_display.h"
 
 #include "audio_controller.h"
+#include "audio_karaoke.h"
 #include "audio_renderer.h"
 #include "audio_renderer_spectrum.h"
 #include "audio_renderer_waveform.h"
@@ -1144,7 +1145,8 @@ void AudioDisplay::OnMouseEvent(wxMouseEvent& event)
 {
 	// If we have focus, we get mouse move events on Mac even when the mouse is
 	// outside our client rectangle, we don't want those.
-	if (event.Moving() && !GetClientRect().Contains(event.GetPosition()))
+	if (event.Moving() && !GetClientRect().Contains(event.GetPosition()) &&
+		!(dragged_object && HasCapture() && context->karaoke && context->karaoke->IsKTimingEnabled()))
 	{
 		event.Skip();
 		return;
@@ -1216,6 +1218,11 @@ void AudioDisplay::OnMouseEvent(wxMouseEvent& event)
 
 		// Clicking should never result in the audio display scrolling
 		ScrollPixelToLeft(old_scroll_pos);
+
+		if (event.RightDown() && context->karaoke && context->karaoke->IsKTimingEnabled()) {
+			context->karaoke->ShowKTimingTagMenu();
+			return;
+		}
 
 		if (markers.size())
 		{

@@ -80,6 +80,7 @@ AudioKaraoke::AudioKaraoke(wxWindow *parent, agi::Context *c)
 
 	tag_type_choice = new wxChoice(this, -1);
 	tag_type_choice->Append(wxS("\\k"));
+	tag_type_choice->Append(wxS("\\K"));
 	tag_type_choice->Append(wxS("\\kf"));
 	tag_type_choice->Append(wxS("\\ko"));
 	tag_type_choice->SetSelection(0);
@@ -221,9 +222,10 @@ void AudioKaraoke::SetKTimingController() {
 	LoadFromLine();
 	c->audioBox->ShowKaraokeBar(true);
 	UpdateAutoCutButton();
-	c->audioController->SetTimingController(CreateKaraokeTimingController(c, kara.get(), file_changed));
-	if (auto timing = c->audioController->GetTimingController())
-		timing->SetSpectrogramKaraokeTiming(true);
+	// Toshiki owns a slot-plan state machine; do not toggle the Original
+	// K-Timing controller into a second behavior through a mode flag.
+	c->audioController->SetTimingController(CreateToshikiKTimingController(c, kara.get(), file_changed));
+	SyncKTimingTagTypeAfterLoad();
 	ApplyKTimingAutoCutIfNeeded();
 	Refresh(false);
 }
@@ -362,22 +364,27 @@ void AudioKaraoke::AddMenuItem(wxMenu &menu, std::string const& tag, wxString co
 	item->Check(tag == selected);
 }
 
+void AudioKaraoke::ShowKTimingTagMenu() {
+	if (!ktiming_enabled || !active_line) return;
+
+	wxMenu context_menu(_("Toshiki K-Timing tag"));
+	auto add_commit_item = [&](std::string const& tag) {
+		wxString label = wxString::Format(_("Use %s and commit"), to_wx(tag).c_str());
+		wxMenuItem *item = context_menu.Append(-1, label);
+		context_menu.Bind(wxEVT_MENU, [=](wxCommandEvent&) { SetKTimingTagTypeAndCommit(tag); }, item->GetId());
+	};
+
+	add_commit_item("\\k");
+	add_commit_item("\\K");
+	add_commit_item("\\kf");
+	add_commit_item("\\ko");
+
+	PopupMenu(&context_menu);
+}
+
 void AudioKaraoke::OnContextMenu(wxContextMenuEvent&) {
 	if (ktiming_enabled) {
-		if (!active_line) return;
-
-		wxMenu context_menu(_("Toshiki K-Timing tag"));
-		auto add_commit_item = [&](std::string const& tag) {
-			wxString label = wxString::Format(_("Use %s and commit"), to_wx(tag).c_str());
-			wxMenuItem *item = context_menu.Append(-1, label);
-			context_menu.Bind(wxEVT_MENU, [=](wxCommandEvent&) { SetKTimingTagTypeAndCommit(tag); }, item->GetId());
-		};
-
-		add_commit_item("\\k");
-		add_commit_item("\\kf");
-		add_commit_item("\\ko");
-
-		PopupMenu(&context_menu);
+		ShowKTimingTagMenu();
 		return;
 	}
 
@@ -454,7 +461,13 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 	}
 
 	if (click_will_remove_split)
+	{
+		if (ktiming_enabled) {
+			if (auto timing = c->audioController->GetTimingController())
+				timing->PrepareKaraokeRemove(syl + (click_left && !click_right));
+		}
 		kara->RemoveSplit(syl + (click_left && !click_right));
+	}
 	else {
 		// [Satoshi preserve timings on cut] Optionally preserve existing timings when splitting
 		auto before_size = kara->size();
@@ -683,9 +696,10 @@ void AudioKaraoke::CancelSplit() {
 
 void AudioKaraoke::AcceptSplit() {
 	if (ktiming_enabled) {
-		kara->SetTagType(ktiming_tag_type, false);
 		if (auto timing = c->audioController->GetTimingController())
 			timing->Commit();
+		accept_button->Enable(false);
+		cancel_button->Enable(false);
 		return;
 	}
 
@@ -707,12 +721,18 @@ void AudioKaraoke::SetKTimingTagType(std::string const& new_tag) {
 	ktiming_tag_type = new_tag;
 	if (tag_type_choice)
 		tag_type_choice->SetStringSelection(to_wx(new_tag));
-	if (ktiming_enabled && active_line)
+	if (ktiming_enabled && active_line && !kara->HasKaraokeTags())
 		kara->SetTagType(new_tag);
 }
 
 void AudioKaraoke::SetKTimingTagTypeAndCommit(std::string const& new_tag) {
-	SetKTimingTagType(new_tag);
+	ktiming_tag_type = new_tag;
+	if (tag_type_choice)
+		tag_type_choice->SetStringSelection(to_wx(new_tag));
+	if (auto timing = c->audioController->GetTimingController())
+		timing->SetKaraokeTagType(new_tag);
+	else
+		kara->SetTagType(new_tag, false);
 	AcceptSplit();
 }
 

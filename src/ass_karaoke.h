@@ -128,6 +128,8 @@ public:
 	std::string GetTagType() const;
 	/// Set the tag type for all karaoke tags in this line
 	void SetTagType(std::string const& new_type, bool announce = true);
+	/// Set the tag type for one karaoke syllable
+	void SetSyllableTagType(size_t syl_idx, std::string const& new_type, bool announce = true);
 
 	DEFINE_SIGNAL_ADDERS(AnnounceSyllablesChanged, AddSyllablesChangedListener)
 };

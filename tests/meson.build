@@ -44,6 +44,7 @@ all_test_sources += [
     'tests/iconv.cpp',
     'tests/ifind.cpp',
     'tests/ass_karaoke_preserve_split.cpp',
+    'tests/toshiki_k_timing_model.cpp',
     'tests/karaoke_split.cpp',
     'tests/karaoke_matcher.cpp',
     'tests/keyframe.cpp',
