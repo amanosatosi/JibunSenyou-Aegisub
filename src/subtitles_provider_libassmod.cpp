@@ -117,6 +117,7 @@ using AssLibraryDoneFunc = void (*)(ASS_Library *);
 using AssSetMessageCbFunc = void (*)(ASS_Library *, void (*)(int, const char *, va_list, void *), void *);
 using AssRendererInitFunc = ASS_Renderer *(*)(ASS_Library *);
 using AssRendererDoneFunc = void (*)(ASS_Renderer *);
+using AssSetThreadsFunc = unsigned (*)(ASS_Renderer *, unsigned);
 using AssSetFontScaleFunc = void (*)(ASS_Renderer *, double);
 using AssSetFontsFunc = void (*)(ASS_Renderer *, const char *, const char *, int, const char *, int);
 using AssReadMemoryFunc = ASS_Track *(*)(ASS_Library *, char *, size_t, const char *);
@@ -137,6 +138,7 @@ struct LibassModApi {
 	AssSetMessageCbFunc ass_set_message_cb = nullptr;
 	AssRendererInitFunc ass_renderer_init = nullptr;
 	AssRendererDoneFunc ass_renderer_done = nullptr;
+	AssSetThreadsFunc ass_set_threads = nullptr;
 	AssSetFontScaleFunc ass_set_font_scale = nullptr;
 	AssSetFontsFunc ass_set_fonts = nullptr;
 	AssReadMemoryFunc ass_read_memory = nullptr;
@@ -174,6 +176,7 @@ struct AssCompatBackend {
 
 AssCompatBackend libassmod_backend({ "libassmod", "libassmod", "subtitle/provider/libassmod", "libassmod.dll" });
 AssCompatBackend mangetsu_backend({ "Mangetsu", "Mangetsu", "subtitle/provider/mangetsu", "mangetsu.dll" });
+constexpr unsigned kLibassModPreviewThreads = 2;
 
 #ifdef _WIN32
 std::string wide_to_utf8(const wchar_t *value) {
@@ -337,6 +340,10 @@ bool LoadLibassModApi(AssCompatBackend &backend, std::string &error) {
 		CloseLibassModHandle(backend);
 		return false;
 	}
+	// ass_set_threads is a new Mangetsu API. Keep it optional so older
+	// libassmod builds still load and simply retain serial rendering.
+	LoadOptionalSymbol(backend, "ass_set_threads", api.ass_set_threads);
+
 #ifdef LIBASSMOD_FEATURE_TAG_IMAGE
 	LoadOptionalSymbol(backend, "ass_clear_tag_images", api.ass_clear_tag_images);
 	LoadOptionalSymbol(backend, "ass_set_tag_image_rgba", api.ass_set_tag_image_rgba);
@@ -953,6 +960,8 @@ public:
 		auto &api = backend.api;
 		api.ass_renderer_done(shared->renderer);
 		shared->renderer = api.ass_renderer_init(backend.library);
+		if (shared->renderer && api.ass_set_threads)
+			api.ass_set_threads(shared->renderer, kLibassModPreviewThreads);
 		api.ass_set_font_scale(shared->renderer, 1.);
 		api.ass_set_fonts(shared->renderer, nullptr, "Sans", 1, nullptr, true);
 #ifdef LIBASSMOD_FEATURE_TAG_IMAGE
@@ -977,6 +986,8 @@ LibassModSubtitlesProvider::LibassModSubtitlesProvider(AssCompatBackend &backend
 		auto &api = backend.api;
 		auto ass_renderer = api.ass_renderer_init(backend.library);
 		if (ass_renderer) {
+			if (api.ass_set_threads)
+				api.ass_set_threads(ass_renderer, kLibassModPreviewThreads);
 			api.ass_set_font_scale(ass_renderer, 1.);
 			api.ass_set_fonts(ass_renderer, nullptr, "Sans", 1, nullptr, true);
 		}
