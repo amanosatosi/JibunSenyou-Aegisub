@@ -6,11 +6,11 @@ image support, but it is loaded from its own shared library.
 
 The currently supported Mangetsu source is:
 
-https://github.com/amanosatosi/libassmod/tree/mangetsu
+https://github.com/amanosatosi/libassmod/tree/sol/mangetsu-multithread-experimental
 
 ## Build And Package
 
-Build/package the `mangetsu` branch of `libassmod` as a shared library, then
+Build/package the `sol/mangetsu-multithread-experimental` branch of `libassmod` as a shared library, then
 place the output beside `aegisub.exe` or the installed Aegisub binary as:
 
 - Windows: `mangetsu.dll`
@@ -23,10 +23,24 @@ Configure Aegisub packaging with:
 meson setup build -Dwith_mangetsu=true
 ```
 
-When `mangetsu_path` is omitted, Meson builds the `mangetsu` branch from
+When `mangetsu_path` is omitted, Meson builds the configured branch from
 `subprojects/libassmod-mangetsu.wrap` and installs it under the platform name
 above. Release Windows installer and portable builds enable this, so
 `mangetsu.dll` is bundled in shipped artifacts.
+
+## Rendering Threads
+
+Set **Subtitle rendering threads (0 = automatic)** in Preferences > Advanced >
+Video to control Mangetsu and libassmod event-rendering concurrency. The default
+is `1`, which preserves serial rendering. `0` lets the renderer select a logical
+CPU count (up to 64); explicit values from `2` through `64` request that total
+concurrency, including Aegisub's calling thread.
+
+The setting is applied whenever the subtitle renderer is created and reloads an
+open video when changed. It is ignored by renderer libraries without the
+optional `ass_set_threads` API. Frames with only one active event will generally
+not benefit, and message callbacks may run on a renderer worker when the value
+is above `1`.
 
 To package a prebuilt external library instead, use:
 

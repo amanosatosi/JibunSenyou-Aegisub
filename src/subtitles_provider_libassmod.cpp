@@ -25,6 +25,7 @@
 #include "ass_file.h"
 #include "compat.h"
 #include "include/aegisub/subtitles_provider.h"
+#include "options.h"
 #include "video_frame.h"
 
 #include <libaegisub/ass/uuencode.h>
@@ -176,7 +177,19 @@ struct AssCompatBackend {
 
 AssCompatBackend libassmod_backend({ "libassmod", "libassmod", "subtitle/provider/libassmod", "libassmod.dll" });
 AssCompatBackend mangetsu_backend({ "Mangetsu", "Mangetsu", "subtitle/provider/mangetsu", "mangetsu.dll" });
-constexpr unsigned kLibassModPreviewThreads = 2;
+constexpr int kMaxSubtitleRendererThreads = 64;
+
+unsigned SubtitleRendererThreads() {
+	int requested = OPT_GET("Subtitle/Renderer/Threads")->GetInt();
+	if (requested < 0)
+		return 1;
+	return static_cast<unsigned>(std::min(requested, kMaxSubtitleRendererThreads));
+}
+
+void ConfigureRendererThreads(AssCompatBackend &backend, ASS_Renderer *renderer, unsigned threads) {
+	if (renderer && backend.api.ass_set_threads)
+		backend.api.ass_set_threads(renderer, threads);
+}
 
 #ifdef _WIN32
 std::string wide_to_utf8(const wchar_t *value) {
@@ -960,8 +973,7 @@ public:
 		auto &api = backend.api;
 		api.ass_renderer_done(shared->renderer);
 		shared->renderer = api.ass_renderer_init(backend.library);
-		if (shared->renderer && api.ass_set_threads)
-			api.ass_set_threads(shared->renderer, kLibassModPreviewThreads);
+		ConfigureRendererThreads(backend, shared->renderer, SubtitleRendererThreads());
 		api.ass_set_font_scale(shared->renderer, 1.);
 		api.ass_set_fonts(shared->renderer, nullptr, "Sans", 1, nullptr, true);
 #ifdef LIBASSMOD_FEATURE_TAG_IMAGE
@@ -981,13 +993,13 @@ LibassModSubtitlesProvider::LibassModSubtitlesProvider(AssCompatBackend &backend
 
 	EnsureCacheQueue(backend);
 	auto state = shared;
+	auto threads = SubtitleRendererThreads();
 	state->backend = &backend;
-	backend.cache_queue->Async([state, &backend] {
+	backend.cache_queue->Async([state, &backend, threads] {
 		auto &api = backend.api;
 		auto ass_renderer = api.ass_renderer_init(backend.library);
 		if (ass_renderer) {
-			if (api.ass_set_threads)
-				api.ass_set_threads(ass_renderer, kLibassModPreviewThreads);
+			ConfigureRendererThreads(backend, ass_renderer, threads);
 			api.ass_set_font_scale(ass_renderer, 1.);
 			api.ass_set_fonts(ass_renderer, nullptr, "Sans", 1, nullptr, true);
 		}

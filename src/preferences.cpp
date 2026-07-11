@@ -624,6 +624,8 @@ void Advanced_Video(wxTreebook *book, Preferences *parent) {
 
 	wxArrayString sp_choice = to_wx(SubtitlesProviderFactory::GetClasses());
 	p->OptionChoice(expert, _("Subtitles provider"), sp_choice, "Subtitle/Provider");
+	auto subtitle_threads = p->OptionAdd(expert, _("Subtitle rendering threads (0 = automatic)"), "Subtitle/Renderer/Threads", 0, 64);
+	subtitle_threads->SetToolTip(_("Applies to Mangetsu and libassmod. One thread preserves serial rendering."));
 
 	auto unavailable_subtitles = SubtitlesProviderFactory::GetUnavailableClasses();
 	if (!unavailable_subtitles.empty()) {
