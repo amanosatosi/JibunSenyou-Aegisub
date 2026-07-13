@@ -888,6 +888,7 @@ void AudioDisplay::OnPaint(wxPaintEvent&)
 				std::max(0, TimeFromRelativeX(updrect.x + updrect.width + foot_size)));
 
 			PaintAudio(dc, updtime, updrect);
+			PaintToshikiKTimingPreview(dc, updtime);
 			PaintDialogTimeChangerOverlay(dc);
 			PaintMarkers(dc, updtime);
 			PaintLabels(dc, updtime);
@@ -946,6 +947,62 @@ void AudioDisplay::PaintMarkers(wxDC &dc, TimeRange updtime)
 			PaintFoot(dc, marker_x, -1);
 		if (marker->GetFeet() & AudioMarker::Feet_Right)
 			PaintFoot(dc, marker_x, 1);
+	}
+}
+
+void AudioDisplay::PaintToshikiKTimingPreview(wxDC &dc, TimeRange updtime)
+{
+	std::vector<AudioTimingController::ToshikiKTimingPreviewRange> previews;
+	controller->GetTimingController()->GetToshikiKTimingPreviewRanges(previews);
+	if (previews.empty()) return;
+
+	wxColour assigned_colour = to_wx(OPT_GET("Colour/Audio Display/Syllable Boundaries")->GetColor());
+	wxColour pending_colour = to_wx(OPT_GET("Colour/Audio Display/Line Boundary Inactive Line")->GetColor());
+
+	wxDCPenChanger pen_retainer(dc, wxPen());
+	wxDCBrushChanger brush_retainer(dc, wxBrush());
+	for (auto const& preview : previews) {
+		if (preview.end <= updtime.begin() || preview.begin >= updtime.end())
+			continue;
+
+		int left = RelativeXFromTime(preview.begin);
+		int right = RelativeXFromTime(preview.end);
+		int width = std::max(1, right - left);
+		if (preview.rest && right <= left) {
+			left -= 3;
+			width = 7;
+		}
+		wxRect bounds(left, audio_top, width, audio_height);
+
+		if (preview.rest) {
+			bool active = preview.state == AudioTimingController::ToshikiKTimingPreviewRange::Active;
+			wxPenStyle style = preview.state == AudioTimingController::ToshikiKTimingPreviewRange::Assigned ?
+				wxPENSTYLE_SHORT_DASH : wxPENSTYLE_DOT;
+			dc.SetPen(wxPen(active ? assigned_colour : pending_colour, active ? 2 : 1,
+				active ? wxPENSTYLE_SOLID : style));
+			dc.SetBrush(wxBrush(pending_colour, wxBRUSHSTYLE_FDIAGONAL_HATCH));
+			dc.DrawRectangle(bounds);
+			continue;
+		}
+
+		switch (preview.state) {
+			case AudioTimingController::ToshikiKTimingPreviewRange::Active:
+				dc.SetPen(wxPen(assigned_colour, 2, wxPENSTYLE_SOLID));
+				dc.SetBrush(*wxTRANSPARENT_BRUSH);
+				dc.DrawRectangle(bounds);
+				break;
+
+			case AudioTimingController::ToshikiKTimingPreviewRange::Assigned:
+				dc.SetPen(wxPen(assigned_colour, 2, wxPENSTYLE_SOLID));
+				dc.DrawLine(left, audio_top + audio_height - 2, right, audio_top + audio_height - 2);
+				break;
+
+			case AudioTimingController::ToshikiKTimingPreviewRange::Pending:
+				dc.SetPen(wxPen(pending_colour, 1, wxPENSTYLE_DOT));
+				dc.SetBrush(*wxTRANSPARENT_BRUSH);
+				dc.DrawRectangle(bounds);
+				break;
+		}
 	}
 }
 

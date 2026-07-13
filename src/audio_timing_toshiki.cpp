@@ -76,6 +76,7 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	int selected_tag_syl = -1;
 
 	Pen separator_pen{"Colour/Audio Display/Syllable Boundaries", "Audio/Line Boundaries Thickness", wxPENSTYLE_DOT};
+	Pen pending_separator_pen{"Colour/Audio Display/Line Boundary Inactive Line", 1, wxPENSTYLE_DOT};
 	Pen start_pen{"Colour/Audio Display/Line boundary Start", "Audio/Line Boundaries Thickness"};
 	Pen end_pen{"Colour/Audio Display/Line boundary End", "Audio/Line Boundaries Thickness"};
 
@@ -98,6 +99,7 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	int FindNearbyBoundary(int ms, int sensitivity, bool assigned_only) const;
 	int MoveBoundary(ToshikiKTimingMarker *marker, int new_position);
 	bool IsSingleUntimedSlot() const;
+	size_t AssignedSlotCount() const;
 
 	static int RoundToCentisecond(int position) {
 		return (position + 5) / 10 * 10;
@@ -111,6 +113,7 @@ public:
 	wxString GetWarningMessage() const override { return wxString(); }
 	TimeRange GetIdealVisibleTimeRange() const override;
 	void GetRenderingStyles(AudioRenderingStyleRanges &ranges) const override;
+	void GetToshikiKTimingPreviewRanges(std::vector<ToshikiKTimingPreviewRange> &ranges) const override;
 	TimeRange GetPrimaryPlaybackRange() const override;
 	TimeRange GetActiveLineRange() const override;
 	void Next(NextMode mode) override;
@@ -168,12 +171,41 @@ TimeRange AudioTimingControllerToshiki::GetPrimaryPlaybackRange() const {
 }
 
 void AudioTimingControllerToshiki::GetRenderingStyles(AudioRenderingStyleRanges &ranges) const {
+	size_t assigned_slots = AssignedSlotCount();
 	for (size_t i = 0; i < labels.size(); ++i) {
-		AudioRenderingStyle style = i < assigned_boundary_count ? AudioStyle_Selected : AudioStyle_Inactive;
+		bool rest = kara->IsEmptySyllable(i) || kara->IsWhitespaceSyllable(i);
+		AudioRenderingStyle style = i < assigned_slots && !rest ? AudioStyle_Selected : AudioStyle_Inactive;
 		if (i == cur_syl)
-			style = (kara->IsEmptySyllable(i) || kara->IsWhitespaceSyllable(i)) ? AudioStyle_Selected : AudioStyle_Primary;
+			style = rest ? AudioStyle_Selected : AudioStyle_Primary;
 		ranges.AddRange(labels[i].range.begin(), labels[i].range.end(), style);
 	}
+}
+
+void AudioTimingControllerToshiki::GetToshikiKTimingPreviewRanges(std::vector<ToshikiKTimingPreviewRange> &ranges) const {
+	size_t assigned_slots = AssignedSlotCount();
+	for (size_t i = 0; i < labels.size(); ++i) {
+		ToshikiKTimingPreviewRange::State state = i < assigned_slots ?
+			ToshikiKTimingPreviewRange::Assigned : ToshikiKTimingPreviewRange::Pending;
+		if (i == cur_syl)
+			state = ToshikiKTimingPreviewRange::Active;
+
+		ranges.push_back(ToshikiKTimingPreviewRange{
+			labels[i].range.begin(),
+			labels[i].range.end(),
+			state,
+			kara->IsEmptySyllable(i)
+		});
+	}
+}
+
+size_t AudioTimingControllerToshiki::AssignedSlotCount() const {
+	if (labels.empty())
+		return 0;
+	if (display_boundaries.empty())
+		return had_existing_karaoke ? labels.size() : 0;
+	if (assigned_boundary_count == display_boundaries.size())
+		return labels.size();
+	return std::min(assigned_boundary_count, labels.size());
 }
 
 void AudioTimingControllerToshiki::GetMarkers(TimeRange const& range, AudioMarkerVector &out) const {
@@ -228,6 +260,8 @@ void AudioTimingControllerToshiki::Commit() {
 	kara->SetTimingBoundaries(start_marker.GetPosition(), end_marker.GetPosition(), display_boundaries, false);
 	DoCommit();
 	assigned_boundary_count = display_boundaries.size();
+	ApplyDisplayBoundaries();
+	AnnounceUpdatedStyleRanges();
 	AnnounceMarkerMoved();
 	AnnounceLabelChanged();
 }
@@ -340,8 +374,10 @@ void AudioTimingControllerToshiki::RebuildMarkersAndLabels() {
 	labels.reserve(kara->size());
 
 	for (size_t idx = 0; idx < kara->size(); ++idx) {
-		if (idx > 0)
-			markers.emplace_back(display_boundaries[idx - 1], &separator_pen, AudioMarker::Feet_None);
+		if (idx > 0) {
+			Pen *pen = idx - 1 < assigned_boundary_count ? &separator_pen : &pending_separator_pen;
+			markers.emplace_back(display_boundaries[idx - 1], pen, AudioMarker::Feet_None);
+		}
 
 		int label_start = idx == 0 ? start_marker.GetPosition() : display_boundaries[idx - 1];
 		int label_end = idx < display_boundaries.size() ? display_boundaries[idx] : end_marker.GetPosition();
@@ -428,7 +464,9 @@ int AudioTimingControllerToshiki::FindNearbyBoundary(int ms, int sensitivity, bo
 	size_t limit = assigned_only ? std::min(assigned_boundary_count, markers.size()) : markers.size();
 	for (size_t i = 0; i < limit; ++i) {
 		int distance = std::abs(markers[i].GetPosition() - ms);
-		if (distance <= sensitivity && distance < best_distance) {
+		// Prefer the trailing boundary when zero-duration slots place two
+		// handles at the same position. Dragging it expands the zero slot.
+		if (distance <= sensitivity && distance <= best_distance) {
 			result = static_cast<int>(i);
 			best_distance = distance;
 		}

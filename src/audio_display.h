@@ -169,6 +169,10 @@ class AudioDisplay: public wxWindow {
 	/// @param updrect Pixel range to repaint
 	void PaintAudio(wxDC &dc, TimeRange updtime, wxRect updrect);
 
+	/// Paint provisional Toshiki K-Timing slot ranges, when supplied by the
+	/// active timing controller.
+	void PaintToshikiKTimingPreview(wxDC &dc, TimeRange updtime);
+
 	/// Paint the markers in a time range
 	/// @param dc DC to paint to
 	/// @param updtime Time range to repaint
