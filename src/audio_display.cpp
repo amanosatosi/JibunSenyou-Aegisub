@@ -976,9 +976,10 @@ void AudioDisplay::PaintToshikiKTimingPreview(wxDC &dc, TimeRange updtime)
 
 		if (preview.rest) {
 			bool active = preview.state == AudioTimingController::ToshikiKTimingPreviewRange::Active;
+			bool pending_active = preview.state == AudioTimingController::ToshikiKTimingPreviewRange::PendingActive;
 			wxPenStyle style = preview.state == AudioTimingController::ToshikiKTimingPreviewRange::Assigned ?
 				wxPENSTYLE_SHORT_DASH : wxPENSTYLE_DOT;
-			dc.SetPen(wxPen(active ? assigned_colour : pending_colour, active ? 2 : 1,
+			dc.SetPen(wxPen(active ? assigned_colour : pending_colour, active || pending_active ? 2 : 1,
 				active ? wxPENSTYLE_SOLID : style));
 			dc.SetBrush(wxBrush(pending_colour, wxBRUSHSTYLE_FDIAGONAL_HATCH));
 			dc.DrawRectangle(bounds);
@@ -999,6 +1000,12 @@ void AudioDisplay::PaintToshikiKTimingPreview(wxDC &dc, TimeRange updtime)
 
 			case AudioTimingController::ToshikiKTimingPreviewRange::Pending:
 				dc.SetPen(wxPen(pending_colour, 1, wxPENSTYLE_DOT));
+				dc.SetBrush(*wxTRANSPARENT_BRUSH);
+				dc.DrawRectangle(bounds);
+				break;
+
+			case AudioTimingController::ToshikiKTimingPreviewRange::PendingActive:
+				dc.SetPen(wxPen(pending_colour, 2, wxPENSTYLE_DOT));
 				dc.SetBrush(*wxTRANSPARENT_BRUSH);
 				dc.DrawRectangle(bounds);
 				break;

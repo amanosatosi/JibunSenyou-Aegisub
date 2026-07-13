@@ -67,7 +67,8 @@ public:
 		enum State {
 			Assigned,
 			Active,
-			Pending
+			Pending,
+			PendingActive
 		};
 
 		int begin;
