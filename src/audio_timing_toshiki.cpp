@@ -52,9 +52,9 @@ public:
 /// @brief Slot-plan and preview timing controller for Toshiki K-Timing
 ///
 /// Original K-Timing edits the karaoke syllable timings directly as the
-/// normal karaoke interaction proceeds. Toshiki keeps an assigned boundary
-/// prefix and a provisional suffix here, then serializes the final layout
-/// only from Commit().
+/// normal karaoke interaction proceeds. Toshiki stores only boundaries the
+/// user explicitly placed or loaded from existing karaoke. Text splitting
+/// never invents timing; Commit() is the only operation which serializes it.
 class AudioTimingControllerToshiki final : public AudioTimingController {
 	std::vector<agi::signal::Connection> connections;
 	agi::signal::Connection& file_changed_slot;
@@ -65,7 +65,7 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 
 	size_t cur_syl = 0;
 	size_t assigned_boundary_count = 0;
-	std::vector<int> display_boundaries;
+	std::vector<int> display_boundaries; ///< Explicitly assigned only; never provisional
 	int pending_split_syl = -1;
 	int pending_remove_syl = -1;
 	bool reloading_karaoke = false;
@@ -76,7 +76,6 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	int selected_tag_syl = -1;
 
 	Pen separator_pen{"Colour/Audio Display/Syllable Boundaries", "Audio/Line Boundaries Thickness", wxPENSTYLE_DOT};
-	Pen pending_separator_pen{"Colour/Audio Display/Line Boundary Inactive Line", 1, wxPENSTYLE_DOT};
 	Pen start_pen{"Colour/Audio Display/Line boundary Start", "Audio/Line Boundaries Thickness"};
 	Pen end_pen{"Colour/Audio Display/Line boundary End", "Audio/Line Boundaries Thickness"};
 
@@ -91,7 +90,6 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	void DoCommit();
 	void AnnounceChanges(int syl);
 	void RebuildMarkersAndLabels();
-	void ReflowDisplayBoundaries(size_t assigned_count);
 	void ApplyDisplayBoundaries(bool rebuild = true);
 	void OnKaraokeSyllablesChanged();
 	void ResetFromKaraokeLine();
@@ -172,20 +170,25 @@ TimeRange AudioTimingControllerToshiki::GetPrimaryPlaybackRange() const {
 
 void AudioTimingControllerToshiki::GetRenderingStyles(AudioRenderingStyleRanges &ranges) const {
 	size_t assigned_slots = AssignedSlotCount();
-	for (size_t i = 0; i < labels.size(); ++i) {
+	for (size_t i = 0; i < assigned_slots; ++i) {
 		bool rest = kara->IsEmptySyllable(i) || kara->IsWhitespaceSyllable(i);
-		AudioRenderingStyle style = i < assigned_slots && !rest ? AudioStyle_Selected : AudioStyle_Inactive;
+		AudioRenderingStyle style = rest ? AudioStyle_Inactive : AudioStyle_Selected;
 		if (i == cur_syl)
 			style = rest ? AudioStyle_Selected : AudioStyle_Primary;
 		ranges.AddRange(labels[i].range.begin(), labels[i].range.end(), style);
+	}
+
+	if (assigned_slots < labels.size()) {
+		int pending_start = assigned_boundary_count ? display_boundaries.back() : start_marker.GetPosition();
+		bool active = cur_syl >= assigned_slots;
+		ranges.AddRange(pending_start, end_marker.GetPosition(), active ? AudioStyle_Primary : AudioStyle_Inactive);
 	}
 }
 
 void AudioTimingControllerToshiki::GetToshikiKTimingPreviewRanges(std::vector<ToshikiKTimingPreviewRange> &ranges) const {
 	size_t assigned_slots = AssignedSlotCount();
-	for (size_t i = 0; i < labels.size(); ++i) {
-		ToshikiKTimingPreviewRange::State state = i < assigned_slots ?
-			ToshikiKTimingPreviewRange::Assigned : ToshikiKTimingPreviewRange::Pending;
+	for (size_t i = 0; i < assigned_slots; ++i) {
+		ToshikiKTimingPreviewRange::State state = ToshikiKTimingPreviewRange::Assigned;
 		if (i == cur_syl)
 			state = ToshikiKTimingPreviewRange::Active;
 
@@ -196,14 +199,26 @@ void AudioTimingControllerToshiki::GetToshikiKTimingPreviewRanges(std::vector<To
 			kara->IsEmptySyllable(i)
 		});
 	}
+
+	// Pending slots deliberately share one unsegmented remainder. Drawing a
+	// range per planned slot would imply timing which the user never assigned.
+	if (assigned_slots < labels.size()) {
+		int pending_start = assigned_boundary_count ? display_boundaries.back() : start_marker.GetPosition();
+		ranges.push_back(ToshikiKTimingPreviewRange{
+			pending_start,
+			end_marker.GetPosition(),
+			cur_syl >= assigned_slots ? ToshikiKTimingPreviewRange::Active : ToshikiKTimingPreviewRange::Pending,
+			false
+		});
+	}
 }
 
 size_t AudioTimingControllerToshiki::AssignedSlotCount() const {
 	if (labels.empty())
 		return 0;
-	if (display_boundaries.empty())
-		return had_existing_karaoke ? labels.size() : 0;
-	if (assigned_boundary_count == display_boundaries.size())
+	if (labels.size() == 1)
+		return had_existing_karaoke || had_committed_timing ? 1 : 0;
+	if (assigned_boundary_count >= labels.size() - 1)
 		return labels.size();
 	return std::min(assigned_boundary_count, labels.size());
 }
@@ -254,12 +269,18 @@ void AudioTimingControllerToshiki::Commit() {
 		return;
 	}
 
-	// The displayed boundary vector contains assigned boundaries followed by
-	// provisional suffix boundaries. Commit is the only operation that makes
-	// those preview values real ASS karaoke durations.
+	// Only explicitly assigned boundaries are stored during editing. Commit
+	// gives the first pending slot the remaining line duration and leaves any
+	// later pending slots at zero, without inventing intermediate cuts.
 	kara->SetTimingBoundaries(start_marker.GetPosition(), end_marker.GetPosition(), display_boundaries, false);
 	DoCommit();
+	display_boundaries.clear();
+	for (auto it = kara->begin(); it != kara->end(); ++it) {
+		if (it != kara->begin())
+			display_boundaries.push_back(it->start_time);
+	}
 	assigned_boundary_count = display_boundaries.size();
+	had_existing_karaoke = true;
 	ApplyDisplayBoundaries();
 	AnnounceUpdatedStyleRanges();
 	AnnounceMarkerMoved();
@@ -293,8 +314,10 @@ void AudioTimingControllerToshiki::Revert() {
 	end_marker.Move(active_line->End);
 	had_existing_karaoke = false;
 	reloading_karaoke = true;
-	kara->SetLine(active_line, false, true);
+	kara->SetLine(active_line, false, false);
 	had_existing_karaoke = kara->HasKaraokeTags();
+	if (had_existing_karaoke)
+		kara->SetLine(active_line, false, true);
 	reloading_karaoke = false;
 
 	ResetFromKaraokeLine();
@@ -317,7 +340,6 @@ void AudioTimingControllerToshiki::ResetFromKaraokeLine() {
 		assigned_boundary_count = display_boundaries.size();
 	}
 
-	ReflowDisplayBoundaries(assigned_boundary_count);
 	ApplyDisplayBoundaries();
 }
 
@@ -347,7 +369,7 @@ void AudioTimingControllerToshiki::OnKaraokeSyllablesChanged() {
 
 	if (pending_split_syl >= 0) {
 		size_t split_syl = static_cast<size_t>(pending_split_syl);
-		if (split_syl < assigned_boundary_count) {
+		if (split_syl < AssignedSlotCount()) {
 			int inserted = split_syl < display_boundaries.size() ? display_boundaries[split_syl] : end_marker.GetPosition();
 			display_boundaries.insert(display_boundaries.begin() + split_syl, inserted);
 			++assigned_boundary_count;
@@ -356,7 +378,8 @@ void AudioTimingControllerToshiki::OnKaraokeSyllablesChanged() {
 	}
 
 	assigned_boundary_count = std::min(assigned_boundary_count, kara->size() ? kara->size() - 1 : size_t(0));
-	ReflowDisplayBoundaries(assigned_boundary_count);
+	if (display_boundaries.size() > assigned_boundary_count)
+		display_boundaries.resize(assigned_boundary_count);
 	ApplyDisplayBoundaries();
 	cur_syl = std::min(cur_syl, labels.empty() ? size_t(0) : labels.size() - 1);
 	pending_changes = true;
@@ -370,17 +393,16 @@ void AudioTimingControllerToshiki::OnKaraokeSyllablesChanged() {
 void AudioTimingControllerToshiki::RebuildMarkersAndLabels() {
 	markers.clear();
 	labels.clear();
-	markers.reserve(display_boundaries.size());
+	markers.reserve(assigned_boundary_count);
 	labels.reserve(kara->size());
 
 	for (size_t idx = 0; idx < kara->size(); ++idx) {
-		if (idx > 0) {
-			Pen *pen = idx - 1 < assigned_boundary_count ? &separator_pen : &pending_separator_pen;
-			markers.emplace_back(display_boundaries[idx - 1], pen, AudioMarker::Feet_None);
-		}
+		if (idx > 0 && idx - 1 < assigned_boundary_count)
+			markers.emplace_back(display_boundaries[idx - 1], &separator_pen, AudioMarker::Feet_None);
 
-		int label_start = idx == 0 ? start_marker.GetPosition() : display_boundaries[idx - 1];
-		int label_end = idx < display_boundaries.size() ? display_boundaries[idx] : end_marker.GetPosition();
+		int label_start = idx == 0 ? start_marker.GetPosition() :
+			idx - 1 < assigned_boundary_count ? display_boundaries[idx - 1] : end_marker.GetPosition();
+		int label_end = idx < assigned_boundary_count ? display_boundaries[idx] : end_marker.GetPosition();
 		auto it = kara->begin();
 		std::advance(it, idx);
 		wxString label_text = it->text.empty() ? wxString(wxS("rest")) :
@@ -389,51 +411,21 @@ void AudioTimingControllerToshiki::RebuildMarkersAndLabels() {
 	}
 }
 
-void AudioTimingControllerToshiki::ReflowDisplayBoundaries(size_t assigned_count) {
-	size_t syllable_count = kara->size();
-	size_t boundary_count = syllable_count ? syllable_count - 1 : 0;
-	assigned_count = std::min(assigned_count, boundary_count);
-
-	std::vector<int> old = display_boundaries;
-	display_boundaries.assign(boundary_count, end_marker.GetPosition());
-
-	int previous = start_marker.GetPosition();
-	for (size_t i = 0; i < assigned_count; ++i) {
-		int value = i < old.size() ? old[i] : previous;
-		int maximum = end_marker.GetPosition();
-		if (i + 1 < assigned_count && i + 1 < old.size())
-			maximum = old[i + 1];
-		display_boundaries[i] = mid(previous, value, maximum);
-		previous = display_boundaries[i];
-	}
-
-	int pending_start = assigned_count ? display_boundaries[assigned_count - 1] : start_marker.GetPosition();
-	size_t pending_slot_count = syllable_count > assigned_count ? syllable_count - assigned_count : 0;
-	size_t pending_boundary_count = boundary_count > assigned_count ? boundary_count - assigned_count : 0;
-	int remaining = std::max(0, end_marker.GetPosition() - pending_start);
-	for (size_t i = 0; i < pending_boundary_count; ++i) {
-		int value = pending_start + remaining * static_cast<int>(i + 1) / static_cast<int>(pending_slot_count);
-		value = RoundToCentisecond(value);
-		display_boundaries[assigned_count + i] = mid(previous, value, end_marker.GetPosition());
-		previous = display_boundaries[assigned_count + i];
-	}
-
-	assigned_boundary_count = assigned_count;
-}
-
 void AudioTimingControllerToshiki::ApplyDisplayBoundaries(bool rebuild) {
-	kara->SetTimingBoundaries(start_marker.GetPosition(), end_marker.GetPosition(), display_boundaries, false);
-	if (rebuild || markers.size() != display_boundaries.size() || labels.size() != kara->size()) {
+	// This updates preview geometry only. Do not write these boundaries into
+	// AssKaraoke here; text cuts and preview edits stay uncommitted.
+	if (rebuild || markers.size() != assigned_boundary_count || labels.size() != kara->size()) {
 		RebuildMarkersAndLabels();
 		return;
 	}
 
-	for (size_t i = 0; i < markers.size(); ++i)
+	for (size_t i = 0; i < assigned_boundary_count; ++i)
 		markers[i].Move(display_boundaries[i]);
 
 	for (size_t i = 0; i < labels.size(); ++i) {
-		int begin = i == 0 ? start_marker.GetPosition() : display_boundaries[i - 1];
-		int end = i < display_boundaries.size() ? display_boundaries[i] : end_marker.GetPosition();
+		int begin = i == 0 ? start_marker.GetPosition() :
+			i - 1 < assigned_boundary_count ? display_boundaries[i - 1] : end_marker.GetPosition();
+		int end = i < assigned_boundary_count ? display_boundaries[i] : end_marker.GetPosition();
 		labels[i].range = TimeRange(begin, end);
 	}
 }
@@ -442,15 +434,11 @@ int AudioTimingControllerToshiki::AssignBoundary(int ms) {
 	if (kara->size() < 2 || assigned_boundary_count >= kara->size() - 1)
 		return -1;
 
-	if (display_boundaries.size() != kara->size() - 1)
-		ReflowDisplayBoundaries(assigned_boundary_count);
-
 	size_t index = assigned_boundary_count;
 	int minimum = index ? display_boundaries[index - 1] : start_marker.GetPosition();
 	int position = mid(minimum, RoundToCentisecond(ms), end_marker.GetPosition());
-	display_boundaries[index] = position;
+	display_boundaries.push_back(position);
 	++assigned_boundary_count;
-	ReflowDisplayBoundaries(assigned_boundary_count);
 	ApplyDisplayBoundaries();
 
 	cur_syl = std::min(index + 1, labels.empty() ? size_t(0) : labels.size() - 1);
@@ -475,11 +463,7 @@ int AudioTimingControllerToshiki::FindNearbyBoundary(int ms, int sensitivity, bo
 }
 
 bool AudioTimingControllerToshiki::IsNearbyMarker(int ms, int sensitivity, bool) const {
-	if (FindNearbyBoundary(ms, sensitivity, true) >= 0)
-		return true;
-	if (assigned_boundary_count < markers.size())
-		return std::abs(markers[assigned_boundary_count].GetPosition() - ms) <= sensitivity;
-	return false;
+	return FindNearbyBoundary(ms, sensitivity, true) >= 0;
 }
 
 template<typename Marker>
@@ -489,11 +473,6 @@ static std::vector<AudioMarker*> one_marker(Marker &marker) {
 
 std::vector<AudioMarker*> AudioTimingControllerToshiki::OnLeftClick(int ms, bool, bool, int sensitivity, int) {
 	int marker_index = FindNearbyBoundary(ms, sensitivity, true);
-	bool clicked_next_provisional = marker_index < 0 && assigned_boundary_count < markers.size() &&
-		std::abs(markers[assigned_boundary_count].GetPosition() - ms) <= sensitivity;
-	if (clicked_next_provisional)
-		marker_index = AssignBoundary(markers[assigned_boundary_count].GetPosition());
-
 	if (marker_index < 0)
 		marker_index = AssignBoundary(ms);
 
@@ -544,7 +523,6 @@ int AudioTimingControllerToshiki::MoveBoundary(ToshikiKTimingMarker *marker, int
 		return -1;
 
 	display_boundaries[index] = new_position;
-	ReflowDisplayBoundaries(assigned_boundary_count);
 	// Do not rebuild here. AudioDisplay owns the marker pointer captured at
 	// mouse-down; moving the existing objects keeps that pointer valid.
 	ApplyDisplayBoundaries(false);
@@ -575,7 +553,6 @@ void AudioTimingControllerToshiki::AddLeadIn() {
 	if (!labels.empty())
 		labels.front().range = TimeRange(start_marker.GetPosition(), labels.front().range.end());
 	kara->SetLineTimes(start_marker.GetPosition(), end_marker.GetPosition());
-	ReflowDisplayBoundaries(assigned_boundary_count);
 	ApplyDisplayBoundaries(false);
 	AnnounceChanges(static_cast<int>(cur_syl));
 }
@@ -585,7 +562,6 @@ void AudioTimingControllerToshiki::AddLeadOut() {
 	if (!labels.empty())
 		labels.back().range = TimeRange(labels.back().range.begin(), end_marker.GetPosition());
 	kara->SetLineTimes(start_marker.GetPosition(), end_marker.GetPosition());
-	ReflowDisplayBoundaries(assigned_boundary_count);
 	ApplyDisplayBoundaries(false);
 	AnnounceChanges(static_cast<int>(cur_syl));
 }
