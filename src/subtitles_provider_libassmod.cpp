@@ -186,9 +186,26 @@ unsigned SubtitleRendererThreads() {
 	return static_cast<unsigned>(std::min(requested, kMaxSubtitleRendererThreads));
 }
 
-void ConfigureRendererThreads(AssCompatBackend &backend, ASS_Renderer *renderer, unsigned threads) {
-	if (renderer && backend.api.ass_set_threads)
-		backend.api.ass_set_threads(renderer, threads);
+unsigned ConfigureRendererThreads(AssCompatBackend &backend, ASS_Renderer *renderer, unsigned threads) {
+	if (!renderer)
+		return 0;
+	if (!backend.api.ass_set_threads) {
+		LOG_I(backend.config.log_name) << backend.config.display_name
+			<< " does not export ass_set_threads; using one rendering thread";
+		return 1;
+	}
+
+	unsigned effective = backend.api.ass_set_threads(renderer, threads);
+	if (!effective) {
+		LOG_I(backend.config.log_name) << backend.config.display_name
+			<< " has no threading backend; using one rendering thread";
+		return 1;
+	}
+
+	LOG_I(backend.config.log_name) << backend.config.display_name
+		<< " rendering threads: requested=" << threads
+		<< ", effective=" << effective;
+	return effective;
 }
 
 #ifdef _WIN32
