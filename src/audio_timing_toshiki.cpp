@@ -265,7 +265,7 @@ bool AudioTimingControllerToshiki::IsSingleUntimedSlot() const {
 }
 
 void AudioTimingControllerToshiki::Commit() {
-	if (!active_line) return;
+	if (!active_line || !pending_changes) return;
 
 	if (IsSingleUntimedSlot()) {
 		pending_changes = false;
@@ -682,4 +682,6 @@ void AudioTimingControllerToshiki::SetKaraokeTagType(std::string const& new_type
 	else
 		kara->SetTagType(new_type, false);
 	selected_tag_syl = -1;
+	pending_changes = true;
+	commit_id = -1;
 }
