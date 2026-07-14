@@ -67,6 +67,7 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	size_t assigned_boundary_count = 0;
 	std::vector<int> display_boundaries; ///< Explicitly assigned only; never provisional
 	int pending_split_syl = -1;
+	bool pending_split_at_start = false;
 	int pending_remove_syl = -1;
 	bool reloading_karaoke = false;
 	bool pending_changes = false;
@@ -126,7 +127,7 @@ public:
 	std::vector<AudioMarker*> OnLeftClick(int ms, bool ctrl_down, bool alt_down, int sensitivity, int snap_range) override;
 	std::vector<AudioMarker*> OnRightClick(int ms, bool ctrl_down, int sensitivity, int snap_range) override;
 	void OnMarkerDrag(std::vector<AudioMarker*> const& marker, int new_position, int snap_range) override;
-	void PrepareKaraokeSplit(size_t syl_idx) override;
+	void PrepareKaraokeSplitAt(size_t syl_idx, size_t split_pos) override;
 	void PrepareKaraokeRemove(size_t syl_idx) override;
 	void SetKaraokeTagType(std::string const& new_type) override;
 };
@@ -181,12 +182,18 @@ void AudioTimingControllerToshiki::GetRenderingStyles(AudioRenderingStyleRanges 
 			style = rest ? AudioStyle_Selected : AudioStyle_Primary;
 		ranges.AddRange(labels[i].range.begin(), labels[i].range.end(), style);
 	}
+	if (assigned_slots < labels.size()) {
+		bool rest = kara->IsEmptySyllable(assigned_slots) || kara->IsWhitespaceSyllable(assigned_slots);
+		AudioRenderingStyle style = assigned_slots == cur_syl ?
+			(rest ? AudioStyle_Selected : AudioStyle_Primary) : AudioStyle_Inactive;
+		ranges.AddRange(labels[assigned_slots].range.begin(), labels[assigned_slots].range.end(), style);
+	}
 }
 
 void AudioTimingControllerToshiki::GetToshikiKTimingPreviewRanges(std::vector<ToshikiKTimingPreviewRange> &ranges) const {
 	size_t assigned_slots = AssignedSlotCount();
-	// Pending slots stay in the splitter bar. Showing ranges for them here
-	// would look like Auto Cut had already generated timing.
+	// Show the current pending slot over the unassigned remainder, but keep all
+	// later slots in the splitter bar until they become the current target.
 	for (size_t i = 0; i < assigned_slots; ++i) {
 		ToshikiKTimingPreviewRange::State state = ToshikiKTimingPreviewRange::Assigned;
 		if (i == cur_syl)
@@ -197,6 +204,14 @@ void AudioTimingControllerToshiki::GetToshikiKTimingPreviewRanges(std::vector<To
 			labels[i].range.end(),
 			state,
 			kara->IsEmptySyllable(i)
+		});
+	}
+	if (assigned_slots < labels.size()) {
+		ranges.push_back(ToshikiKTimingPreviewRange{
+			labels[assigned_slots].range.begin(),
+			labels[assigned_slots].range.end(),
+			assigned_slots == cur_syl ? ToshikiKTimingPreviewRange::Active : ToshikiKTimingPreviewRange::Pending,
+			kara->IsEmptySyllable(assigned_slots)
 		});
 	}
 }
@@ -226,7 +241,7 @@ void AudioTimingControllerToshiki::GetMarkers(TimeRange const& range, AudioMarke
 
 void AudioTimingControllerToshiki::GetLabels(TimeRange const& range, std::vector<AudioLabel> &out) const {
 	for (auto const& label : labels) {
-		if (range.overlaps(label.range))
+		if (label.range.length() > 0 && range.overlaps(label.range))
 			out.push_back(label);
 	}
 }
@@ -280,6 +295,7 @@ void AudioTimingControllerToshiki::Revert() {
 	commit_id = -1;
 	pending_changes = false;
 	pending_split_syl = -1;
+	pending_split_at_start = false;
 	pending_remove_syl = -1;
 	selected_tag_syl = -1;
 	had_committed_timing = false;
@@ -362,11 +378,16 @@ void AudioTimingControllerToshiki::OnKaraokeSyllablesChanged() {
 		if (split_syl < cur_syl)
 			++cur_syl;
 		if (split_syl < AssignedSlotCount()) {
-			int inserted = split_syl < display_boundaries.size() ? display_boundaries[split_syl] : end_marker.GetPosition();
+			int slot_start = split_syl ? display_boundaries[split_syl - 1] : start_marker.GetPosition();
+			int slot_end = split_syl < display_boundaries.size() ? display_boundaries[split_syl] : end_marker.GetPosition();
+			// Interior text splits start with a zero-length left piece; appended
+			// empty/rest splits start with a zero-length right piece.
+			int inserted = pending_split_at_start ? slot_start : slot_end;
 			display_boundaries.insert(display_boundaries.begin() + split_syl, inserted);
 			++assigned_boundary_count;
 		}
 		pending_split_syl = -1;
+		pending_split_at_start = false;
 	}
 
 	assigned_boundary_count = std::min(assigned_boundary_count, kara->size() ? kara->size() - 1 : size_t(0));
@@ -397,13 +418,17 @@ void AudioTimingControllerToshiki::RebuildMarkersAndLabels() {
 		if (idx > 0 && idx - 1 < assigned_boundary_count)
 			markers.emplace_back(display_boundaries[idx - 1], &separator_pen, AudioMarker::Feet_None);
 
-		// Unassigned labels use an empty range and therefore are not painted in
-		// the audio display. Their text remains visible in the splitter bar.
+		// Only the next pending slot spans the remaining audio. Later pending
+		// slots stay hidden until they become current.
 		int label_start = end_marker.GetPosition();
 		int label_end = end_marker.GetPosition();
 		if (idx < assigned_slots) {
 			label_start = idx == 0 ? start_marker.GetPosition() : display_boundaries[idx - 1];
 			label_end = idx < assigned_boundary_count ? display_boundaries[idx] : end_marker.GetPosition();
+		}
+		else if (idx == assigned_slots) {
+			label_start = assigned_boundary_count ? display_boundaries.back() : start_marker.GetPosition();
+			label_end = end_marker.GetPosition();
 		}
 		auto it = kara->begin();
 		std::advance(it, idx);
@@ -431,6 +456,10 @@ void AudioTimingControllerToshiki::ApplyDisplayBoundaries(bool rebuild) {
 		if (i < assigned_slots) {
 			begin = i == 0 ? start_marker.GetPosition() : display_boundaries[i - 1];
 			end = i < assigned_boundary_count ? display_boundaries[i] : end_marker.GetPosition();
+		}
+		else if (i == assigned_slots) {
+			begin = assigned_boundary_count ? display_boundaries.back() : start_marker.GetPosition();
+			end = end_marker.GetPosition();
 		}
 		labels[i].range = TimeRange(begin, end);
 	}
@@ -608,8 +637,14 @@ void AudioTimingControllerToshiki::Prev() {
 	c->audioController->PlayPrimaryRange();
 }
 
-void AudioTimingControllerToshiki::PrepareKaraokeSplit(size_t syl_idx) {
+void AudioTimingControllerToshiki::PrepareKaraokeSplitAt(size_t syl_idx, size_t split_pos) {
 	pending_split_syl = static_cast<int>(syl_idx);
+	pending_split_at_start = false;
+	if (syl_idx < kara->size()) {
+		auto it = kara->begin();
+		std::advance(it, syl_idx);
+		pending_split_at_start = split_pos < it->text.size();
+	}
 }
 
 void AudioTimingControllerToshiki::PrepareKaraokeRemove(size_t syl_idx) {

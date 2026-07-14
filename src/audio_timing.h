@@ -207,6 +207,9 @@ public:
 	/// Notify the timing controller that the karaoke splitter is about to add a slot.
 	virtual void PrepareKaraokeSplit(size_t) { }
 
+	/// split_pos is the byte offset within the source slot text.
+	virtual void PrepareKaraokeSplitAt(size_t syl_idx, size_t) { PrepareKaraokeSplit(syl_idx); }
+
 	/// Notify the timing controller that the karaoke splitter is about to remove a slot.
 	virtual void PrepareKaraokeRemove(size_t) { }
 

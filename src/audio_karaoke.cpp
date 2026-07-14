@@ -474,7 +474,7 @@ void AudioKaraoke::OnMouse(wxMouseEvent &event) {
 		auto split_byte_pos = char_to_byte[split_pos] - 1;
 		if (ktiming_enabled) {
 			if (auto timing = c->audioController->GetTimingController())
-				timing->PrepareKaraokeSplit(syl);
+				timing->PrepareKaraokeSplitAt(syl, split_byte_pos);
 			kara->AddSplitKTiming(syl, split_byte_pos);
 		}
 		else if (OPT_GET("Audio/Karaoke/Preserve Timings on Cut")->GetBool())
