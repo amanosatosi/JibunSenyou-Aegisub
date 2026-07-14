@@ -36,7 +36,7 @@
 #include "git_version.h"
 
 namespace {
-static const char kCustomVersionString[] = "Toshi-ban V1.2";
+static const char kCustomVersionString[] = "toshi-ban v2.0";
 }
 
 const char *GetAegisubLongVersionString() {
