@@ -67,7 +67,6 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	size_t assigned_boundary_count = 0;
 	std::vector<int> display_boundaries; ///< Explicitly assigned only; never provisional
 	int pending_split_syl = -1;
-	bool pending_split_at_start = false;
 	int pending_remove_syl = -1;
 	bool reloading_karaoke = false;
 	bool pending_changes = false;
@@ -83,6 +82,7 @@ class AudioTimingControllerToshiki final : public AudioTimingController {
 	ToshikiKTimingMarker start_marker;
 	ToshikiKTimingMarker end_marker;
 	std::vector<ToshikiKTimingMarker> markers;
+	ToshikiKTimingMarker *active_drag_marker = nullptr;
 
 	AudioMarkerProviderKeyframes keyframes_provider;
 	VideoPositionMarkerProvider video_position_provider;
@@ -127,7 +127,7 @@ public:
 	std::vector<AudioMarker*> OnLeftClick(int ms, bool ctrl_down, bool alt_down, int sensitivity, int snap_range) override;
 	std::vector<AudioMarker*> OnRightClick(int ms, bool ctrl_down, int sensitivity, int snap_range) override;
 	void OnMarkerDrag(std::vector<AudioMarker*> const& marker, int new_position, int snap_range) override;
-	void PrepareKaraokeSplitAt(size_t syl_idx, size_t split_pos) override;
+	void PrepareKaraokeSplit(size_t syl_idx) override;
 	void PrepareKaraokeRemove(size_t syl_idx) override;
 	void SetKaraokeTagType(std::string const& new_type) override;
 };
@@ -295,8 +295,8 @@ void AudioTimingControllerToshiki::Revert() {
 	commit_id = -1;
 	pending_changes = false;
 	pending_split_syl = -1;
-	pending_split_at_start = false;
 	pending_remove_syl = -1;
+	active_drag_marker = nullptr;
 	selected_tag_syl = -1;
 	had_committed_timing = false;
 
@@ -378,16 +378,13 @@ void AudioTimingControllerToshiki::OnKaraokeSyllablesChanged() {
 		if (split_syl < cur_syl)
 			++cur_syl;
 		if (split_syl < AssignedSlotCount()) {
-			int slot_start = split_syl ? display_boundaries[split_syl - 1] : start_marker.GetPosition();
-			int slot_end = split_syl < display_boundaries.size() ? display_boundaries[split_syl] : end_marker.GetPosition();
-			// Interior text splits start with a zero-length left piece; appended
-			// empty/rest splits start with a zero-length right piece.
-			int inserted = pending_split_at_start ? slot_start : slot_end;
+			// Keep the existing timing on the left text and insert the new right
+			// slot at zero length. Coincident handles are resolved by drag direction.
+			int inserted = split_syl < display_boundaries.size() ? display_boundaries[split_syl] : end_marker.GetPosition();
 			display_boundaries.insert(display_boundaries.begin() + split_syl, inserted);
 			++assigned_boundary_count;
 		}
 		pending_split_syl = -1;
-		pending_split_at_start = false;
 	}
 
 	assigned_boundary_count = std::min(assigned_boundary_count, kara->size() ? kara->size() - 1 : size_t(0));
@@ -404,6 +401,7 @@ void AudioTimingControllerToshiki::OnKaraokeSyllablesChanged() {
 }
 
 void AudioTimingControllerToshiki::RebuildMarkersAndLabels() {
+	active_drag_marker = nullptr;
 	markers.clear();
 	labels.clear();
 	markers.reserve(assigned_boundary_count);
@@ -487,8 +485,8 @@ int AudioTimingControllerToshiki::FindNearbyBoundary(int ms, int sensitivity, bo
 	size_t limit = assigned_only ? std::min(assigned_boundary_count, markers.size()) : markers.size();
 	for (size_t i = 0; i < limit; ++i) {
 		int distance = std::abs(markers[i].GetPosition() - ms);
-		// Prefer the trailing boundary when zero-duration slots place two
-		// handles at the same position. Dragging it expands the zero slot.
+		// Resolve ordinary ties consistently. OnLeftClick expands an exact
+		// coincident run so its eventual drag direction can choose the handle.
 		if (distance <= sensitivity && distance <= best_distance) {
 			result = static_cast<int>(i);
 			best_distance = distance;
@@ -507,15 +505,30 @@ static std::vector<AudioMarker*> one_marker(Marker &marker) {
 }
 
 std::vector<AudioMarker*> AudioTimingControllerToshiki::OnLeftClick(int ms, bool, bool, int sensitivity, int) {
+	active_drag_marker = nullptr;
 	int marker_index = FindNearbyBoundary(ms, sensitivity, true);
 	if (marker_index < 0)
 		marker_index = AssignBoundary(ms);
 
 	if (marker_index >= 0) {
-		cur_syl = std::min(static_cast<size_t>(marker_index) + 1, labels.empty() ? size_t(0) : labels.size() - 1);
+		int first_marker = marker_index;
+		int last_marker = marker_index;
+		int position = markers[marker_index].GetPosition();
+		while (first_marker > 0 && markers[first_marker - 1].GetPosition() == position)
+			--first_marker;
+		while (last_marker + 1 < static_cast<int>(assigned_boundary_count) &&
+			markers[last_marker + 1].GetPosition() == position)
+			++last_marker;
+
+		cur_syl = std::min(static_cast<size_t>(first_marker) + 1, labels.empty() ? size_t(0) : labels.size() - 1);
 		AnnounceUpdatedPrimaryRange();
 		AnnounceUpdatedStyleRanges();
-		return one_marker(markers[marker_index]);
+
+		std::vector<AudioMarker*> coincident;
+		coincident.reserve(last_marker - first_marker + 1);
+		for (int i = first_marker; i <= last_marker; ++i)
+			coincident.push_back(&markers[i]);
+		return coincident;
 	}
 
 	cur_syl = std::min(static_cast<size_t>(std::lower_bound(display_boundaries.begin(), display_boundaries.end(), ms) - display_boundaries.begin()), labels.empty() ? size_t(0) : labels.size() - 1);
@@ -578,9 +591,27 @@ void AudioTimingControllerToshiki::AnnounceChanges(int syl) {
 void AudioTimingControllerToshiki::OnMarkerDrag(std::vector<AudioMarker*> const& dragged, int new_position, int) {
 	if (dragged.empty()) return;
 
-	int syl = MoveBoundary(static_cast<ToshikiKTimingMarker *>(dragged.front()), new_position);
-	if (syl >= 0)
+	ToshikiKTimingMarker *marker = nullptr;
+	if (dragged.size() == 1) {
+		marker = static_cast<ToshikiKTimingMarker *>(dragged.front());
+	}
+	else {
+		auto active = std::find(dragged.begin(), dragged.end(), active_drag_marker);
+		if (active != dragged.end())
+			marker = active_drag_marker;
+		else if (new_position < dragged.front()->GetPosition())
+			marker = static_cast<ToshikiKTimingMarker *>(dragged.front());
+		else if (new_position > dragged.back()->GetPosition())
+			marker = static_cast<ToshikiKTimingMarker *>(dragged.back());
+		else
+			return;
+	}
+
+	int syl = MoveBoundary(marker, new_position);
+	if (syl >= 0) {
+		active_drag_marker = marker;
 		AnnounceChanges(syl);
+	}
 }
 
 void AudioTimingControllerToshiki::AddLeadIn() {
@@ -637,14 +668,8 @@ void AudioTimingControllerToshiki::Prev() {
 	c->audioController->PlayPrimaryRange();
 }
 
-void AudioTimingControllerToshiki::PrepareKaraokeSplitAt(size_t syl_idx, size_t split_pos) {
+void AudioTimingControllerToshiki::PrepareKaraokeSplit(size_t syl_idx) {
 	pending_split_syl = static_cast<int>(syl_idx);
-	pending_split_at_start = false;
-	if (syl_idx < kara->size()) {
-		auto it = kara->begin();
-		std::advance(it, syl_idx);
-		pending_split_at_start = split_pos < it->text.size();
-	}
 }
 
 void AudioTimingControllerToshiki::PrepareKaraokeRemove(size_t syl_idx) {
