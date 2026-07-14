@@ -290,6 +290,7 @@ bool AegisubApp::OnInit() {
 		Automation4::ScriptFactory::Register(agi::make_unique<Automation4::LuaScriptFactory>());
 		libass::CacheFonts();
 		libassmod::CacheFonts();
+		mangetsu::CacheFonts();
 
 		// Load Automation scripts
 		StartupLog("Load global Automation scripts");

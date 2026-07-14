@@ -4,7 +4,8 @@ param (
   [Parameter(Position = 0)]
   [string]$BuildRoot,
   [Parameter(Position = 1)]
-  [string]$SourceRoot
+  [string]$SourceRoot,
+  [switch]$SkipOCR
 )
 
 $InstallerDir = Join-Path $SourceRoot "packages\win_installer" | Resolve-Path
@@ -53,6 +54,44 @@ function Invoke-WebRequestWithRetry {
 	}
 }
 
+function Get-Sha256Hash {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path
+	)
+
+	$resolved = (Resolve-Path -LiteralPath $Path).ProviderPath
+	$stream = [System.IO.File]::OpenRead($resolved)
+	try {
+		$sha256 = [System.Security.Cryptography.SHA256]::Create()
+		try {
+			$hash = $sha256.ComputeHash($stream)
+			return [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+		}
+		finally {
+			$sha256.Dispose()
+		}
+	}
+	finally {
+		$stream.Dispose()
+	}
+}
+
+function Assert-FileHash {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path,
+		[Parameter(Mandatory = $true)][string]$ExpectedSha256
+	)
+
+	$actual = Get-Sha256Hash -Path $Path
+	if ($actual -ne $ExpectedSha256.ToLowerInvariant()) {
+		throw "SHA256 mismatch for $Path. Expected $ExpectedSha256, got $actual."
+	}
+}
+
+. (Join-Path $SourceRoot "tools\apply-git-patch.ps1")
+
+$DepCtrlPatchDir = Join-Path $SourceRoot "tools\patches\dependencycontrol"
+
 # DepCtrl
 if (!(Test-Path DependencyControl)) {
 	git clone https://github.com/TypesettingTools/DependencyControl.git
@@ -60,6 +99,7 @@ if (!(Test-Path DependencyControl)) {
 	git checkout v0.6.3-alpha
 	Set-Location $DepsDir
 }
+Apply-GitPatch -RepoDir (Join-Path $DepsDir "DependencyControl") -PatchPath (Join-Path $DepCtrlPatchDir "0001-windows-unicode-long-paths.patch")
 
 # YUtils
 if (!(Test-Path YUtils)) {
@@ -105,14 +145,23 @@ if (!(Test-Path L-SMASH-Works)) {
 }
 
 # BestSource
-if (!(Test-Path BestSource)) {
-	$bsDir = New-Item -ItemType Directory BestSource
+$BestSourceVersion = "R17"
+$BestSourceArchive = "BestSource-$BestSourceVersion.7z"
+$BestSourceUrl = "https://github.com/vapoursynth/bestsource/releases/download/$BestSourceVersion/$BestSourceArchive"
+$BestSourceSha256 = "562014b7875941f4638489a20412ed20eed40d9179a9230def61a1245713da21"
+$BestSourceDll = Join-Path $DepsDir "BestSource\BestSource.dll"
+if (!(Test-Path $BestSourceDll)) {
+	$bsDir = Join-Path $DepsDir "BestSource"
+	New-Item -ItemType Directory -Path $bsDir -Force | Out-Null
 	Set-Location $bsDir
-	$basReleases = Invoke-WebRequest "https://api.github.com/repos/vapoursynth/bestsource/releases/latest" -Headers $GitHeaders -UseBasicParsing | ConvertFrom-Json
-	$bsUrl = $basReleases.assets[0].browser_download_url
-	Invoke-WebRequestWithRetry -Uri $bsUrl -OutFile bestsource.7z
-	7z x bestsource.7z
-	Remove-Item bestsource.7z
+	Invoke-WebRequestWithRetry -Uri $BestSourceUrl -OutFile $BestSourceArchive
+	Assert-FileHash -Path $BestSourceArchive -ExpectedSha256 $BestSourceSha256
+	7z x $BestSourceArchive -y
+	if(!$?) { Exit $LASTEXITCODE }
+	Remove-Item $BestSourceArchive
+	if (!(Test-Path "BestSource.dll")) {
+		throw "BestSource archive $BestSourceArchive did not contain BestSource.dll."
+	}
 	Set-Location $DepsDir
 }
 
@@ -120,8 +169,16 @@ if (!(Test-Path BestSource)) {
 if (!(Test-Path SCXVid)) {
 	$scxDir = New-Item -ItemType Directory SCXVid
 	Set-Location $scxDir
-	$scxReleases = Invoke-WebRequest "https://api.github.com/repos/dubhater/vapoursynth-scxvid/releases/latest" -Headers $GitHeaders -UseBasicParsing | ConvertFrom-Json
-	$scxUrl = "https://github.com/dubhater/vapoursynth-scxvid/releases/download/" + $scxReleases.tag_name + "/vapoursynth-scxvid-v1-win64.7z"
+	$scxReleases = Invoke-WebRequest "https://api.github.com/repos/dubhatervapoursynth/vapoursynth-scxvid/releases?per_page=20" -Headers $GitHeaders -UseBasicParsing | ConvertFrom-Json
+	$scxAsset = $null
+	foreach ($scxRelease in $scxReleases) {
+		$scxAsset = $scxRelease.assets | Where-Object { $_.name -like "*win64*.7z" } | Select-Object -First 1
+		if ($scxAsset) { break }
+	}
+	if (!$scxAsset) {
+		throw "Could not find a Windows x64 SCXVid archive in the published release assets."
+	}
+	$scxUrl = $scxAsset.browser_download_url
 	Invoke-WebRequestWithRetry -Uri $scxUrl -OutFile vapoursynth-scxvid-v1-win64.7z
 	7z x vapoursynth-scxvid-v1-win64.7z
 	Remove-Item vapoursynth-scxvid-v1-win64.7z
@@ -170,9 +227,25 @@ if (!(Test-Path dictionaries)) {
 	Invoke-WebRequestWithRetry -Uri "https://raw.githubusercontent.com/TypesettingTools/Aegisub-dictionaries/master/dicts/en_US.dic" -OutFile dictionaries/en_US.dic
 }
 
+# PaddleOCR runtime and bundled models
+if ($SkipOCR -or $Env:AEGISUB_SKIP_OCR_PACKAGE -eq "1") {
+	Write-Output "Skipping - OCR runtime package assets"
+}
+else {
+	$OcrRuntimeSetup = Join-Path $SourceRoot "tools\ocr\download_paddleocr_windows.ps1"
+	& $OcrRuntimeSetup -DestinationDir (Join-Path $DepsDir "ocr")
+	if(!$?) { Exit $LASTEXITCODE }
+}
+
 # localization
 Set-Location $BuildRoot
 meson compile aegisub-gmo
+if(!$?) { Exit $LASTEXITCODE }
+
+# OpenCV runtime DLLs for Motion Track
+$OpenCVRuntimeDir = Join-Path $BuildRoot "opencv-runtime"
+$OpenCVRuntimeSetup = Join-Path $SourceRoot "tools\copy-opencv-runtime.ps1"
+& $OpenCVRuntimeSetup -DestinationDir $OpenCVRuntimeDir
 if(!$?) { Exit $LASTEXITCODE }
 
 # Invoke InnoSetup

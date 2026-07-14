@@ -50,11 +50,18 @@
 			"Waveform Style" : 0
 		},
 		"Downmixer" : "ConvertToMono",
+		"Dialog Time Changer" : {
+			"Auto Preview" : true
+		},
 		"Drag Timing" : true,
 		"Inactive Lines Display Mode" : 3,
+		"Join Next" : {
+			"Auto Preview" : true
+		},
 		"Karaoke" : {
 			"Font Face" : "",
 			"Font Size" : 9,
+			"Toshiki K Timing Auto Cut" : "Default",
 			"Preserve Timings on Cut" : true
 		},
 		"Lead" : {
@@ -511,6 +518,13 @@
 		},
 		"Kanji Timer" : {
 			"Interpolation" : true
+		},
+		"Motion Track" : {
+			"Last" : {
+				"X" : -1,
+				"Y" : -1
+			},
+			"Maximized" : false
 		},
 		"Paste Lines Over" : {
 			"Fields" : [

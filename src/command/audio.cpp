@@ -542,6 +542,47 @@ struct audio_karaoke final : public Command {
 	}
 };
 
+struct audio_karaoke_toshiki_ktiming final : public validate_audio_open {
+	CMD_NAME("audio/karaoke/toshiki_ktiming")
+	CMD_ICON(kara_spectrogram_timing)
+	STR_MENU("Toshiki K-Timing Mode")
+	STR_DISP("Toshiki K-Timing Mode")
+	STR_HELP("Spectrogram-based karaoke timing with slot previews")
+	CMD_TYPE(COMMAND_VALIDATE | COMMAND_TOGGLE)
+
+	bool Validate(const agi::Context *c) override {
+		return c->karaoke && validate_audio_open::Validate(c) && c->selectionController->GetActiveLine() != nullptr;
+	}
+	bool IsActive(const agi::Context *c) override {
+		return c->karaoke && c->karaoke->IsKTimingEnabled();
+	}
+	void operator()(agi::Context *c) override {
+		if (c->karaoke)
+			c->karaoke->SetKTimingEnabled(!c->karaoke->IsKTimingEnabled());
+	}
+};
+
+struct audio_karaoke_auto_cut_kana final : public Command {
+	CMD_NAME("audio/karaoke/auto_cut_kana")
+	STR_MENU("Toshiki K-Timing Auto Cut")
+	STR_DISP("Toshiki K-Timing Auto Cut")
+	STR_HELP("Enable automatic Toshiki K-Timing slot cutting")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return c->karaoke && c->selectionController->GetActiveLine() != nullptr;
+	}
+	void operator()(agi::Context *c) override {
+		if (c->karaoke) {
+			std::string mode = OPT_GET("Audio/Karaoke/Toshiki K Timing Auto Cut")->GetString();
+			if (mode == "Off")
+				return;
+			c->karaoke->SetKTimingEnabled(true);
+			c->karaoke->SetKTimingAutoCutEnabled(true);
+		}
+	}
+};
+
 }
 
 namespace cmd {
@@ -556,6 +597,8 @@ namespace cmd {
 		reg(agi::make_unique<audio_commit_stay>());
 		reg(agi::make_unique<audio_go_to>());
 		reg(agi::make_unique<audio_karaoke>());
+		reg(agi::make_unique<audio_karaoke_auto_cut_kana>());
+		reg(agi::make_unique<audio_karaoke_toshiki_ktiming>());
 		reg(agi::make_unique<audio_open>());
 		reg(agi::make_unique<audio_open_blank>());
 		reg(agi::make_unique<audio_open_noise>());

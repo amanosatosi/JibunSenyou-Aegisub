@@ -40,6 +40,10 @@ VisualToolCross::~VisualToolCross() {
 	parent->SetCursor(wxNullCursor);
 }
 
+void VisualToolCross::OnAttached() {
+	parent->SetCursor(wxCursor(wxCURSOR_BLANK));
+}
+
 void VisualToolCross::OnDoubleClick() {
 	Vector2D d = ToScriptCoords(mouse_pos) - GetLinePosition(active_line);
 

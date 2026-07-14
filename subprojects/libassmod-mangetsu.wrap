@@ -1,0 +1,5 @@
+[wrap-git]
+directory = libassmod-mangetsu
+url = https://github.com/amanosatosi/libassmod.git
+revision = mangetsu
+diff_files = libassmod/0001-disable-override.patch

@@ -39,6 +39,10 @@ namespace agi { struct Context; }
 
 #include "audio_marker.h"
 
+#include <cstddef>
+#include <string>
+#include <vector>
+
 /// @class AudioTimingController
 /// @brief Base class for objects controlling audio timing
 ///
@@ -58,6 +62,20 @@ protected:
 	agi::signal::Signal<> AnnounceUpdatedStyleRanges;
 
 public:
+	/// Visual state for a provisional Toshiki K-Timing slot range.
+	struct ToshikiKTimingPreviewRange {
+		enum State {
+			Assigned,
+			Active,
+			Pending
+		};
+
+		int begin;
+		int end;
+		State state;
+		bool rest;
+	};
+
 	/// @brief Get any warning message to show in the audio display
 	/// @return The warning message to show, may be empty if there is none
 	virtual wxString GetWarningMessage() const = 0;
@@ -85,6 +103,10 @@ public:
 	/// @brief Get all rendering style ranges
 	/// @param[out] ranges Rendering ranges will be added to this
 	virtual void GetRenderingStyles(AudioRenderingStyleRanges &ranges) const = 0;
+
+	/// Get provisional slot ranges for a mode-specific audio overlay.
+	/// Controllers which do not use slot previews leave this empty.
+	virtual void GetToshikiKTimingPreviewRanges(std::vector<ToshikiKTimingPreviewRange> &) const { }
 
 	enum NextMode {
 		/// Advance to the next timing unit, whether it's a line or a sub-part
@@ -172,6 +194,25 @@ public:
 	/// @param snap_range   Maximum snapping range in milliseconds
 	virtual void OnMarkerDrag(std::vector<AudioMarker*> const& marker, int new_position, int snap_range) = 0;
 
+	/// @brief Apply a Dialog Time Changer drag
+	/// @param drag_start_ms Initial drag time in milliseconds
+	/// @param drag_end_ms Final drag time in milliseconds
+	/// @param preview_range Range to preview after a successful edit
+	/// @return Was an edit applied?
+	virtual bool ApplyDialogTimeChanger(int drag_start_ms, int drag_end_ms, TimeRange *preview_range) { return false; }
+
+	/// Enable or disable ordered spectrogram karaoke boundary assignment.
+	virtual void SetSpectrogramKaraokeTiming(bool) { }
+
+	/// Notify the timing controller that the karaoke splitter is about to add a slot.
+	virtual void PrepareKaraokeSplit(size_t) { }
+
+	/// Notify the timing controller that the karaoke splitter is about to remove a slot.
+	virtual void PrepareKaraokeRemove(size_t) { }
+
+	/// Change the karaoke tag type for the current Toshiki target.
+	virtual void SetKaraokeTagType(std::string const&) { }
+
 	/// @brief Destructor
 	virtual ~AudioTimingController() = default;
 
@@ -187,3 +228,9 @@ std::unique_ptr<AudioTimingController> CreateDialogueTimingController(agi::Conte
 /// @param c Project context
 /// @param kara Karaoke model
 std::unique_ptr<AudioTimingController> CreateKaraokeTimingController(agi::Context *c, AssKaraoke *kara, agi::signal::Connection& file_changed);
+
+/// @brief Create the Toshiki K-Timing slot-plan timing controller
+/// @param c Project context
+/// @param kara Karaoke model
+/// @param file_changed Project file change connection
+std::unique_ptr<AudioTimingController> CreateToshikiKTimingController(agi::Context *c, AssKaraoke *kara, agi::signal::Connection& file_changed);

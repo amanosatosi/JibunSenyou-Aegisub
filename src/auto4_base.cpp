@@ -47,7 +47,9 @@
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/trim.hpp>
+#include <exception>
 #include <future>
+#include <utility>
 
 #include <wx/dcmemory.h>
 #include <wx/log.h>
@@ -289,7 +291,18 @@ namespace Automation4 {
 
 	void ScriptManager::Reload(Script *script)
 	{
-		script->Reload();
+		try {
+			script->Reload();
+		}
+		catch (agi::Exception const& e) {
+			wxLogError(_("Failed to reload Automation script '%s':\n%s"), script->GetFilename().wstring(), to_wx(e.GetMessage()));
+		}
+		catch (std::exception const& e) {
+			wxLogError(_("Failed to reload Automation script '%s':\n%s"), script->GetFilename().wstring(), to_wx(e.what()));
+		}
+		catch (...) {
+			wxLogError(_("Failed to reload Automation script '%s':\nUnknown error"), script->GetFilename().wstring());
+		}
 		ScriptsChanged();
 	}
 
@@ -314,28 +327,62 @@ namespace Automation4 {
 	{
 		scripts.clear();
 
-		std::vector<std::future<std::unique_ptr<Script>>> script_futures;
+		std::vector<std::pair<agi::fs::path, std::future<std::unique_ptr<Script>>>> script_futures;
+		int error_count = 0;
 
 		std::set<agi::fs::path> dirnames;
 		for (auto tok : agi::Split(path, '|')) {
-			auto dirname = config::path->Decode(agi::str(tok));
-			if (!agi::fs::DirectoryExists(dirname)) continue;
+			agi::fs::path dirname;
+			try {
+				dirname = config::path->Decode(agi::str(tok));
+				if (!agi::fs::DirectoryExists(dirname)) continue;
 
-			if (dirnames.count(dirname)) continue;
-			dirnames.insert(dirname);
+				if (dirnames.count(dirname)) continue;
+				dirnames.insert(dirname);
 
-			for (auto filename : agi::fs::DirectoryIterator(dirname, "*.*"))
-				script_futures.emplace_back(std::async(std::launch::async, [=] {
-					return ScriptFactory::CreateFromFile(dirname/filename, false, false);
-				}));
+				for (auto filename : agi::fs::DirectoryIterator(dirname, "*.*")) {
+					auto script_path = dirname/filename;
+					script_futures.emplace_back(script_path, std::async(std::launch::async, [=] {
+						return ScriptFactory::CreateFromFile(script_path, false, false);
+					}));
+				}
+			}
+			catch (agi::Exception const& e) {
+				++error_count;
+				wxLogError(_("Failed to scan Automation autoload path '%s':\n%s"), to_wx(agi::str(tok)), to_wx(e.GetMessage()));
+			}
+			catch (std::exception const& e) {
+				++error_count;
+				wxLogError(_("Failed to scan Automation autoload path '%s':\n%s"), to_wx(agi::str(tok)), to_wx(e.what()));
+			}
+			catch (...) {
+				++error_count;
+				wxLogError(_("Failed to scan Automation autoload path '%s':\nUnknown error"), to_wx(agi::str(tok)));
+			}
 		}
 
-		int error_count = 0;
-		for (auto& future : script_futures) {
-			auto s = future.get();
-			if (s) {
-				if (!s->GetLoadedState()) ++error_count;
-				scripts.emplace_back(std::move(s));
+		for (auto& script_future : script_futures) {
+			try {
+				auto s = script_future.second.get();
+				if (s) {
+					if (!s->GetLoadedState()) {
+						++error_count;
+						wxLogError(_("Failed to load Automation script '%s':\n%s"), s->GetFilename().wstring(), to_wx(s->GetDescription()));
+					}
+					scripts.emplace_back(std::move(s));
+				}
+			}
+			catch (agi::Exception const& e) {
+				++error_count;
+				wxLogError(_("Failed to load Automation script '%s':\n%s"), script_future.first.wstring(), to_wx(e.GetMessage()));
+			}
+			catch (std::exception const& e) {
+				++error_count;
+				wxLogError(_("Failed to load Automation script '%s':\n%s"), script_future.first.wstring(), to_wx(e.what()));
+			}
+			catch (...) {
+				++error_count;
+				wxLogError(_("Failed to load Automation script '%s':\nUnknown error"), script_future.first.wstring());
 			}
 		}
 
@@ -388,8 +435,21 @@ namespace Automation4 {
 				continue;
 			}
 			auto sfname = basepath/trimmed;
-			if (agi::fs::FileExists(sfname))
-				scripts.emplace_back(Automation4::ScriptFactory::CreateFromFile(sfname, true));
+			if (agi::fs::FileExists(sfname)) {
+				try {
+					if (auto script = Automation4::ScriptFactory::CreateFromFile(sfname, true))
+						scripts.emplace_back(std::move(script));
+				}
+				catch (agi::Exception const& e) {
+					wxLogError(_("Failed to load Automation script '%s':\n%s"), sfname.wstring(), to_wx(e.GetMessage()));
+				}
+				catch (std::exception const& e) {
+					wxLogError(_("Failed to load Automation script '%s':\n%s"), sfname.wstring(), to_wx(e.what()));
+				}
+				catch (...) {
+					wxLogError(_("Failed to load Automation script '%s':\nUnknown error"), sfname.wstring());
+				}
+			}
 			else {
 				wxLogWarning("Automation Script referenced could not be found.\nFilename specified: %c%s\nSearched relative to: %s\nResolved filename: %s",
 					first_char, to_wx(trimmed), basepath.wstring(), sfname.wstring());
@@ -451,7 +511,7 @@ namespace Automation4 {
 		for (auto& factory : Factories()) {
 			auto s = factory->Produce(filename);
 			if (s) {
-				if (!s->GetLoadedState()) {
+				if (!s->GetLoadedState() && complain_about_unrecognised) {
 					wxLogError(_("Failed to load Automation script '%s':\n%s"), filename.wstring(), s->GetDescription());
 				}
 				return s;

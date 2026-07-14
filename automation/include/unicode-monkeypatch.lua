@@ -24,10 +24,25 @@ end
 local CP_UTF8 = 65001
 local MB_ERR_INVALID_CHARS = 8
 
-if ffi.C.GetACP() == CP_UTF8 then
-	-- "Use Unicode UTF-8 for worldwide language support" is ticked.
-	-- Don't bother patching it.
-	return
+-- Even when "Use Unicode UTF-8 for worldwide language support" is enabled,
+-- route through wide CRT APIs so absolute paths can use the long-path prefix.
+
+local function normalize_long_path(path)
+	if type(path) ~= "string" then
+		return path
+	end
+
+	local native = path:gsub("/", "\\")
+	if native:sub(1, 4) == "\\\\?\\" then
+		return native
+	end
+	if native:match("^%a:\\") then
+		return "\\\\?\\" .. native
+	end
+	if native:sub(1, 2) == "\\\\" then
+		return "\\\\?\\UNC\\" .. native:sub(3)
+	end
+	return path
 end
 
 ffi.cdef[[
@@ -49,12 +64,12 @@ char *strerror(int errnum);
 local function widen(ch)
 	local size = ffi.C.MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, ch, #ch, nil, 0)
 	if size == 0 then
-		error(fname .. ": invalid character sequence")
+		error(tostring(ch) .. ": invalid character sequence")
 	end
 
 	local buf = ffi.new("wchar_t[?]", size + 1)
 	if ffi.C.MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, ch, #ch, buf, size) == 0 then
-		error(fname .. ": char conversion error")
+		error(tostring(ch) .. ": char conversion error")
 	end
 
 	return buf
@@ -91,7 +106,7 @@ local orig_remove = os.remove
 local orig_execute = os.execute
 
 function io.open(fname, mode)
-	local wfname = widen(fname)
+	local wfname = widen(normalize_long_path(fname))
 	if not mode then
 		mode = "r"
 	end
@@ -107,15 +122,15 @@ function io.open(fname, mode)
 end
 
 function os.rename(oldname, newname)
-	local woldname = widen(oldname)
-	local wnewname = widen(newname)
+	local woldname = widen(normalize_long_path(oldname))
+	local wnewname = widen(normalize_long_path(newname))
 
 	local stat = ffi.C._wrename(woldname, wnewname)
 	return fileresult(stat, oldname)
 end
 
 function os.remove(fname)
-	local wfname = widen(fname)
+	local wfname = widen(normalize_long_path(fname))
 
 	local stat = ffi.C._wremove(wfname)
 	return fileresult(stat, fname)

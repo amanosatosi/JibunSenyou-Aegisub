@@ -31,6 +31,7 @@
 
 class AssDialogue;
 class VideoDisplay;
+class wxKeyEvent;
 class wxMouseCaptureLostEvent;
 class wxMouseEvent;
 class wxToolBar;
@@ -51,7 +52,7 @@ class VisualToolBase {
 	void OnCommit(int type);
 	void OnSeek(int new_frame);
 
-	void OnMouseCaptureLost(wxMouseCaptureLostEvent &);
+	virtual void OnMouseCaptureLost(wxMouseCaptureLostEvent &);
 
 	/// @brief Get the dialogue line currently in the edit box
 	/// @return nullptr if the line is not active on the current frame
@@ -167,6 +168,13 @@ public:
 	// Stuff called by VideoDisplay
 	virtual void OnMouseEvent(wxMouseEvent &event)=0;
 	virtual void Draw()=0;
+	/// Called after this tool becomes the display's active tool. This is needed
+	/// when a temporary tool restores an existing instance rather than creating
+	/// a fresh one.
+	virtual void OnAttached() { }
+	/// Give temporary tools first refusal of keyboard input (for example Escape)
+	/// before normal video hotkeys run.
+	virtual bool OnKeyEvent(wxKeyEvent &) { return false; }
 	virtual void SetClientSize(int w, int h);
 	virtual void SetDisplayArea(int x, int y, int w, int h);
 	virtual void SetToolbar(wxToolBar *) { }

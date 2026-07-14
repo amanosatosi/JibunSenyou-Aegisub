@@ -211,6 +211,8 @@ void Audio(wxTreebook *book, Preferences *parent) {
 	p->OptionAdd(general, _("Play audio when stepping in video"), "Audio/Plays When Stepping Video");
 	p->OptionAdd(general, _("Keep pitch when changing speed"), "Audio/Keep Pitch When Changing Speed");
 	p->OptionAdd(general, _("Left-click-drag moves end marker"), "Audio/Drag Timing");
+	p->OptionAdd(general, _("Auto-preview after Dialog Time Changer"), "Audio/Dialog Time Changer/Auto Preview");
+	p->OptionAdd(general, _("Auto-preview after Join Next"), "Audio/Join Next/Auto Preview");
 	p->OptionAdd(general, _("Default timing length (ms)"), "Timing/Default Duration", 0, 36000);
 	p->OptionAdd(general, _("Default lead-in length (ms)"), "Audio/Lead/IN", 0, 36000);
 	p->OptionAdd(general, _("Default lead-out length (ms)"), "Audio/Lead/OUT", 0, 36000);
@@ -236,6 +238,9 @@ void Audio(wxTreebook *book, Preferences *parent) {
 
 	auto label = p->PageSizer(_("Audio labels"));
 	p->OptionAdd(label, _("Preserve existing timings when cutting/splitting"), "Audio/Karaoke/Preserve Timings on Cut");
+	const wxString ktiming_auto_cut_arr[] = { _("Default"), _("Kana only"), _("Off") };
+	wxArrayString ktiming_auto_cut_choice(3, ktiming_auto_cut_arr);
+	p->OptionChoice(label, _("Toshiki K-Timing auto cut"), ktiming_auto_cut_choice, "Audio/Karaoke/Toshiki K Timing Auto Cut");
 	p->OptionFont(label, "Audio/Karaoke/");
 
 	p->SetSizerAndFit(p->sizer);
@@ -619,6 +624,18 @@ void Advanced_Video(wxTreebook *book, Preferences *parent) {
 
 	wxArrayString sp_choice = to_wx(SubtitlesProviderFactory::GetClasses());
 	p->OptionChoice(expert, _("Subtitles provider"), sp_choice, "Subtitle/Provider");
+
+	auto unavailable_subtitles = SubtitlesProviderFactory::GetUnavailableClasses();
+	if (!unavailable_subtitles.empty()) {
+		wxString unavailable_text;
+		for (auto const& line : unavailable_subtitles) {
+			if (!unavailable_text.empty())
+				unavailable_text += "\n";
+			unavailable_text += to_wx(line);
+		}
+		expert->Add(new wxStaticText(p, wxID_ANY, _("Unavailable subtitles providers")), 1, wxALIGN_CENTRE_VERTICAL);
+		expert->Add(new wxStaticText(p, wxID_ANY, unavailable_text), wxSizerFlags().Expand());
+	}
 
 
 #ifdef WITH_AVISYNTH
