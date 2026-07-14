@@ -37,6 +37,7 @@
 #include "options.h"
 #include "pen.h"
 #include "selection_controller.h"
+#include "time_range.h"
 #include "utils.h"
 
 #include <libaegisub/ass/time.h>
@@ -399,6 +400,7 @@ public:
 	std::vector<AudioMarker*> OnLeftClick(int ms, bool ctrl_down, bool alt_down, int sensitivity, int snap_range) override;
 	std::vector<AudioMarker*> OnRightClick(int ms, bool, int sensitivity, int snap_range) override;
 	void OnMarkerDrag(std::vector<AudioMarker*> const& markers, int new_position, int snap_range) override;
+	bool ApplyDialogTimeChanger(int drag_start_ms, int drag_end_ms, TimeRange *preview_range) override;
 
 	// We have no warning messages currently, maybe add the old "Modified" message back later?
 	wxString GetWarningMessage() const override { return wxString(); }
@@ -644,6 +646,97 @@ std::vector<AudioMarker*> AudioTimingControllerDialogue::OnRightClick(int ms, bo
 void AudioTimingControllerDialogue::OnMarkerDrag(std::vector<AudioMarker*> const& markers, int new_position, int snap_range)
 {
 	SetMarkers(markers, new_position, snap_range);
+}
+
+bool AudioTimingControllerDialogue::ApplyDialogTimeChanger(int drag_start_ms, int drag_end_ms, TimeRange *preview_range)
+{
+	static const int min_duration = 100;
+
+	AssDialogue *line = active_line.GetLine();
+	if (!line || drag_start_ms == drag_end_ms)
+		return false;
+
+	AssDialogue *next = nullptr;
+	auto line_it = context->ass->iterator_to(*line);
+	auto next_it = line_it;
+	if (++next_it != context->ass->Events.end())
+		next = &*next_it;
+
+	auto contains = [](AssDialogue const *diag, int ms) {
+		return diag && ms >= diag->Start && ms <= diag->End;
+	};
+	auto valid_duration = [](int start, int end) {
+		return end - start >= min_duration;
+	};
+
+	const int drag_begin = std::min(drag_start_ms, drag_end_ms);
+	const int drag_end = std::max(drag_start_ms, drag_end_ms);
+	const int old_start = line->Start;
+	const int old_end = line->End;
+
+	if (contains(line, drag_start_ms) && contains(line, drag_end_ms))
+	{
+		if (drag_begin <= old_start)
+		{
+			if (!valid_duration(drag_end, old_end))
+				return false;
+
+			line->Start = drag_end;
+			context->selectionController->SetSelectionAndActive({ line }, line);
+			context->ass->Commit(_("dialog time changer"), AssFile::COMMIT_DIAG_TIME);
+			if (preview_range)
+				*preview_range = TimeRange(line->Start, line->End);
+			return true;
+		}
+
+		if (drag_end >= old_end)
+		{
+			if (!valid_duration(old_start, drag_begin))
+				return false;
+
+			line->End = drag_begin;
+			context->selectionController->SetSelectionAndActive({ line }, line);
+			context->ass->Commit(_("dialog time changer"), AssFile::COMMIT_DIAG_TIME);
+			if (preview_range)
+				*preview_range = TimeRange(line->Start, line->End);
+			return true;
+		}
+
+		if (!valid_duration(old_start, drag_begin) || !valid_duration(drag_end, old_end))
+			return false;
+
+		auto split_line = new AssDialogue(*line);
+		line->End = drag_begin;
+		split_line->Start = drag_end;
+		split_line->End = old_end;
+		context->ass->Events.insert(++line_it, *split_line);
+
+		context->selectionController->SetSelectionAndActive({ line, split_line }, line);
+		context->ass->Commit(_("dialog time changer"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_TIME);
+		if (preview_range)
+			*preview_range = TimeRange(line->Start, split_line->End);
+		return true;
+	}
+
+	if (!next)
+		return false;
+
+	const bool forward_boundary_drag = contains(line, drag_start_ms) && contains(next, drag_end_ms);
+	const bool backward_boundary_drag = contains(next, drag_start_ms) && contains(line, drag_end_ms);
+	if (!forward_boundary_drag && !backward_boundary_drag)
+		return false;
+
+	const int boundary = drag_end_ms;
+	if (!valid_duration(line->Start, boundary) || !valid_duration(boundary, next->End))
+		return false;
+
+	line->End = boundary;
+	next->Start = boundary;
+	context->selectionController->SetSelectionAndActive({ line, next }, line);
+	context->ass->Commit(_("dialog time changer"), AssFile::COMMIT_DIAG_TIME);
+	if (preview_range)
+		*preview_range = TimeRange(line->Start, next->End);
+	return true;
 }
 
 void AudioTimingControllerDialogue::UpdateSelection()

@@ -24,7 +24,8 @@
         "audio/opt/spectrum",
         "app/toggle/global_hotkeys",
         "",
-        "audio/karaoke"
+        "audio/karaoke",
+        "audio/karaoke/toshiki_ktiming"
     ],
     "main" : [
         "subtitle/new",
@@ -78,6 +79,7 @@
         "video/tool/clip",
         "video/tool/vector_clip",
         "",
-        "help/video"
+        "help/video",
+        "video/tool/motion_track"
     ]
 }

@@ -187,6 +187,44 @@
 			"Ctrl-:",
 			"Ctrl-;"
 		],
+		"subtitle/set_alignment/an1" : [
+			"Ctrl-Alt-1",
+			"Ctrl-Alt-KP_1"
+		],
+		"subtitle/set_alignment/an2" : [
+			"Ctrl-Alt-2",
+			"Ctrl-Alt-KP_2"
+		],
+		"subtitle/set_alignment/an3" : [
+			"Ctrl-Alt-3",
+			"Ctrl-Alt-KP_3"
+		],
+		"subtitle/set_alignment/an4" : [
+			"Ctrl-Alt-4",
+			"Ctrl-Alt-KP_4"
+		],
+		"subtitle/set_alignment/an5" : [
+			"Ctrl-Alt-5",
+			"Ctrl-Alt-KP_5",
+			"Ctrl-Alt-Enter",
+			"Ctrl-Alt-KP_Enter"
+		],
+		"subtitle/set_alignment/an6" : [
+			"Ctrl-Alt-6",
+			"Ctrl-Alt-KP_6"
+		],
+		"subtitle/set_alignment/an7" : [
+			"Ctrl-Alt-7",
+			"Ctrl-Alt-KP_7"
+		],
+		"subtitle/set_alignment/an8" : [
+			"Ctrl-Alt-8",
+			"Ctrl-Alt-KP_8"
+		],
+		"subtitle/set_alignment/an9" : [
+			"Ctrl-Alt-9",
+			"Ctrl-Alt-KP_9"
+		],
 		"time/frame/current" : [
 			"Ctrl-6"
 		],

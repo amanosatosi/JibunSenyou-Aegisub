@@ -34,6 +34,8 @@ $InstallerDir = Join-Path $BuildRoot "install"
 $InstallerDepsDir = Join-Path $BuildRoot "installer-deps"
 $PortableOutputDir = Join-Path $BuildRoot "aegisub-portable"
 
+. (Join-Path $SourceRoot "tools\apply-git-patch.ps1")
+
 
 Write-Output Goto building dir
 Set-Location $BuildRoot
@@ -48,7 +50,16 @@ Write-Output 'Make install'
 meson install --no-rebuild --destdir $InstallerDir
 Write-Output 'Gathering files'
 Copy-New-Item $InstallerDir\bin\aegisub.exe  $PortableOutputDir
-Copy-New-Item $InstallerDir\bin\ass.dll  $PortableOutputDir
+Copy-New-Item $InstallerDir\bin\libassmod.dll  $PortableOutputDir
+if (Test-Path "$InstallerDir\bin\mangetsu.dll") {
+    Copy-New-Item $InstallerDir\bin\mangetsu.dll  $PortableOutputDir
+}
+Remove-Item -LiteralPath "$PortableOutputDir\ass.dll" -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath "$PortableOutputDir\libass.dll" -Force -ErrorAction SilentlyContinue
+Write-Output 'Copying - OpenCV runtime'
+$OpenCVRuntimeSetup = Join-Path $SourceRoot "tools\copy-opencv-runtime.ps1"
+& $OpenCVRuntimeSetup -DestinationDir $PortableOutputDir
+if(!$?) { Exit $LASTEXITCODE }
 
 Write-Output 'Copying - translations'
 Copy-New-Items "$InstallerDir\share\locale\*"  "$PortableOutputDir\locale" -Recurse
@@ -72,10 +83,23 @@ Copy-New-Item $InstallerDepsDir\VC_redist\VC_redist.x64.exe $PortableOutputDir\M
 Write-Output 'Copying - redist\XAudio2_9'
 Copy-New-Item $InstallerDepsDir\XAudio2_redist\build\native\release\bin\x64\xaudio2_9redist.dll $PortableOutputDir\Redist
 Rename-Item $PortableOutputDir\Redist\xaudio2_9redist.dll $PortableOutputDir\Redist\XAudio2_9.dll
+Write-Output 'Copying - OCR runtime'
+if (Test-Path "$InstallerDepsDir\ocr") {
+    Copy-New-Items "$InstallerDepsDir\ocr\*" "$PortableOutputDir\ocr" -Recurse
+}
+else {
+    Write-Output 'Skipping - OCR runtime not present'
+}
 
 Write-Output 'Copying - automation'
 Copy-New-Items "$InstallerDir\share\aegisub\automation\*"  "$PortableOutputDir\automation\"  -Recurse
 Write-Output 'Copying - automation\DEPCTRL'
+$DepCtrlDir = Join-Path $InstallerDepsDir "DependencyControl"
+if (!(Test-Path $DepCtrlDir)) {
+    throw "DependencyControl installer dependency was not found at $DepCtrlDir. Run the installer dependency setup first."
+}
+$DepCtrlPatchDir = Join-Path $SourceRoot "tools\patches\dependencycontrol"
+Apply-GitPatch -RepoDir $DepCtrlDir -PatchPath (Join-Path $DepCtrlPatchDir "0001-windows-unicode-long-paths.patch")
 Copy-New-Items "$InstallerDepsDir\DependencyControl\modules\*"  "$PortableOutputDir\automation\include\l0\"  -Recurse
 Copy-New-Items "$InstallerDepsDir\DependencyControl\macros\*"  "$PortableOutputDir\automation\autoload\"  -Recurse
 Copy-New-Item $InstallerDepsDir\Yutils\src\Yutils.lua  $PortableOutputDir\automation\include

@@ -37,7 +37,6 @@
 #include "audio_karaoke.h"
 #include "audio_timing.h"
 #include "options.h"
-#include "project.h"
 #include "toggle_bitmap.h"
 #include "utils.h"
 
@@ -103,6 +102,7 @@ AudioBox::AudioBox(wxWindow *parent, agi::Context *context)
 	// Main sizer
 	auto MainSizer = new wxBoxSizer(wxVERTICAL);
 	MainSizer->Add(TopSizer,1,wxEXPAND|wxALL,3);
+
 	MainSizer->Add(toolbar::GetToolbar(panel, "audio", context, "Audio"),0,wxEXPAND|wxLEFT|wxRIGHT,3);
 	MainSizer->Add(context->karaoke,0,wxEXPAND|wxALL,3);
 	MainSizer->Show(context->karaoke, false);
@@ -164,7 +164,7 @@ void AudioBox::OnSashDrag(wxSashEvent &event) {
 
 	// Karaoke mode is always disabled when the audio box is first opened, so
 	// the initial height shouldn't include it
-	if (context->karaoke->IsEnabled())
+	if (context->karaoke->IsEnabled() || context->karaoke->IsKTimingEnabled())
 		new_height -= context->karaoke->GetSize().GetHeight() + 6;
 
 	OPT_SET("Audio/Display Height")->SetInt(new_height);

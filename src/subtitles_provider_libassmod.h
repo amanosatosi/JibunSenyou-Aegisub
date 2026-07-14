@@ -26,3 +26,10 @@ namespace libassmod {
 	bool IsAvailable(std::string *error = nullptr);
 	std::string PrimaryLibraryName();
 }
+
+namespace mangetsu {
+	std::unique_ptr<SubtitlesProvider> Create(std::string const&, agi::BackgroundRunner *br);
+	void CacheFonts();
+	bool IsAvailable(std::string *error = nullptr);
+	std::string PrimaryLibraryName();
+}

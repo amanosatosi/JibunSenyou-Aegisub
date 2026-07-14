@@ -16,9 +16,13 @@
 
 #include "command.h"
 
+#include "../dialog_manager.h"
+#include "../dialog_motion_track.h"
 #include "../include/aegisub/context.h"
 #include "../libresrc/libresrc.h"
+#include "../motion_tracking/motion_track_engine.h"
 #include "../project.h"
+#include "../video_controller.h"
 #include "../video_display.h"
 #include "../visual_tool_clip.h"
 #include "../visual_tool_cross.h"
@@ -30,6 +34,9 @@
 #include "../visual_tool_vector_clip.h"
 
 #include <libaegisub/make_unique.h>
+
+#include <algorithm>
+#include <wx/msgdlg.h>
 
 namespace {
 	using cmd::Command;
@@ -158,6 +165,29 @@ namespace {
 		STR_MENU("Vector Clip")
 		STR_DISP("Vector Clip")
 		STR_HELP("Clip subtitles to a vectorial area")
+	};
+
+	struct visual_motion_track final : public Command {
+		CMD_NAME("video/tool/motion_track")
+		CMD_ICON(button_motion_track)
+		STR_MENU("Motion Track")
+		STR_DISP("Motion Track")
+		STR_HELP("Track an object and export After Effects keyframe data")
+		CMD_TYPE(COMMAND_VALIDATE)
+
+		bool Validate(const agi::Context *c) override {
+			return !!c->project->VideoProvider();
+		}
+
+		void operator()(agi::Context *c) override {
+			c->videoController->Stop();
+			if (!motion_tracking::MotionTrackEngine::IsAvailable()) {
+				wxMessageBox(_("Motion Track requires OpenCV, but this build was configured without OpenCV."),
+					_("Motion Track"), wxOK | wxICON_INFORMATION, c->parent);
+				return;
+			}
+			c->dialog->Show<DialogMotionTrack>(c);
+		}
 	};
 
 	// Perspective settings
@@ -338,6 +368,7 @@ namespace cmd {
 		reg(agi::make_unique<visual_mode_scale>());
 		reg(agi::make_unique<visual_mode_clip>());
 		reg(agi::make_unique<visual_mode_vector_clip>());
+		reg(agi::make_unique<visual_motion_track>());
 
 		reg(agi::make_unique<visual_mode_perspective_plane>());
 		reg(agi::make_unique<visual_mode_perspective_lock_inner>());

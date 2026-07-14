@@ -39,13 +39,16 @@
 #include <algorithm>
 #include <boost/gil.hpp>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <wx/dir.h>
 #include <wx/image.h>
@@ -148,15 +151,55 @@ struct LibassModApi {
 #endif
 };
 
-LibassModApi api;
-bool api_loaded = false;
-std::string api_error;
-std::once_flag api_once;
-ASS_Library *library = nullptr;
-std::unique_ptr<agi::dispatch::Queue> cache_queue;
-std::once_flag cache_queue_once;
+struct AssCompatBackendConfig {
+	const char *provider_name;
+	const char *display_name;
+	const char *log_name;
+	const char *missing_library_name;
+};
 
-void msg_callback(int level, const char *fmt, va_list args, void *) {
+struct AssCompatBackend {
+	explicit AssCompatBackend(AssCompatBackendConfig config) : config(config) { }
+
+	AssCompatBackendConfig config;
+	LibassModApi api;
+	bool api_loaded = false;
+	std::string api_error;
+	std::string loaded_library_name;
+	std::once_flag api_once;
+	ASS_Library *library = nullptr;
+	std::unique_ptr<agi::dispatch::Queue> cache_queue;
+	std::once_flag cache_queue_once;
+};
+
+AssCompatBackend libassmod_backend({ "libassmod", "libassmod", "subtitle/provider/libassmod", "libassmod.dll" });
+AssCompatBackend mangetsu_backend({ "Mangetsu", "Mangetsu", "subtitle/provider/mangetsu", "mangetsu.dll" });
+
+#ifdef _WIN32
+std::string wide_to_utf8(const wchar_t *value) {
+	int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+	if (size <= 1)
+		return {};
+	std::string out(size - 1, '\0');
+	WideCharToMultiByte(CP_UTF8, 0, value, -1, &out[0], size, nullptr, nullptr);
+	return out;
+}
+#endif
+
+void UpdateLoadedLibraryPath(AssCompatBackend &backend) {
+#ifdef _WIN32
+	wchar_t path[MAX_PATH];
+	DWORD len = GetModuleFileNameW(backend.api.handle, path, std::size(path));
+	if (len > 0 && len < std::size(path))
+		backend.loaded_library_name = wide_to_utf8(path);
+#else
+	Dl_info info;
+	if (dladdr(reinterpret_cast<void *>(backend.api.ass_library_init), &info) && info.dli_fname)
+		backend.loaded_library_name = info.dli_fname;
+#endif
+}
+
+void msg_callback(int level, const char *fmt, va_list args, void *data) {
 	if (level >= 7) return;
 	char buf[1024];
 #ifdef _WIN32
@@ -165,35 +208,37 @@ void msg_callback(int level, const char *fmt, va_list args, void *) {
 	vsnprintf(buf, sizeof(buf), fmt, args);
 #endif
 
+	auto backend = static_cast<AssCompatBackend *>(data);
+	const char *log_name = backend ? backend->config.log_name : "subtitle/provider/libassmod";
 	if (level < 2) // warning/error
-		LOG_I("subtitle/provider/libassmod") << buf;
+		LOG_I(log_name) << buf;
 	else // verbose
-		LOG_D("subtitle/provider/libassmod") << buf;
+		LOG_D(log_name) << buf;
 }
 
-void CloseLibassModHandle() {
+void CloseLibassModHandle(AssCompatBackend &backend) {
 #ifdef _WIN32
-	if (api.handle) {
-		FreeLibrary(api.handle);
-		api.handle = nullptr;
+	if (backend.api.handle) {
+		FreeLibrary(backend.api.handle);
+		backend.api.handle = nullptr;
 	}
 #else
-	if (api.handle) {
-		dlclose(api.handle);
-		api.handle = nullptr;
+	if (backend.api.handle) {
+		dlclose(backend.api.handle);
+		backend.api.handle = nullptr;
 	}
 #endif
 }
 
 template <typename T>
-bool LoadSymbol(LibassModHandle handle, const char *name, T &out, std::string &error) {
+bool LoadSymbol(AssCompatBackend &backend, const char *name, T &out, std::string &error) {
 #ifdef _WIN32
-	auto sym = reinterpret_cast<T>(GetProcAddress(handle, name));
+	auto sym = reinterpret_cast<T>(GetProcAddress(backend.api.handle, name));
 #else
-	auto sym = reinterpret_cast<T>(dlsym(handle, name));
+	auto sym = reinterpret_cast<T>(dlsym(backend.api.handle, name));
 #endif
 	if (!sym) {
-		error = std::string("Missing libassmod symbol: ") + name;
+		error = std::string("Missing ") + backend.config.display_name + " symbol: " + name;
 		return false;
 	}
 	out = sym;
@@ -201,88 +246,135 @@ bool LoadSymbol(LibassModHandle handle, const char *name, T &out, std::string &e
 }
 
 template <typename T>
-void LoadOptionalSymbol(LibassModHandle handle, const char *name, T &out) {
+void LoadOptionalSymbol(AssCompatBackend &backend, const char *name, T &out) {
 #ifdef _WIN32
-	auto sym = reinterpret_cast<T>(GetProcAddress(handle, name));
+	auto sym = reinterpret_cast<T>(GetProcAddress(backend.api.handle, name));
 #else
-	auto sym = reinterpret_cast<T>(dlsym(handle, name));
+	auto sym = reinterpret_cast<T>(dlsym(backend.api.handle, name));
 #endif
 	out = sym;
 }
 
-bool LoadLibassModApi(std::string &error) {
+bool LoadSharedLibrary(AssCompatBackend &backend, std::string &error) {
 #ifdef _WIN32
-	static const wchar_t *kLibassmodNames[] = { L"libassmod.dll", L"assmod.dll", L"ass.dll", L"libass.dll" };
-	for (auto name : kLibassmodNames) {
-		api.handle = LoadLibraryW(name);
-		if (api.handle)
-			break;
-	}
-	if (!api.handle) {
-		error = "Could not load libassmod (tried libassmod.dll, assmod.dll, ass.dll, libass.dll).";
+	if (backend.config.provider_name == std::string("Mangetsu")) {
+		backend.api.handle = LoadLibraryW(L"mangetsu.dll");
+		if (backend.api.handle) {
+			backend.loaded_library_name = "mangetsu.dll";
+			return true;
+		}
+		error = "Could not load Mangetsu (tried mangetsu.dll).";
 		return false;
 	}
-#else
-#ifdef __APPLE__
-	static const char *kLibassmodNames[] = { "libassmod.dylib", "libassmod.so", "libass.dylib", "libass.so" };
-#else
-	static const char *kLibassmodNames[] = { "libassmod.so", "libass.so" };
-#endif
-	for (auto name : kLibassmodNames) {
-		api.handle = dlopen(name, DLOPEN_FLAGS);
-		if (api.handle)
-			break;
-	}
-	if (!api.handle) {
-		error = "Could not load libassmod (tried libassmod and libass shared library names).";
-		return false;
-	}
-#endif
 
-	if (!LoadSymbol(api.handle, "ass_library_init", api.ass_library_init, error) ||
-		!LoadSymbol(api.handle, "ass_library_done", api.ass_library_done, error) ||
-		!LoadSymbol(api.handle, "ass_set_message_cb", api.ass_set_message_cb, error) ||
-		!LoadSymbol(api.handle, "ass_renderer_init", api.ass_renderer_init, error) ||
-		!LoadSymbol(api.handle, "ass_renderer_done", api.ass_renderer_done, error) ||
-		!LoadSymbol(api.handle, "ass_set_font_scale", api.ass_set_font_scale, error) ||
-		!LoadSymbol(api.handle, "ass_set_fonts", api.ass_set_fonts, error) ||
-		!LoadSymbol(api.handle, "ass_read_memory", api.ass_read_memory, error) ||
-		!LoadSymbol(api.handle, "ass_free_track", api.ass_free_track, error) ||
-		!LoadSymbol(api.handle, "ass_set_frame_size", api.ass_set_frame_size, error) ||
-		!LoadSymbol(api.handle, "ass_set_storage_size", api.ass_set_storage_size, error) ||
-		!LoadSymbol(api.handle, "ass_render_frame_auto", api.ass_render_frame_auto, error) ||
-		!LoadSymbol(api.handle, "ass_free_images_rgba", api.ass_free_images_rgba, error)) {
-		CloseLibassModHandle();
+	static const wchar_t *kLibassmodNames[] = { L"libassmod.dll", L"assmod.dll" };
+	static const char *kLibassmodNamesUtf8[] = { "libassmod.dll", "assmod.dll" };
+	for (size_t i = 0; i < std::size(kLibassmodNames); ++i) {
+		backend.api.handle = LoadLibraryW(kLibassmodNames[i]);
+		if (backend.api.handle) {
+			backend.loaded_library_name = kLibassmodNamesUtf8[i];
+			break;
+		}
+	}
+	if (!backend.api.handle) {
+		error = "Could not load libassmod (tried libassmod.dll, assmod.dll).";
+		return false;
+	}
+	return true;
+#else
+	std::vector<const char *> names;
+	if (backend.config.provider_name == std::string("Mangetsu")) {
+#ifdef __APPLE__
+		names = { "libmangetsu.dylib" };
+#else
+		names = { "libmangetsu.so" };
+#endif
+	}
+	else {
+#ifdef __APPLE__
+		names = { "libassmod.dylib", "libassmod.so" };
+#else
+		names = { "libassmod.so" };
+#endif
+	}
+
+	for (auto name : names) {
+		backend.api.handle = dlopen(name, DLOPEN_FLAGS);
+		if (backend.api.handle) {
+			backend.loaded_library_name = name;
+			break;
+		}
+	}
+	if (!backend.api.handle) {
+		if (backend.config.provider_name == std::string("Mangetsu"))
+			error = "Could not load Mangetsu (tried libmangetsu).";
+		else
+			error = "Could not load libassmod (tried libassmod shared library names).";
+		return false;
+	}
+	return true;
+#endif
+}
+
+bool LoadLibassModApi(AssCompatBackend &backend, std::string &error) {
+	if (!LoadSharedLibrary(backend, error))
+		return false;
+
+	auto &api = backend.api;
+	if (!LoadSymbol(backend, "ass_library_init", api.ass_library_init, error) ||
+		!LoadSymbol(backend, "ass_library_done", api.ass_library_done, error) ||
+		!LoadSymbol(backend, "ass_set_message_cb", api.ass_set_message_cb, error) ||
+		!LoadSymbol(backend, "ass_renderer_init", api.ass_renderer_init, error) ||
+		!LoadSymbol(backend, "ass_renderer_done", api.ass_renderer_done, error) ||
+		!LoadSymbol(backend, "ass_set_font_scale", api.ass_set_font_scale, error) ||
+		!LoadSymbol(backend, "ass_set_fonts", api.ass_set_fonts, error) ||
+		!LoadSymbol(backend, "ass_read_memory", api.ass_read_memory, error) ||
+		!LoadSymbol(backend, "ass_free_track", api.ass_free_track, error) ||
+		!LoadSymbol(backend, "ass_set_frame_size", api.ass_set_frame_size, error) ||
+		!LoadSymbol(backend, "ass_set_storage_size", api.ass_set_storage_size, error) ||
+		!LoadSymbol(backend, "ass_render_frame_auto", api.ass_render_frame_auto, error) ||
+		!LoadSymbol(backend, "ass_free_images_rgba", api.ass_free_images_rgba, error)) {
+		CloseLibassModHandle(backend);
 		return false;
 	}
 #ifdef LIBASSMOD_FEATURE_TAG_IMAGE
-	LoadOptionalSymbol(api.handle, "ass_clear_tag_images", api.ass_clear_tag_images);
-	LoadOptionalSymbol(api.handle, "ass_set_tag_image_rgba", api.ass_set_tag_image_rgba);
+	LoadOptionalSymbol(backend, "ass_clear_tag_images", api.ass_clear_tag_images);
+	LoadOptionalSymbol(backend, "ass_set_tag_image_rgba", api.ass_set_tag_image_rgba);
 #endif
 
-	library = api.ass_library_init();
-	if (!library) {
-		error = "libassmod initialization failed.";
-		CloseLibassModHandle();
+	UpdateLoadedLibraryPath(backend);
+	backend.library = api.ass_library_init();
+	if (!backend.library) {
+		error = std::string(backend.config.display_name) + " initialization failed.";
+		CloseLibassModHandle(backend);
 		return false;
 	}
 
-	api.ass_set_message_cb(library, msg_callback, nullptr);
+	api.ass_set_message_cb(backend.library, msg_callback, &backend);
+	LOG_I(backend.config.log_name) << "Subtitle renderer " << backend.config.display_name
+		<< ": available (loaded " << backend.loaded_library_name << ")";
+	if (backend.config.provider_name == std::string("libassmod"))
+		LOG_I(backend.config.log_name) << "libassmod loaded from " << backend.loaded_library_name;
+	else if (backend.config.provider_name == std::string("Mangetsu"))
+		LOG_I(backend.config.log_name) << "Mangetsu loaded from " << backend.loaded_library_name;
 	return true;
 }
 
-bool EnsureLibassMod(std::string *error) {
-	std::call_once(api_once, [] {
-		api_loaded = LoadLibassModApi(api_error);
+bool EnsureBackend(AssCompatBackend &backend, std::string *error) {
+	std::call_once(backend.api_once, [&] {
+		backend.api_loaded = LoadLibassModApi(backend, backend.api_error);
+		if (!backend.api_loaded)
+			LOG_I(backend.config.log_name) << "Subtitle renderer " << backend.config.display_name
+				<< ": unavailable (" << backend.api_error << ")";
 	});
-	if (!api_loaded && error)
-		*error = api_error;
-	return api_loaded;
+	if (!backend.api_loaded && error)
+		*error = backend.api_error;
+	return backend.api_loaded;
 }
 
-void EnsureCacheQueue() {
-	std::call_once(cache_queue_once, [] {
-		cache_queue = agi::dispatch::Create();
+void EnsureCacheQueue(AssCompatBackend &backend) {
+	std::call_once(backend.cache_queue_once, [&] {
+		backend.cache_queue = agi::dispatch::Create();
 	});
 }
 
@@ -669,15 +761,17 @@ std::vector<std::string> collect_img_paths(const char *data, size_t len) {
 // Stuff used on the cache thread, owned by a shared_ptr in case the provider
 // gets deleted before the cache finishing updating
 struct cache_thread_shared {
+	AssCompatBackend *backend = nullptr;
 	ASS_Renderer *renderer = nullptr;
 	std::atomic<bool> ready{false};
 	~cache_thread_shared() {
-		if (renderer && api.ass_renderer_done)
-			api.ass_renderer_done(renderer);
+		if (renderer && backend && backend->api.ass_renderer_done)
+			backend->api.ass_renderer_done(renderer);
 	}
 };
 
 class LibassModSubtitlesProvider final : public SubtitlesProvider {
+	AssCompatBackend &backend;
 	agi::BackgroundRunner *br;
 	std::shared_ptr<cache_thread_shared> shared;
 	ASS_Track *ass_track = nullptr;
@@ -715,11 +809,12 @@ class LibassModSubtitlesProvider final : public SubtitlesProvider {
 		ASS_Renderer *ass_renderer = renderer();
 		if (!ass_renderer)
 			return;
+		auto &api = backend.api;
 		if (!api.ass_clear_tag_images || !api.ass_set_tag_image_rgba) {
 			static std::once_flag missing_tag_api_once;
-			std::call_once(missing_tag_api_once, [] {
-				LOG_W("subtitle/provider/libassmod")
-					<< "libassmod tag-image API not available (missing ass_clear_tag_images/ass_set_tag_image_rgba)";
+			std::call_once(missing_tag_api_once, [&] {
+				LOG_W(backend.config.log_name)
+					<< backend.config.display_name << " tag-image API not available (missing ass_clear_tag_images/ass_set_tag_image_rgba)";
 			});
 			tag_images_dirty = false;
 			return;
@@ -834,13 +929,14 @@ class LibassModSubtitlesProvider final : public SubtitlesProvider {
 	}
 
 public:
-	LibassModSubtitlesProvider(agi::BackgroundRunner *br);
+	LibassModSubtitlesProvider(AssCompatBackend &backend, agi::BackgroundRunner *br);
 	~LibassModSubtitlesProvider();
 
 	void LoadSubtitles(const char *data, size_t len) override {
+		auto &api = backend.api;
 		if (ass_track) api.ass_free_track(ass_track);
-		ass_track = api.ass_read_memory(library, const_cast<char *>(data), len, nullptr);
-		if (!ass_track) throw agi::InternalError("libassmod failed to load subtitles.");
+		ass_track = api.ass_read_memory(backend.library, const_cast<char *>(data), len, nullptr);
+		if (!ass_track) throw agi::InternalError(std::string(backend.config.display_name) + " failed to load subtitles.");
 #ifdef LIBASSMOD_FEATURE_TAG_IMAGE
 		tag_image_paths = collect_img_paths(data, len);
 		tag_images_dirty = true;
@@ -854,8 +950,9 @@ public:
 		if (!shared->ready)
 			return;
 
+		auto &api = backend.api;
 		api.ass_renderer_done(shared->renderer);
-		shared->renderer = api.ass_renderer_init(library);
+		shared->renderer = api.ass_renderer_init(backend.library);
 		api.ass_set_font_scale(shared->renderer, 1.);
 		api.ass_set_fonts(shared->renderer, nullptr, "Sans", 1, nullptr, true);
 #ifdef LIBASSMOD_FEATURE_TAG_IMAGE
@@ -864,18 +961,21 @@ public:
 	}
 };
 
-LibassModSubtitlesProvider::LibassModSubtitlesProvider(agi::BackgroundRunner *br)
-: br(br)
+LibassModSubtitlesProvider::LibassModSubtitlesProvider(AssCompatBackend &backend, agi::BackgroundRunner *br)
+: backend(backend)
+, br(br)
 , shared(std::make_shared<cache_thread_shared>())
 {
 	std::string error;
-	if (!EnsureLibassMod(&error))
-		throw agi::InternalError("libassmod unavailable: " + error);
+	if (!EnsureBackend(backend, &error))
+		throw agi::InternalError(std::string(backend.config.display_name) + " unavailable: " + error);
 
-	EnsureCacheQueue();
+	EnsureCacheQueue(backend);
 	auto state = shared;
-	cache_queue->Async([state] {
-		auto ass_renderer = api.ass_renderer_init(library);
+	state->backend = &backend;
+	backend.cache_queue->Async([state, &backend] {
+		auto &api = backend.api;
+		auto ass_renderer = api.ass_renderer_init(backend.library);
 		if (ass_renderer) {
 			api.ass_set_font_scale(ass_renderer, 1.);
 			api.ass_set_fonts(ass_renderer, nullptr, "Sans", 1, nullptr, true);
@@ -886,7 +986,7 @@ LibassModSubtitlesProvider::LibassModSubtitlesProvider(agi::BackgroundRunner *br
 }
 
 LibassModSubtitlesProvider::~LibassModSubtitlesProvider() {
-	if (ass_track) api.ass_free_track(ass_track);
+	if (ass_track) backend.api.ass_free_track(ass_track);
 }
 
 #define _r(c) ((c)>>24)
@@ -902,12 +1002,14 @@ void LibassModSubtitlesProvider::DrawSubtitles(VideoFrame &frame, double time) {
 	RegisterTagImages();
 #endif
 
+	auto &api = backend.api;
 	api.ass_set_frame_size(ass_renderer, frame.width, frame.height);
 	// Note: this relies on Aegisub always rendering at video storage res
 	api.ass_set_storage_size(ass_renderer, frame.width, frame.height);
 
 	int detect_change = 0;
-	ASS_RenderResult render_result = api.ass_render_frame_auto(ass_renderer, ass_track, int(time * 1000), &detect_change);
+	const int time_ms = static_cast<int>(std::floor(time * 1000.0 + 1e-6));
+	ASS_RenderResult render_result = api.ass_render_frame_auto(ass_renderer, ass_track, time_ms, &detect_change);
 
 	// libassmod returns either premultiplied RGBA images or the legacy alpha-masked monochrome list.
 	// Blend whichever list is preferred by the renderer into the frame.
@@ -966,11 +1068,11 @@ void LibassModSubtitlesProvider::DrawSubtitles(VideoFrame &frame, double time) {
 
 namespace libassmod {
 std::unique_ptr<SubtitlesProvider> Create(std::string const&, agi::BackgroundRunner *br) {
-	return agi::make_unique<LibassModSubtitlesProvider>(br);
+	return agi::make_unique<LibassModSubtitlesProvider>(libassmod_backend, br);
 }
 
 bool IsAvailable(std::string *error) {
-	return EnsureLibassMod(error);
+	return EnsureBackend(libassmod_backend, error);
 }
 
 std::string PrimaryLibraryName() {
@@ -985,15 +1087,55 @@ std::string PrimaryLibraryName() {
 
 void CacheFonts() {
 	std::string error;
-	if (!EnsureLibassMod(&error)) {
-		LOG_I("subtitle/provider/libassmod") << "libassmod unavailable: " << error;
+	if (!EnsureBackend(libassmod_backend, &error)) {
+		LOG_I(libassmod_backend.config.log_name) << "libassmod unavailable: " << error;
 		return;
 	}
 
-	EnsureCacheQueue();
+	EnsureCacheQueue(libassmod_backend);
 
-	cache_queue->Async([] {
-		auto ass_renderer = api.ass_renderer_init(library);
+	libassmod_backend.cache_queue->Async([] {
+		auto &api = libassmod_backend.api;
+		auto ass_renderer = api.ass_renderer_init(libassmod_backend.library);
+		if (!ass_renderer)
+			return;
+		api.ass_set_fonts(ass_renderer, nullptr, "Sans", 1, nullptr, true);
+		api.ass_renderer_done(ass_renderer);
+	});
+}
+}
+
+namespace mangetsu {
+std::unique_ptr<SubtitlesProvider> Create(std::string const&, agi::BackgroundRunner *br) {
+	return agi::make_unique<LibassModSubtitlesProvider>(mangetsu_backend, br);
+}
+
+bool IsAvailable(std::string *error) {
+	return EnsureBackend(mangetsu_backend, error);
+}
+
+std::string PrimaryLibraryName() {
+#ifdef _WIN32
+	return "mangetsu.dll";
+#elif defined(__APPLE__)
+	return "libmangetsu.dylib";
+#else
+	return "libmangetsu.so";
+#endif
+}
+
+void CacheFonts() {
+	std::string error;
+	if (!EnsureBackend(mangetsu_backend, &error)) {
+		LOG_I(mangetsu_backend.config.log_name) << "Mangetsu unavailable: " << error;
+		return;
+	}
+
+	EnsureCacheQueue(mangetsu_backend);
+
+	mangetsu_backend.cache_queue->Async([] {
+		auto &api = mangetsu_backend.api;
+		auto ass_renderer = api.ass_renderer_init(mangetsu_backend.library);
 		if (!ass_renderer)
 			return;
 		api.ass_set_fonts(ass_renderer, nullptr, "Sans", 1, nullptr, true);

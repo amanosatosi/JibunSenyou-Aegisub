@@ -1,0 +1,28 @@
+diff --git a/modules/DependencyControl/FileOps.moon b/modules/DependencyControl/FileOps.moon
+index 1369a60..bd4afc7 100644
+--- a/modules/DependencyControl/FileOps.moon
++++ b/modules/DependencyControl/FileOps.moon
+@@ -1,4 +1,5 @@
+ ffi = require "ffi"
++pcall require, "unicode-monkeypatch" if ffi.os == "Windows"
+ re =  require "aegisub.re"
+ lfs = require "lfs"
+ 
+@@ -63,7 +64,7 @@ class FileOps
+         pattern: re.compile "^(#{devPattern})((?:[\\\\/][^\\\\/]*[^\\\\/\\s\\.])*)[\\\\/]([^\\\\/]*[^\\\\/\\s\\.])?$"
+         invalidChars: '[<>:"|%?%*%z%c;]'
+         reservedNames: re.compile "[\\\\/](CON|COM[1-9]|PRN|AUX|NUL|LPT[1-9])(?:[\\\\/].*?)?$", re.ICASE
+-        maxLen: 255
++        maxLen: ffi.os == "Windows" and 32767 or nil
+     }
+     @logger = Logger!
+ 
+@@ -280,7 +281,7 @@ class FileOps
+         -- use single native path separators
+         path = path\gsub "[\\/]+", pathMatch.sep
+         -- check length
+-        if #path > pathMatch.maxLen
++        if pathMatch.maxLen and #path > pathMatch.maxLen
+             return false, msgs.validateFullPath.tooLong\format #path, pathMatch.maxLen
+         -- check for invalid characters
+         invChar = path\match pathMatch.invalidChars, ffi.os == "Windows" and 3 or nil

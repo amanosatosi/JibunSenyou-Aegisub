@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" shape-rendering="crispEdges" role="img" aria-label="Spectrogram karaoke timing icon">
+  <rect x="2" y="4" width="28" height="24" rx="2" fill="#1f2329"/>
+  <rect x="3" y="5" width="26" height="22" rx="1" fill="#f1efe7"/>
+  <rect x="4" y="6" width="24" height="7" fill="#f1efe7"/>
+  <rect x="5" y="7" width="5" height="4" fill="#7b4fc7"/>
+  <rect x="11" y="7" width="5" height="4" fill="#69b64a"/>
+  <rect x="17" y="7" width="4" height="4" fill="none" stroke="#70757d" stroke-width="1" stroke-dasharray="1 1"/>
+  <rect x="23" y="7" width="4" height="4" fill="#4a84d9"/>
+  <path d="M7 11h2l-1 2z" fill="#7b4fc7"/>
+  <path d="M13 11h2l-1 2z" fill="#69b64a"/>
+  <path d="M18 11h2l-1 2z" fill="#70757d"/>
+  <path d="M24 11h2l-1 2z" fill="#4a84d9"/>
+  <rect x="4" y="14" width="24" height="12" fill="#151923"/>
+  <rect x="5" y="22" width="2" height="3" fill="#55c878"/>
+  <rect x="7" y="20" width="2" height="5" fill="#d7dd38"/>
+  <rect x="9" y="17" width="2" height="8" fill="#47a7c9"/>
+  <rect x="11" y="21" width="2" height="4" fill="#5bd17e"/>
+  <rect x="13" y="18" width="2" height="7" fill="#6b4bb8"/>
+  <rect x="15" y="22" width="2" height="3" fill="#d7dd38"/>
+  <rect x="17" y="19" width="2" height="6" fill="#43b8c7"/>
+  <rect x="19" y="21" width="2" height="4" fill="#6bd25f"/>
+  <rect x="21" y="18" width="2" height="7" fill="#7352c9"/>
+  <rect x="23" y="20" width="2" height="5" fill="#d7dd38"/>
+  <rect x="25" y="17" width="2" height="8" fill="#3d82c7"/>
+  <rect x="6" y="16" width="2" height="2" fill="#352a67"/>
+  <rect x="10" y="15" width="2" height="2" fill="#3e3378"/>
+  <rect x="14" y="16" width="2" height="2" fill="#352a67"/>
+  <rect x="18" y="15" width="2" height="2" fill="#3e3378"/>
+  <rect x="22" y="16" width="2" height="2" fill="#352a67"/>
+  <rect x="26" y="15" width="1" height="2" fill="#3e3378"/>
+  <rect x="15" y="5" width="2" height="22" fill="#f45135"/>
+  <path d="M13 3h6v3h-6z" fill="#1f2329"/>
+  <path d="M14 4h4l-2 3z" fill="#ff7043"/>
+</svg>

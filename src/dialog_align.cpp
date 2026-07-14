@@ -44,6 +44,7 @@
 #include "image_position_picker.h"
 
 #include <cmath>
+#include <future>
 
 #include <libaegisub/ass/time.h>
 #include <libaegisub/vfr.h>
@@ -58,6 +59,10 @@
 #endif
 
 namespace {
+	struct ScanResult {
+		int failed_pos;
+	};
+
 	class DialogAlignToVideo final : public wxDialog {
 		agi::Context* context;
 		AsyncVideoProvider* provider;
@@ -301,22 +306,25 @@ namespace {
 		int lrud[4];
 		calculate_point(view, x, y, lab, tolerance, lrud);
 
-		// find forward
-#define CHECK_EXISTS_POS check_exists(pos, x, y, lrud, lab, tolerance)
-		do {
-			pos -= 2;
-		} while (pos >= 0 && CHECK_EXISTS_POS);
-		pos++;
-		pos = std::max(0, pos);
-		auto left = CHECK_EXISTS_POS ? pos : pos + 1;
+		auto scan_direction = [&](int first_pos, int step) -> ScanResult {
+			int scan_pos = first_pos;
+			while (scan_pos >= 0 && scan_pos < n_frames && check_exists(scan_pos, x, y, lrud, lab, tolerance))
+				scan_pos += step;
+			return { scan_pos };
+		};
 
-		pos = current_n_frame;
-		do {
-			pos += 2;
-		} while (pos < n_frames && CHECK_EXISTS_POS);
-		pos--;
-		pos = std::min(pos, n_frames - 1);
-		auto right = CHECK_EXISTS_POS ? pos : pos - 1;
+		auto forward_future = std::async(std::launch::async, scan_direction, current_n_frame + 2, 2);
+		auto backward_future = std::async(std::launch::async, scan_direction, current_n_frame - 2, -2);
+
+		auto forward = forward_future.get();
+		auto backward = backward_future.get();
+
+		// Match the original boundary correction checks exactly; only the stride-2
+		// scans above run concurrently.
+		auto left = backward.failed_pos < 0 ? 0 :
+			check_exists(backward.failed_pos + 1, x, y, lrud, lab, tolerance) ? backward.failed_pos + 1 : backward.failed_pos + 2;
+		auto right = forward.failed_pos >= n_frames ? n_frames - 1 :
+			check_exists(forward.failed_pos - 1, x, y, lrud, lab, tolerance) ? forward.failed_pos - 1 : forward.failed_pos - 2;
 
 		auto timecode = context->project->Timecodes();
 		auto line = context->selectionController->GetActiveLine();

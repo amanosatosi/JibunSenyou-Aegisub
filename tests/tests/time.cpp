@@ -19,6 +19,8 @@
 #include <libaegisub/ass/smpte.h>
 #include <libaegisub/ass/time.h>
 
+#include <cmath>
+
 using agi::Time;
 
 TEST(lagi_time, out_of_range_times) {
@@ -77,4 +79,16 @@ TEST(lagi_time, smpte_parse_invalid) {
 
 TEST(lagi_time, to_smpte) {
 	EXPECT_STREQ("01:23:45:11", agi::SmpteFormatter(25).ToSMPTE(Time("1:23:45.44")).c_str());
+}
+
+TEST(lagi_time, subtitle_renderer_ms_conversion_epsilon) {
+	auto to_renderer_ms = [](double time) {
+		return static_cast<int>(std::floor(time * 1000.0 + 1e-6));
+	};
+
+	EXPECT_EQ(518810, to_renderer_ms(518810 / 1000.0));
+	EXPECT_EQ(1736, to_renderer_ms(1736 / 1000.0));
+	EXPECT_EQ(1000, to_renderer_ms(1.0));
+	EXPECT_EQ(999, to_renderer_ms(0.9999999));
+	EXPECT_EQ(518809, to_renderer_ms(518809.999 / 1000.0));
 }

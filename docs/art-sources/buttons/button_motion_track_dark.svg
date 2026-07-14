@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" version="1.1">
+  <defs>
+    <linearGradient id="trackFillDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4552"/>
+      <stop offset="1" stop-color="#2b3440"/>
+    </linearGradient>
+    <linearGradient id="trackStrokeDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8dc1ff"/>
+      <stop offset="1" stop-color="#5f95d8"/>
+    </linearGradient>
+    <linearGradient id="handleDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc978"/>
+      <stop offset="1" stop-color="#f08f24"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M2 5V2h3 M11 2h3v3 M14 11v3h-3 M5 14H2v-3"
+        fill="none" stroke="#8ab8f2" stroke-width="1.1"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="4" y="4" width="8" height="8" rx="0.8"
+        fill="url(#trackFillDark)"
+        stroke="url(#trackStrokeDark)"
+        stroke-width="1"/>
+
+  <line x1="8" y1="8" x2="12.1" y2="8"
+        stroke="url(#handleDark)"
+        stroke-width="1.3"
+        stroke-linecap="round"/>
+
+  <circle cx="8" cy="8" r="1.15"
+          fill="#7fc2ff"
+          stroke="#1f2730"
+          stroke-width="0.65"/>
+
+  <circle cx="12.1" cy="8" r="1.15"
+          fill="url(#handleDark)"
+          stroke="#8a4c00"
+          stroke-width="0.7"/>
+</svg>

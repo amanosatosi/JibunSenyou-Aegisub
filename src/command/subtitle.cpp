@@ -51,9 +51,11 @@
 
 #include <libaegisub/address_of_adaptor.h>
 #include <libaegisub/charset_conv.h>
+#include <libaegisub/format.h>
 #include <libaegisub/make_unique.h>
 
 #include <boost/range/algorithm/copy.hpp>
+#include <cctype>
 #include <wx/msgdlg.h>
 #include <wx/choicdlg.h>
 #include <wx/filedlg.h>
@@ -117,6 +119,105 @@ struct validate_nonempty_selection_video_loaded : public Command {
 	CMD_TYPE(COMMAND_VALIDATE)
 	bool Validate(const agi::Context *c) override {
 		return c->project->VideoProvider() && !c->selectionController->GetSelectedSet().empty();
+	}
+};
+
+std::string set_line_alignment(std::string const& text, int an) {
+	std::string tag = agi::format("\\an%d", an);
+	std::string ret;
+	ret.reserve(text.size() + tag.size() + 2);
+
+	bool in_override = false;
+	bool block_is_override = false;
+	bool block_has_content = false;
+	std::string block;
+	for (size_t i = 0; i < text.size(); ++i) {
+		char ch = text[i];
+		if (!in_override) {
+			if (ch == '{') {
+				in_override = true;
+				block_is_override = i + 1 < text.size() && text[i + 1] == '\\';
+				block_has_content = false;
+				block = "{";
+			}
+			else {
+				ret += ch;
+			}
+			continue;
+		}
+
+		if (block_is_override && ch == '\\' && i + 3 < text.size() && text[i + 1] == 'a' && text[i + 2] == 'n' &&
+			text[i + 3] >= '1' && text[i + 3] <= '9')
+		{
+			i += 3;
+			continue;
+		}
+
+		if (ch == '}') {
+			if (!block_is_override || block_has_content)
+				ret += block + "}";
+			in_override = false;
+			continue;
+		}
+
+		block += ch;
+		if (!std::isspace(static_cast<unsigned char>(ch)))
+			block_has_content = true;
+	}
+
+	if (in_override)
+		ret += block;
+
+	if (ret.empty() || ret[0] != '{' || ret.size() < 2 || ret[1] != '\\')
+		return "{" + tag + "}" + ret;
+
+	auto block_end = ret.find('}');
+	if (block_end == std::string::npos)
+		return "{" + tag + "}" + ret;
+
+	ret.insert(1, tag);
+	return ret;
+}
+
+void SetSelectedLinesAlignment(agi::Context *c, int an) {
+	auto const& sel = c->selectionController->GetSelectedSet();
+	if (sel.empty()) {
+		if (auto line = c->selectionController->GetActiveLine())
+			line->Text = set_line_alignment(line->Text.get(), an);
+		else
+			return;
+
+		c->ass->Commit(_("set alignment"), AssFile::COMMIT_DIAG_TEXT, -1, c->selectionController->GetActiveLine());
+	}
+	else {
+		for (auto line : sel)
+			line->Text = set_line_alignment(line->Text.get(), an);
+
+		c->ass->Commit(_("set alignment"), AssFile::COMMIT_DIAG_TEXT, -1, sel.size() == 1 ? *sel.begin() : nullptr);
+	}
+}
+
+struct subtitle_set_alignment final : public validate_nonempty_selection {
+	int an;
+	std::string cmd_name;
+
+	subtitle_set_alignment(int an)
+	: an(an)
+	, cmd_name(agi::format("subtitle/set_alignment/an%d", an))
+	{
+	}
+
+	const char *name() const override { return cmd_name.c_str(); }
+	wxString StrMenu(const agi::Context *) const override { return wxString::Format(_("Set Alignment \\an%d"), an); }
+	wxString StrDisplay(const agi::Context *) const override { return wxString::Format(_("Set Alignment \\an%d"), an); }
+	wxString StrHelp() const override { return _("Set ASS alignment for selected lines"); }
+
+	bool Validate(const agi::Context *c) override {
+		return c->selectionController->GetActiveLine() || !c->selectionController->GetSelectedSet().empty();
+	}
+
+	void operator()(agi::Context *c) override {
+		SetSelectedLinesAlignment(c, an);
 	}
 };
 
@@ -551,6 +652,8 @@ namespace cmd {
 		reg(agi::make_unique<subtitle_attachment>());
 		reg(agi::make_unique<subtitle_find>());
 		reg(agi::make_unique<subtitle_find_next>());
+		for (int an = 1; an <= 9; ++an)
+			reg(agi::make_unique<subtitle_set_alignment>(an));
 		reg(agi::make_unique<subtitle_insert_after>());
 		reg(agi::make_unique<subtitle_insert_after_videotime>());
 		reg(agi::make_unique<subtitle_insert_before>());

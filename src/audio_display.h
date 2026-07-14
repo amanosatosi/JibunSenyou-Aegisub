@@ -54,6 +54,7 @@ namespace {
 }
 class AudioDisplayInteractionObject;
 class AudioMarkerInteractionObject;
+class DialogTimeChangerInteractionObject;
 
 /// @class AudioDisplay
 /// @brief Primary view/UI for interaction with audio timing
@@ -62,6 +63,8 @@ class AudioMarkerInteractionObject;
 /// timing controller. The audio display also renders audio according to the audio controller
 /// and the timing controller, using an audio renderer instance.
 class AudioDisplay: public wxWindow {
+	friend class DialogTimeChangerInteractionObject;
+
 	agi::signal::Connection audio_open_connection;
 
 	std::vector<agi::signal::Connection> connections;
@@ -86,6 +89,9 @@ class AudioDisplay: public wxWindow {
 
 	/// The interaction object for the last-dragged audio marker
 	std::unique_ptr<AudioMarkerInteractionObject> audio_marker;
+
+	/// The interaction object for the current Dialog Time Changer drag
+	std::unique_ptr<DialogTimeChangerInteractionObject> dialog_time_changer;
 
 
 	/// Current object on display being dragged, if any
@@ -127,6 +133,11 @@ class AudioDisplay: public wxWindow {
 	/// Width of the audio marker feet in pixels
 	static const int foot_size = 6;
 
+	/// Is the Dialog Time Changer overlay visible?
+	bool dialog_time_changer_overlay = false;
+	int dialog_time_changer_start = 0;
+	int dialog_time_changer_end = 0;
+
 	/// Zoom level given as a number, see SetZoomLevel for details
 	int zoom_level;
 
@@ -158,10 +169,24 @@ class AudioDisplay: public wxWindow {
 	/// @param updrect Pixel range to repaint
 	void PaintAudio(wxDC &dc, TimeRange updtime, wxRect updrect);
 
+	/// Paint provisional Toshiki K-Timing slot ranges, when supplied by the
+	/// active timing controller.
+	void PaintToshikiKTimingPreview(wxDC &dc, TimeRange updtime);
+
 	/// Paint the markers in a time range
 	/// @param dc DC to paint to
 	/// @param updtime Time range to repaint
 	void PaintMarkers(wxDC &dc, TimeRange updtime);
+
+	/// Paint the Dialog Time Changer drag overlay
+	/// @param dc DC to paint to
+	void PaintDialogTimeChangerOverlay(wxDC &dc);
+
+	/// Set the current Dialog Time Changer overlay range
+	void SetDialogTimeChangerOverlay(int start_ms, int end_ms);
+
+	/// Clear the current Dialog Time Changer overlay range
+	void ClearDialogTimeChangerOverlay();
 
 	/// Draw a single foot for a marker
 	/// @param dc DC to paint to
