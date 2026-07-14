@@ -105,11 +105,11 @@ deps += dependency('libass', version: '>=0.9.7',
 libassmod_sp = subproject('libassmod', default_options: ['default_library=shared'])
 libassmod_lib = libassmod_sp.get_variable('libass')
 if host_machine.system() == 'windows'
-    libassmod_output = 'ass.dll'
+    libassmod_output = 'libassmod.dll'
 elif host_machine.system() == 'darwin'
-    libassmod_output = 'libass.dylib'
+    libassmod_output = 'libassmod.dylib'
 else
-    libassmod_output = 'libass.so'
+    libassmod_output = 'libassmod.so'
 endif
 libassmod_copy = custom_target('libassmod_copy',
     input: libassmod_lib,
@@ -119,6 +119,38 @@ libassmod_copy = custom_target('libassmod_copy',
     install: true,
     install_dir: bindir,
 )
+
+if get_option('with_mangetsu')
+    mangetsu_path = get_option('mangetsu_path')
+    if host_machine.system() == 'windows'
+        mangetsu_output = 'mangetsu.dll'
+    elif host_machine.system() == 'darwin'
+        mangetsu_output = 'libmangetsu.dylib'
+    else
+        mangetsu_output = 'libmangetsu.so'
+    endif
+
+    if mangetsu_path == ''
+        mangetsu_sp = subproject('libassmod-mangetsu', default_options: ['default_library=shared'])
+        mangetsu_lib = mangetsu_sp.get_variable('libass')
+        custom_target('mangetsu_copy',
+            input: mangetsu_lib,
+            output: mangetsu_output,
+            command: [py, '-c', 'import shutil,sys; shutil.copy2(sys.argv[1], sys.argv[2])', '@INPUT@', '@OUTPUT@'],
+            build_by_default: true,
+            install: true,
+            install_dir: bindir,
+        )
+    else
+        configure_file(
+            input: mangetsu_path,
+            output: mangetsu_output,
+            copy: true,
+            install: true,
+            install_dir: bindir,
+        )
+    endif
+endif
 
 boost_modules = ['chrono', 'filesystem', 'thread', 'locale', 'regex']
 if not get_option('local_boost')
@@ -316,6 +348,31 @@ if get_option('vapoursynth').enabled()
     vs_sub = subproject('vapoursynth')
     deps_inc += vs_sub.get_variable('vs_inc')
     dep_avail += 'VapourSynth'
+endif
+
+opencv_opt = get_option('opencv')
+if not opencv_opt.disabled()
+    opencv_dep = dependency('OpenCV', method: 'cmake', required: false)
+    if not opencv_dep.found()
+        opencv_dep = dependency('opencv4', required: false)
+    endif
+
+    if opencv_dep.found()
+        deps += opencv_dep
+        conf.set('WITH_OPENCV', 1)
+        dep_avail += 'OpenCV'
+    elif opencv_opt.enabled()
+        error('OpenCV enabled but not found')
+    endif
+endif
+
+paddleocr_opt = get_option('paddleocr')
+if not paddleocr_opt.disabled()
+    if host_machine.system() == 'windows'
+        conf.set('WITH_PADDLEOCR', 1)
+    elif paddleocr_opt.enabled()
+        error('Bundled PaddleOCR support is currently Windows-only')
+    endif
 endif
 
 if host_machine.system() == 'windows'

@@ -35,6 +35,8 @@
 #include "../ass_file.h"
 #include "../ass_karaoke.h"
 #include "../ass_style.h"
+#include "../audio_controller.h"
+#include "../audio_timing.h"
 #include "../compat.h"
 #include "../dialog_search_replace.h"
 #include "../dialogs.h"
@@ -49,6 +51,7 @@
 #include "../subs_controller.h"
 #include "../subs_edit_box.h"
 #include "../text_selection_controller.h"
+#include "../time_range.h"
 #include "../utils.h"
 #include "../video_controller.h"
 
@@ -69,13 +72,19 @@
 #include <boost/tokenizer.hpp>
 
 #include <cctype>
+#include <cmath>
 #include <functional>
 #include <cstring>
 
 #include <optional>
 
+#include <wx/brush.h>
 #include <wx/clipbrd.h>
+#include <wx/colour.h>
+#include <wx/dcmemory.h>
+#include <wx/font.h>
 #include <wx/fontdlg.h>
+#include <wx/pen.h>
 #include <wx/textentry.h>
 
 namespace {
@@ -955,6 +964,40 @@ static int SafeInsertPosForEndpoint(int pos, const std::vector<OverrideBlockRang
 	return blocks[static_cast<size_t>(idx)].end;
 }
 
+enum class BoundaryInsertMode {
+	WrappedNewBlock,
+	InsideCurrentBlock,
+	BeforeCurrentBlockClose,
+	IntoPreviousAdjacentBlock
+};
+
+struct BoundaryInsertion {
+	BoundaryInsertMode mode = BoundaryInsertMode::WrappedNewBlock;
+	int pos = 0;
+};
+
+static bool LooksLikeOverrideBlock(const std::string& text, OverrideBlockRange const& block) {
+	return block.start >= 0 &&
+		block.start + 1 < static_cast<int>(text.size()) &&
+		text[block.start] == '{' &&
+		text[block.start + 1] == '\\';
+}
+
+static BoundaryInsertion GetStartBoundaryInsertion(const std::string& text, const std::vector<OverrideBlockRange>& blocks, int pos) {
+	pos = std::clamp(pos, 0, static_cast<int>(text.size()));
+
+	for (auto const& block : blocks) {
+		if (pos > block.start && pos < block.end)
+			return {BoundaryInsertMode::InsideCurrentBlock, pos};
+		if (pos == block.end)
+			return {BoundaryInsertMode::BeforeCurrentBlockClose, pos};
+		if (pos == block.end + 1 && LooksLikeOverrideBlock(text, block))
+			return {BoundaryInsertMode::IntoPreviousAdjacentBlock, block.end};
+	}
+
+	return {BoundaryInsertMode::WrappedNewBlock, pos};
+}
+
 struct TInsertionPoint {
 	bool valid = false;
 	bool replace = false;
@@ -1323,15 +1366,12 @@ static ColorWrapResult InsertTagPairAtSelection(
 		blocks = refresh_blocks(text);
 	};
 
-	int start_insert_pos = selection_start;
-	bool start_inside_block = false;
-	if (auto close = find_close(selection_start)) {
-		start_insert_pos = *close;
-		start_inside_block = true;
-	}
-	insert_text(start_insert_pos, start_tag, !start_inside_block);
+	auto start_insertion = GetStartBoundaryInsertion(text, blocks, selection_start);
+	int start_insert_pos = start_insertion.pos;
+	bool wrap_start = start_insertion.mode == BoundaryInsertMode::WrappedNewBlock;
+	insert_text(start_insert_pos, start_tag, wrap_start);
 	if (!start_tag.empty()) {
-		local_result.start_pos = start_insert_pos + (start_inside_block ? 0 : 1);
+		local_result.start_pos = start_insert_pos + (wrap_start ? 1 : 0);
 		local_result.start_len = start_tag.size();
 	}
 
@@ -1606,13 +1646,13 @@ static SelectionApplyResult InsertBoundaryTags(
 	int sel_end,
 	const std::string& start_content,
 	const std::string& end_content,
-	bool start_inside_override,
 	bool end_inside_override)
 {
 	SelectionApplyResult result;
 	std::string text = base_text;
 	int selection_start = sel_start;
 	int selection_end = sel_end;
+	auto blocks = FindOverrideBlocks(text);
 
 	if (!end_content.empty()) {
 		bool inside_block = end_inside_override || (selection_end < static_cast<int>(text.size()) && text[selection_end] == '}');
@@ -1628,12 +1668,9 @@ static SelectionApplyResult InsertBoundaryTags(
 	}
 
 	if (!start_content.empty()) {
-		bool inside_prev_block =
-			start_inside_override ||
-			(selection_start > 0 && text[selection_start - 1] == '}') ||
-			(selection_start < static_cast<int>(text.size()) && text[selection_start] == '}');
-		if (inside_prev_block) {
-			text.insert(selection_start, start_content);
+		auto start_insertion = GetStartBoundaryInsertion(text, blocks, selection_start);
+		if (start_insertion.mode != BoundaryInsertMode::WrappedNewBlock) {
+			text.insert(start_insertion.pos, start_content);
 			selection_start += static_cast<int>(start_content.size());
 			selection_end += static_cast<int>(start_content.size());
 		}
@@ -1825,10 +1862,9 @@ static SelectionApplyResult ApplyColorOrGradientToRange(
 		}
 		return false;
 	};
-	bool start_inside_block = inside_or_closing(apply_start);
 	bool end_inside_block = inside_or_closing(apply_end);
 
-	SelectionApplyResult wrapped = InsertBoundaryTags(text, apply_start, apply_end, start_content, end_content, start_inside_block, end_inside_block);
+	SelectionApplyResult wrapped = InsertBoundaryTags(text, apply_start, apply_end, start_content, end_content, end_inside_block);
 	wrapped.shift.start += apply_start - original_start;
 	wrapped.shift.end += apply_end - original_end;
 	return wrapped;
@@ -2294,6 +2330,75 @@ struct edit_color_shadow final : public Command {
 	}
 };
 
+struct edit_color_insert_value final : public Command {
+	CMD_NAME("edit/color/insert_value")
+	STR_MENU("Insert Color Value...")
+	STR_DISP("Color Value")
+	STR_HELP("Insert an ASS color value at the cursor position")
+
+	wxBitmap Icon(int size, double scale = 1.0, wxLayoutDirection = wxLayout_LeftToRight) const override {
+		int pixel_size = std::max(16, static_cast<int>(size * scale));
+		wxBitmap bmp(pixel_size, pixel_size, 32);
+		wxMemoryDC dc(bmp);
+		dc.SetBackground(*wxTRANSPARENT_BRUSH);
+		dc.Clear();
+
+		dc.SetPen(wxPen(wxColour(40, 40, 40)));
+		dc.SetBrush(wxBrush(wxColour(245, 245, 245)));
+		dc.DrawRoundedRectangle(0, 0, pixel_size, pixel_size, std::max(2, pixel_size / 8));
+
+		wxFont font(std::max(8, pixel_size * 3 / 5), wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+		dc.SetFont(font);
+		dc.SetTextForeground(wxColour(20, 20, 20));
+
+		wxString label = wxS("C");
+		wxSize text_size = dc.GetTextExtent(label);
+		dc.DrawText(label, (pixel_size - text_size.GetWidth()) / 2, (pixel_size - text_size.GetHeight()) / 2);
+		dc.SelectObject(wxNullBitmap);
+		return bmp;
+	}
+
+	void operator()(agi::Context *c) override {
+		agi::Color initial_color{255, 255, 255};
+		if (auto active_line = c->selectionController->GetActiveLine()) {
+			if (auto style = c->ass->GetStyle(active_line->Style))
+				initial_color = style->primary;
+		}
+
+		int original_sel_start = c->textSelectionController->GetSelectionStart();
+		int original_sel_end = c->textSelectionController->GetSelectionEnd();
+		int preview_start = std::min(original_sel_start, original_sel_end);
+		int preview_end = std::max(original_sel_start, original_sel_end);
+		wxString original_text = c->subsEditBox->GetTextRange(preview_start, preview_end);
+		bool preview_inserted = false;
+		agi::Color selected_color = initial_color;
+
+		bool ok = GetColorFromUserShin(c->parent, initial_color, false, [&](agi::Color new_color) {
+			selected_color = new_color;
+			int new_end = preview_end;
+			if (c->subsEditBox->ReplaceTextRange(preview_start, preview_end, to_wx(new_color.GetAssOverrideFormatted()), &new_end, false)) {
+				preview_end = new_end;
+				preview_inserted = true;
+			}
+		});
+		if (ok) {
+			if (!preview_inserted)
+				c->subsEditBox->ReplaceTextRange(preview_start, preview_end, to_wx(selected_color.GetAssOverrideFormatted()), &preview_end);
+			c->subsEditBox->SetTextSelection(preview_end, preview_end);
+			c->subsEditBox->FocusTextCtrl();
+		}
+		else if (preview_inserted) {
+			int restored_end = preview_start;
+			c->subsEditBox->ReplaceTextRange(preview_start, preview_end, original_text, &restored_end);
+			c->subsEditBox->SetTextSelection(original_sel_start, original_sel_end);
+			c->subsEditBox->FocusTextCtrl();
+		}
+		else {
+			c->subsEditBox->FocusTextCtrl();
+		}
+	}
+};
+
 struct edit_style_bold final : public Command {
 	CMD_NAME("edit/style/bold")
 	CMD_ICON(button_bold)
@@ -2339,6 +2444,103 @@ struct edit_style_strikeout final : public Command {
 
 	void operator()(agi::Context *c) override {
 		toggle_override_tag(c, &AssStyle::strikeout, "\\s", _("toggle strikeout"));
+	}
+};
+
+struct edit_color_gradient final : public Command {
+	CMD_NAME("edit/color/gradient")
+	STR_MENU("Mangetsu Gradient Color/Alpha...")
+	STR_DISP("Gradient")
+	STR_HELP("Mangetsu Gradient Color/Alpha")
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return c->selectionController && c->selectionController->GetActiveLine();
+	}
+
+	wxBitmap Icon(int size, double scale = 1.0, wxLayoutDirection = wxLayout_LeftToRight) const override {
+		int pixel_size = std::max(16, static_cast<int>(size * scale));
+		wxBitmap bmp(pixel_size, pixel_size, 32);
+		wxMemoryDC dc(bmp);
+		dc.SetBackground(*wxTRANSPARENT_BRUSH);
+		dc.Clear();
+
+		dc.SetBrush(wxBrush(wxColour(248, 248, 248)));
+		dc.SetPen(wxPen(wxColour(35, 35, 35)));
+		dc.DrawRoundedRectangle(0, 0, pixel_size, pixel_size, std::max(2, pixel_size / 8));
+
+		wxRect rect(pixel_size / 7, pixel_size * 11 / 16, pixel_size * 5 / 7, std::max(3, pixel_size / 5));
+		for (int x = 0; x < rect.GetWidth(); ++x) {
+			double t = rect.GetWidth() <= 1 ? 0.0 : static_cast<double>(x) / (rect.GetWidth() - 1);
+			wxColour col;
+			if (t < 0.35) {
+				double u = t / 0.35;
+				col = wxColour(
+					static_cast<unsigned char>(std::lround(255 * (1.0 - u))),
+					static_cast<unsigned char>(std::lround(102 * u)),
+					255);
+			}
+			else if (t < 0.70) {
+				double u = (t - 0.35) / 0.35;
+				col = wxColour(0,
+					static_cast<unsigned char>(std::lround(102 + 102 * u)),
+					static_cast<unsigned char>(std::lround(255 * (1.0 - u) + 68 * u)));
+			}
+			else {
+				double u = (t - 0.70) / 0.30;
+				col = wxColour(
+					static_cast<unsigned char>(std::lround(255 * u)),
+					static_cast<unsigned char>(std::lround(204 + 51 * u)),
+					static_cast<unsigned char>(std::lround(68 * (1.0 - u))));
+			}
+			dc.SetPen(wxPen(col));
+			dc.DrawLine(rect.GetX() + x, rect.GetY(), rect.GetX() + x, rect.GetY() + rect.GetHeight());
+		}
+		dc.SetBrush(*wxTRANSPARENT_BRUSH);
+		dc.SetPen(wxPen(wxColour(20, 20, 20), std::max(1, pixel_size / 18)));
+		dc.DrawRectangle(rect);
+
+		wxFont font(std::max(9, pixel_size * 5 / 8), wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+#ifdef __WXMSW__
+		font.SetFaceName(wxS("Yu Gothic UI"));
+#endif
+		dc.SetFont(font);
+		wxString label = wxString::FromUTF8("\xE8\x89\xB2");
+		wxSize text_size = dc.GetTextExtent(label);
+		for (int font_size = std::max(8, pixel_size * 5 / 8); text_size.GetWidth() > pixel_size - 4 && font_size > 7; --font_size) {
+			font.SetPointSize(font_size);
+			dc.SetFont(font);
+			text_size = dc.GetTextExtent(label);
+		}
+		int text_x = (pixel_size - text_size.GetWidth()) / 2;
+		int text_y = std::max(0, (pixel_size * 11 / 16 - text_size.GetHeight()) / 2 + 1);
+
+		dc.SetTextForeground(wxColour(15, 15, 15));
+		for (int dy = -1; dy <= 1; ++dy) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				if (dx || dy)
+					dc.DrawText(label, text_x + dx, text_y + dy);
+			}
+		}
+
+		for (int x = 0; x < std::max(1, text_size.GetWidth()); ++x) {
+			double t = text_size.GetWidth() <= 1 ? 0.0 : static_cast<double>(x) / (text_size.GetWidth() - 1);
+			wxColour col(
+				static_cast<unsigned char>(std::lround(255 * t)),
+				static_cast<unsigned char>(std::lround(60 + 150 * (1.0 - std::abs(t - 0.5) * 2.0))),
+				static_cast<unsigned char>(std::lround(255 * (1.0 - t))));
+			dc.SetClippingRegion(text_x + x, 0, 1, pixel_size);
+			dc.SetTextForeground(col);
+			dc.DrawText(label, text_x, text_y);
+			dc.DestroyClippingRegion();
+		}
+
+		dc.SelectObject(wxNullBitmap);
+		return bmp;
+	}
+
+	void operator()(agi::Context *c) override {
+		ShowMangetsuGradientDialog(c);
 	}
 };
 
@@ -2756,6 +2958,16 @@ static std::string build_joined_text(std::string const& first, std::string const
 	return lhs + ' ' + rhs;
 }
 
+static void preview_join_next_source(agi::Context *c, TimeRange const& preview_range) {
+	if (!c->audioController || !OPT_GET("Audio/Join Next/Auto Preview")->GetBool())
+		return;
+
+	if (auto timing = c->audioController->GetTimingController())
+		timing->Revert();
+
+	c->audioController->PlayRange(preview_range);
+}
+
 struct edit_line_join_as_karaoke final : public validate_sel_multiple {
 	CMD_NAME("edit/line/join/as_karaoke")
 	STR_MENU("As &Karaoke")
@@ -2806,6 +3018,7 @@ struct edit_line_join_next final : public Command {
 		AssDialogue *next = get_adjacent_line(c, line, 1);
 		if (!next) return;
 
+		TimeRange preview_range(next->Start, next->End);
 		std::string const current_text = line->Text.get();
 		std::string const next_text = next->Text.get();
 		std::string const joined_text = build_joined_text(current_text, next_text);
@@ -2819,9 +3032,7 @@ struct edit_line_join_next final : public Command {
 			base_original = current_text;
 		std::string const joined_original = build_joined_text(base_original, next_text);
 
-		Selection new_sel = c->selectionController->GetSelectedSet();
-		new_sel.erase(next);
-		new_sel.insert(line);
+		Selection new_sel{ line };
 
 		auto it = c->ass->iterator_to(*next);
 		c->ass->Events.erase(it);
@@ -2832,6 +3043,7 @@ struct edit_line_join_next final : public Command {
 		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+		preview_join_next_source(c, preview_range);
 	}
 };
 
@@ -2852,6 +3064,7 @@ struct edit_line_join_next_translatormode final : public Command {
 		AssDialogue *next = get_adjacent_line(c, line, 1);
 		if (!next) return;
 
+		TimeRange preview_range(next->Start, next->End);
 		line->Start = std::min(line->Start, next->Start);
 		line->End = std::max(line->End, next->End);
 
@@ -2860,9 +3073,7 @@ struct edit_line_join_next_translatormode final : public Command {
 			base_original = line->Text.get();
 		std::string joined_original = build_joined_text(base_original, next->Text.get());
 
-		Selection new_sel = c->selectionController->GetSelectedSet();
-		new_sel.erase(next);
-		new_sel.insert(line);
+		Selection new_sel{ line };
 
 		auto it = c->ass->iterator_to(*next);
 		c->ass->Events.erase(it);
@@ -2873,6 +3084,7 @@ struct edit_line_join_next_translatormode final : public Command {
 		c->initialLineState->SetInitialText(line, joined_original);
 
 		c->ass->Commit(_("join lines"), AssFile::COMMIT_DIAG_ADDREM | AssFile::COMMIT_DIAG_FULL);
+		preview_join_next_source(c, preview_range);
 	}
 };
 
@@ -3410,6 +3622,8 @@ namespace cmd {
 		reg(agi::make_unique<edit_color_secondary>());
 		reg(agi::make_unique<edit_color_outline>());
 		reg(agi::make_unique<edit_color_shadow>());
+		reg(agi::make_unique<edit_color_insert_value>());
+		reg(agi::make_unique<edit_color_gradient>());
 		reg(agi::make_unique<edit_font>());
 		reg(agi::make_unique<edit_find_replace>());
 		reg(agi::make_unique<edit_line_copy>());

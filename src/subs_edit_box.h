@@ -280,6 +280,9 @@ public:
 	/// Insert text into the main edit control, honouring the current selection.
 	/// @return True if text was inserted.
 	bool InsertTextAtCaret(wxString const& text);
+	wxString GetTextRange(int start, int end) const;
+	bool ReplaceTextRange(int start, int end, wxString const& text, int *new_end = nullptr, bool focus = true);
+	void SetTextSelection(int start, int end);
 	void FocusTextCtrl();
 	bool MapDisplayRangeToRaw(int disp_start, int disp_end, std::string const& raw_utf8, int& raw_start, int& raw_end);
 	int MapRawToDisplay(int raw_offset, std::string const& raw_utf8);

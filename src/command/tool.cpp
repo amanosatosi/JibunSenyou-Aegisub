@@ -39,8 +39,11 @@
 #include "../include/aegisub/context.h"
 #include "../libresrc/libresrc.h"
 #include "../options.h"
+#include "../ocr/ocr_engine.h"
+#include "../project.h"
 #include "../resolution_resampler.h"
 #include "../video_controller.h"
+#include "../video_display.h"
 
 #include <libaegisub/fs.h>
 #include <libaegisub/path.h>
@@ -98,6 +101,42 @@ struct tool_line_select final : public Command {
 
 	void operator()(agi::Context *c) override {
 		ShowSelectLinesDialog(c);
+	}
+};
+
+struct tool_ocr_validator : public Command {
+	CMD_TYPE(COMMAND_VALIDATE)
+
+	bool Validate(const agi::Context *c) override {
+		return c->videoDisplay && c->project->VideoProvider() && ocr::OCREngine::IsRuntimeAvailable();
+	}
+};
+
+struct tool_ocr_image_to_text final : public tool_ocr_validator {
+	CMD_NAME("tool/ocr/image_to_text")
+	STR_MENU("Image to Text (OCR)")
+	STR_DISP("Image to Text (OCR)")
+	STR_HELP("Recognize selectable text from the current video frame")
+
+	void operator()(agi::Context *c) override {
+		if (Validate(c)) {
+			c->videoController->Stop();
+			c->videoDisplay->StartImage2TextOCR();
+		}
+	}
+};
+
+struct tool_ocr_detect_regions final : public tool_ocr_validator {
+	CMD_NAME("tool/ocr/detect_regions")
+	STR_MENU("Detect Text Regions for Mask")
+	STR_DISP("Detect Text Regions for Mask")
+	STR_HELP("Detect selectable text regions from the current video frame for masking")
+
+	void operator()(agi::Context *c) override {
+		if (Validate(c)) {
+			c->videoController->Stop();
+			c->videoDisplay->StartImage2TextDetectOnly();
+		}
 	}
 };
 
@@ -281,6 +320,8 @@ namespace cmd {
 		reg(agi::make_unique<tool_export>());
 		reg(agi::make_unique<tool_font_collector>());
 		reg(agi::make_unique<tool_line_select>());
+		reg(agi::make_unique<tool_ocr_image_to_text>());
+		reg(agi::make_unique<tool_ocr_detect_regions>());
 		reg(agi::make_unique<tool_resampleres>());
 		reg(agi::make_unique<tool_style_assistant>());
 		reg(agi::make_unique<tool_styling_assistant_commit>());

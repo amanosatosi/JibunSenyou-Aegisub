@@ -32,7 +32,10 @@
 #include <vector>
 #include <wx/stc/stc.h>
 
+#include "ass_font_tag_selection.h"
+
 class Thesaurus;
+class wxMouseEvent;
 namespace agi {
 	class SpellChecker;
 	struct Context;
@@ -80,8 +83,14 @@ class SubsTextEditCtrl final : public wxStyledTextCtrl {
 	/// Tokenized version of line_text
 	std::vector<agi::ass::DialogueToken> tokenized_line;
 
+	/// Temporary double-click-drag constraint for the value of a \fn tag.
+	AssFontNameValueRange font_name_word_drag;
+	bool adjusting_font_name_word_drag = false;
+
 	void OnContextMenu(wxContextMenuEvent &);
 	void OnDoubleClick(wxStyledTextEvent&);
+	void OnMouseSelection(wxMouseEvent&);
+	void OnSelectionUpdate(wxStyledTextEvent&);
 	void OnUseSuggestion(wxCommandEvent &event);
 	void OnSetDicLanguage(wxCommandEvent &event);
 	void OnSetThesLanguage(wxCommandEvent &event);
@@ -96,6 +105,8 @@ class SubsTextEditCtrl final : public wxStyledTextCtrl {
 	void SetStyles();
 
 	void UpdateStyle();
+	void ClearFontNameWordDrag();
+	bool BeginFontNameWordDrag(int position);
 
 	/// Add the thesaurus suggestions to a menu
 	void AddThesaurusEntries(wxMenu &menu);

@@ -57,6 +57,9 @@ public:
 	};
 private:
 	std::vector<Syllable> syls;
+	int line_start_time = 0;
+	int line_end_time = 0;
+	bool has_karaoke_tags = false;
 
 	bool no_announce = false;
 
@@ -78,8 +81,34 @@ public:
 	/// Add a split before character pos in syllable syl_idx, preserving existing timings
 	/// [Satoshi preserve timings on cut]
 	void AddSplitPreserveTimes(size_t syl_idx, size_t pos);
+	/// Add a Toshiki K-Timing split while preserving existing timing and giving the new slot 0 duration
+	void AddSplitKTiming(size_t syl_idx, size_t pos);
 	/// Remove the split at the given index
 	void RemoveSplit(size_t syl_idx);
+	/// Insert an empty rest syllable before the given syllable index
+	void InsertEmptySyllable(size_t syl_idx);
+	/// Append an empty rest syllable to the end of the line
+	void AppendEmptySyllable(bool announce = true);
+	/// Remove an empty rest syllable
+	void RemoveEmptySyllable(size_t syl_idx);
+	/// Is the given syllable an empty rest?
+	bool IsEmptySyllable(size_t syl_idx) const;
+	/// Is the given syllable a literal whitespace slot?
+	bool IsWhitespaceSyllable(size_t syl_idx) const;
+	/// Did the parsed line contain explicit karaoke timing tags?
+	bool HasKaraokeTags() const { return has_karaoke_tags; }
+	/// Does the current model have any assigned timing?
+	bool HasTiming() const;
+	/// Rebuild syllable timings from ordered boundary positions
+	void SetTimingBoundaries(int start_time, int end_time, std::vector<int> const& boundaries, bool announce = true);
+	/// Clear all syllable timing while preserving the current slot text/order
+	void ClearTiming();
+	/// Recut the current text into Japanese kana timing slots
+	void AutoSplitJapaneseKana(bool distribute_timings = true, bool spaces_as_slots = false, bool song_sane = false);
+	/// Recut the current text into space-separated word timing slots
+	void AutoSplitWords(bool distribute_timings = true);
+	/// Does the current stripped text contain kana or CJK ideographs?
+	bool ContainsJapaneseText() const;
 	/// Set the start time of a syllable in ms
 	void SetStartTime(size_t syl_idx, int time);
 	/// Adjust the line's start and end times without shifting the syllables
@@ -91,14 +120,16 @@ public:
 	iterator end() const { return syls.end(); }
 	size_t size() const { return syls.size(); }
 
-	/// Get the line's text with k tags
-	std::string GetText() const;
+	/// Get the line's text, optionally with karaoke tags
+	std::string GetText(bool k_tags = true) const;
 
 	/// Get the karaoke tag type used, with leading slash
 	/// @returns "\k", "\kf", or "\ko"
 	std::string GetTagType() const;
 	/// Set the tag type for all karaoke tags in this line
-	void SetTagType(std::string const& new_type);
+	void SetTagType(std::string const& new_type, bool announce = true);
+	/// Set the tag type for one karaoke syllable
+	void SetSyllableTagType(size_t syl_idx, std::string const& new_type, bool announce = true);
 
 	DEFINE_SIGNAL_ADDERS(AnnounceSyllablesChanged, AddSyllablesChangedListener)
 };

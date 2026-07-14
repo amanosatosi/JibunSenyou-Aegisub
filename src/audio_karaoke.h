@@ -27,6 +27,8 @@
 class AssDialogue;
 class AssKaraoke;
 class wxButton;
+class wxChoice;
+class wxToggleButton;
 namespace agi { class AudioProvider; }
 namespace agi { struct Context; }
 
@@ -106,9 +108,13 @@ class AudioKaraoke final : public wxWindow {
 	wxFont split_font; ///< Font used in the split/join interface
 
 	bool enabled = false; ///< Is karaoke mode enabled?
+	bool ktiming_enabled = false; ///< Is dedicated k-timing mode enabled?
+	std::string ktiming_tag_type = "\\k"; ///< Session-local Toshiki K-Timing commit tag type
 
 	wxButton *accept_button; ///< Accept pending splits button
 	wxButton *cancel_button; ///< Revert pending changes
+	wxChoice *tag_type_choice; ///< Toshiki K-Timing karaoke tag type selector
+	wxToggleButton *auto_cut_button; ///< Toggle automatic Toshiki K-Timing slot cutting
 
 	wxWindow *split_area; ///< The split/join window
 
@@ -121,6 +127,9 @@ class AudioKaraoke final : public wxWindow {
 	void AddMenuItem(wxMenu &menu, std::string const& tag, wxString const& help, std::string const& selected);
 	/// Set the karaoke tags for the selected syllables to the indicated one
 	void SetTagType(std::string const& new_type);
+	void SetKTimingTagType(std::string const& new_type);
+	void SetKTimingTagTypeAndCommit(std::string const& new_type);
+	void OnKTimingTagTypeChoice(wxCommandEvent &evt);
 
 	/// Prerender the current line along with syllable split lines
 	void RenderText();
@@ -133,6 +142,11 @@ class AudioKaraoke final : public wxWindow {
 	void CancelSplit();
 	/// Apply any pending split information to the syllable data and return to normal mode
 	void AcceptSplit();
+	void AutoCutKTiming();
+	void ApplyKTimingAutoCutIfNeeded();
+	void UpdateAutoCutButton();
+	void SetKTimingController();
+	void SyncKTimingTagTypeAfterLoad();
 
 	void OnActiveLineChanged(AssDialogue *new_line);
 	void OnContextMenu(wxContextMenuEvent&);
@@ -155,7 +169,17 @@ public:
 
 	/// Is karaoke mode currently enabled?
 	bool IsEnabled() const { return enabled; }
+	/// Is dedicated k-timing mode currently enabled?
+	bool IsKTimingEnabled() const { return ktiming_enabled; }
 
 	/// Enable or disable karaoke mode
 	void SetEnabled(bool enable);
+	/// Enable or disable dedicated k-timing mode
+	void SetKTimingEnabled(bool enable);
+	/// Enable or disable automatic Toshiki K-Timing slot cutting for this window
+	void SetKTimingAutoCutEnabled(bool enable);
+	/// Auto-split the active line into Japanese kana k-timing slots
+	void AutoSplitJapaneseKana(bool commit = true, bool spaces_as_slots = false, bool song_sane = false);
+	/// Show the Toshiki tag menu for a selected audio segment
+	void ShowKTimingTagMenu();
 };

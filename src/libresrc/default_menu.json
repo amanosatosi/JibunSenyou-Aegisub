@@ -155,6 +155,8 @@
         { "recent" : "Video" },
         { "command" : "video/open/dummy" },
         { "command" : "video/details" },
+        { "command" : "video/image2text" },
+        { "command" : "video/image2text/mask" },
         {},
         { "command" : "timecode/open" },
         { "command" : "timecode/save" },
@@ -215,6 +217,9 @@
         {},
         { "command" : "audio/view/spectrum" },
         { "command" : "audio/view/waveform" },
+        {},
+        { "command" : "audio/karaoke/toshiki_ktiming" },
+        { "command" : "audio/karaoke/auto_cut_kana" },
         { "command" : "audio/open/blank" },
         { "command" : "audio/open/noise" }
     ],
@@ -253,6 +258,9 @@
         {},
         { "command" : "video/frame/save/subs" },
         { "command" : "video/frame/copy/subs" },
+        {},
+        { "command" : "video/image2text" },
+        { "command" : "video/image2text/mask" },
         {},
         { "command" : "video/copy_coordinates" },
         { "command" : "video/pan_reset" }

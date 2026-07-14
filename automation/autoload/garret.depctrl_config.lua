@@ -4,8 +4,29 @@ script_author = "garret"
 script_version = "1.3.1"
 script_namespace = "garret.depctrl_config"
 
-local DependencyControl = require("l0.DependencyControl")
-local depctrl = DependencyControl {}
+local function disable_dependency_control(reason)
+    local message = "DependencyControl failed to load and has been disabled.\n\n" .. tostring(reason)
+    aegisub.register_macro("DependencyControl/Unavailable", "DependencyControl could not be loaded.", function()
+        aegisub.log(1, "%s\n", message)
+        aegisub.dialog.display({
+            {class="textbox", name="message", text=message, x=0, y=0, width=60, height=8},
+        }, {"OK"})
+    end)
+end
+
+local depctrl_module_ok, DependencyControl = pcall(require, "l0.DependencyControl")
+if not depctrl_module_ok then
+    disable_dependency_control(DependencyControl)
+    return
+end
+
+local depctrl_ok, depctrl = pcall(function()
+    return DependencyControl {}
+end)
+if not depctrl_ok or depctrl == nil then
+    disable_dependency_control(depctrl or "DependencyControl did not return a controller")
+    return
+end
 
 local function get_bool(field, default) -- can't just do `field or default`, because the default might be true when field is false
     if field == nil then
