@@ -1,4 +1,4 @@
-# aegisub toshi-ban v1.1
+# aegisub toshi-ban v2.0
 
 English [မြန်မာ](https://github.com/amanosatosi/Aegisub_Toshi-ban/blob/main/Readme-MM.md)
 
@@ -35,6 +35,53 @@ I used AI tools (Codex) to help implement and iterate faster.
 
 This project is open source for transparency, and tested by actually using it.
 
+---
+# Aegisub Toshi-ban v2.0 Mangetsu Suite update. 🌕
+
+## Built-in Motion Tracking
+
+Motion tracking is now integrated directly into Aegisub, eliminating the need to switch between external tools.
+
+## Built-in Fully Offline OCR
+
+Extract text from signs and subtitles without leaving the editor. Everything runs locally on your computer—no internet connection is required.
+
+## New K-Timing Mode: 「Toshiki K-Timing」
+
+A faster way to do k-timing for people who can "see the voices."
+
+## Alignment picker
+
+Easier way to change alignment with keybaord shortcuts. 
+Crtl + alt + arrow keys/numbers.
+for arrow keys, use opposite arrow keys for \an5. if the keyboard don't support, you can use crtl + alt + enter. 
+
+## Mangetsu Renderer
+
+Introducing **Mangetsu**, a new subtitle renderer with support for extended ASS features.
+
+I named it **Mangetsu** ("Full Moon") after the night when the idea first came to me.
+
+## Mangetsu Editing Tools
+
+* Added a **Gradient** button for creating Mangetsu gradient tags.
+* Added a **Color Code** button for quickly inserting Mangetsu color tags.
+
+## Others
+
+- Fast naming actor commit fix: empty actor input no longer falls back to the last-used MRU actor.
+  - File: `src/actor_MRU.cpp`
+- Visual tool/panning input fix: video panning now only activates with middle mouse input; left-drag no longer incorrectly pans.
+  - File: `src/video_display.cpp`
+- `video/play/line` playback stability fixes during undo/redo:
+  - Preserve range playback mode when frame restore happens while playing.
+  - Avoid unnecessary jump/stop-restart cycle during undo/redo if playback is already continuing.
+  - Files: `src/video_controller.cpp`, `src/subs_controller.cpp`
+- Dialog Esc-key behavior fixes:
+  - Linked files load/unload prompt now supports Esc as cancel/no.
+  - Style import resolution mismatch prompt now supports Esc as cancel.
+  - Files: `src/project.cpp`, `src/dialog_style_manager.cpp`
+- Fixed a partial coloring bug where starting a selection immediately after an override block could inject incomplete color tags.
 ---
 
 ## Update 1.1
