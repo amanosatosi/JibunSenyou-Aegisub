@@ -46,7 +46,6 @@
 #include "../main.h"
 #include "../options.h"
 #include "../project.h"
-#include "../utils.h"
 
 namespace {
 	using cmd::Command;
@@ -166,12 +165,8 @@ struct app_language final : public Command {
 
 		// Ask to restart program
 		int result = wxMessageBox("Aegisub needs to be restarted so that the new language can be applied. Restart now?", "Restart Aegisub?", wxYES_NO | wxICON_QUESTION |  wxCENTER);
-		if (result == wxYES) {
-			// Restart Aegisub
-			if (c->frame->Close()) {
-				RestartAegisub();
-			}
-		}
+		if (result == wxYES)
+			wxGetApp().RequestRestart(c);
 	}
 };
 
@@ -208,7 +203,8 @@ struct app_options final : public Command {
 
 	void operator()(agi::Context *c) override {
 		try {
-			ShowPreferences(c->parent);
+			if (ShowPreferences(c->parent))
+				wxGetApp().RequestRestart(c);
 		} catch (agi::Exception& e) {
 			LOG_E("config/init") << "Caught exception: " << e.GetMessage();
 		}

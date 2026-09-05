@@ -83,7 +83,10 @@ int main(int argc, char *argv[], char *env[]) {
 	printf("restart-helper: Executing '%s'\n", argv[1]);
 
 	@try {
-		[NSTask launchedTaskWithLaunchPath:[NSString stringWithUTF8String:argv[1]] arguments:@[]];
+		NSMutableArray *arguments = [NSMutableArray arrayWithCapacity:(argc > 2 ? argc - 2 : 0)];
+		for (int i = 2; i < argc; ++i)
+			[arguments addObject:[NSString stringWithUTF8String:argv[i]]];
+		[NSTask launchedTaskWithLaunchPath:[NSString stringWithUTF8String:argv[1]] arguments:arguments];
 	}
 	@catch (NSException *e) {
 		printf("restart-helper: Error launching program: %s\n", e.description.UTF8String);

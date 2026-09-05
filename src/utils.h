@@ -41,6 +41,7 @@ class wxKeyEvent;
 class wxFrame;
 class wxMenu;
 class wxMouseEvent;
+class wxArrayString;
 class wxStyledTextCtrl;
 class wxWindow;
 
@@ -53,11 +54,9 @@ std::string float_to_string(double val, int precision = 3);
 /// Algorithm from http://bob.allegronetwork.com/prog/tricks.html
 int SmallestPowerOf2(int x);
 
-/// @brief Launch a new copy of Aegisub.
-///
-/// Contrary to what the name suggests, this does not close the currently
-/// running process.
-void RestartAegisub();
+/// @brief Launch a new copy of Aegisub with the supplied command-line arguments.
+/// The caller is responsible for invoking this only at the end of clean shutdown.
+void RestartAegisub(wxArrayString const& arguments);
 
 /// Add the OS X 10.7+ full-screen button to a window
 void AddFullScreenButton(wxWindow *window);

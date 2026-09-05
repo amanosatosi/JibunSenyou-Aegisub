@@ -20,6 +20,7 @@
 ///
 
 #include <wx/frame.h>
+#include <wx/arrstr.h>
 #include <wx/menu.h>
 #include <wx/osx/core/cfstring.h>
 
@@ -61,11 +62,14 @@ void SetPlaceholderText(wxWindow *window, wxString const& placeholder) {
     }
 }
 
-void RestartAegisub() {
+void RestartAegisub(wxArrayString const& arguments) {
     auto helperPath = [NSBundle.mainBundle pathForAuxiliaryExecutable:@"restart-helper"];
-    if (helperPath)
-        [NSTask launchedTaskWithLaunchPath:helperPath
-                                 arguments:@[NSBundle.mainBundle.executablePath]];
+    if (helperPath) {
+        NSMutableArray *helperArguments = [NSMutableArray arrayWithObject:NSBundle.mainBundle.executablePath];
+        for (auto const& argument : arguments)
+            [helperArguments addObject:wxCFStringRef(argument).AsNSString()];
+        [NSTask launchedTaskWithLaunchPath:helperPath arguments:helperArguments];
+    }
 }
 
 namespace osx {

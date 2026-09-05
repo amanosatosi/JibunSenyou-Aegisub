@@ -34,6 +34,7 @@
 
 #include "main.h"
 
+#include "ass_file.h"
 #include "command/command.h"
 #include "include/aegisub/hotkey.h"
 
@@ -357,6 +358,9 @@ bool AegisubApp::OnInit() {
 }
 
 int AegisubApp::OnExit() {
+	bool const should_restart = restart_on_exit;
+	wxArrayString const arguments = restart_arguments;
+
 	for (auto frame : frames)
 		delete frame;
 	frames.clear();
@@ -379,7 +383,10 @@ int AegisubApp::OnExit() {
 	delete agi::log::log;
 	crash_writer::Cleanup();
 
-	return wxApp::OnExit();
+	int const exit_code = wxApp::OnExit();
+	if (should_restart)
+		RestartAegisub(arguments);
+	return exit_code;
 }
 
 agi::Context& AegisubApp::NewProjectContext() {
@@ -404,6 +411,36 @@ void AegisubApp::CloseAll() {
 		if (!frame->Close())
 			break;
 	}
+}
+
+bool AegisubApp::RequestRestart(agi::Context *context) {
+	wxArrayString arguments;
+	auto add_argument = [&](agi::fs::path const& path) {
+		if (path.empty()) return;
+		wxString argument(path.wstring());
+		if (arguments.Index(argument) == wxNOT_FOUND)
+			arguments.Add(argument);
+	};
+
+	// Work on a copy because accepted close events schedule frames for deletion.
+	auto frames_to_close = frames;
+	for (auto frame : frames_to_close) {
+		if (!frame->Close())
+			return false;
+
+		// Capture paths after Close(), as saving an untitled file may have assigned
+		// it a filename. The normal command-line loader restores linked project
+		// state from the subtitle file and directly supplied media paths.
+		if (frame->context.get() == context) {
+			add_argument(context->ass->Filename);
+			add_argument(context->project->VideoName());
+			add_argument(context->project->AudioName());
+		}
+	}
+
+	restart_arguments = std::move(arguments);
+	restart_on_exit = true;
+	return true;
 }
 
 void AegisubApp::UnhandledException(bool stackWalk) {

@@ -45,6 +45,7 @@
 #include <map>
 #include <unicode/locid.h>
 #include <unicode/unistr.h>
+#include <wx/arrstr.h>
 #include <wx/clipbrd.h>
 #include <wx/filedlg.h>
 #include <wx/stdpaths.h>
@@ -97,14 +98,12 @@ int SmallestPowerOf2(int x) {
 }
 
 #ifndef __WXMAC__
-void RestartAegisub() {
-	config::opt->Flush();
-
-#if defined(__WXMSW__)
-	wxExecute("\"" + wxStandardPaths::Get().GetExecutablePath() + "\"");
-#else
-	wxExecute(wxStandardPaths::Get().GetExecutablePath());
-#endif
+void RestartAegisub(wxArrayString const& arguments) {
+	wxArrayString command;
+	command.Add(wxStandardPaths::Get().GetExecutablePath());
+	for (auto const& argument : arguments)
+		command.Add(argument);
+	wxExecute(command, wxEXEC_ASYNC);
 }
 #endif
 

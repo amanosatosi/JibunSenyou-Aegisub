@@ -53,6 +53,9 @@ private:
 	std::string theme_preset_pending_id;
 	bool theme_preset_only_if_default = false;
 	bool theme_preset_callback_added = false;
+	bool dark_mode_at_open = false;
+	bool last_committed_dark_mode = false;
+	bool restart_requested = false;
 
 	void OnOK(wxCommandEvent &);
 	void OnCancel(wxCommandEvent &);
@@ -61,6 +64,7 @@ private:
 	void ApplyPendingThemePreset();
 	bool AreColourOptionsDefault() const;
 	void RefreshColourControls();
+	void PromptForDarkModeRestart();
 
 public:
 	Preferences(wxWindow *parent);
@@ -90,6 +94,9 @@ public:
 
 	/// Register a colour page control so it can be refreshed when presets apply.
 	void RegisterColourControl(wxControl *ctrl, const std::string& opt_name, agi::OptionType type, const wxArrayString& choices = wxArrayString());
+
+	/// Did the user choose to restart after committing a dark-mode change?
+	bool ShouldRestart() const { return restart_requested; }
 
 	/// Set the pending theme preset to apply on OK/Apply.
 	void SetPendingThemePreset(std::string id, bool only_if_default);

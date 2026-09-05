@@ -28,6 +28,7 @@
 // Aegisub Project http://www.aegisub.org/
 
 #include <wx/app.h>
+#include <wx/arrstr.h>
 
 #include "aegisublocale.h"
 
@@ -58,12 +59,16 @@ class AegisubApp : public wxApp {
 	void OpenFiles(wxArrayStringsAdapter filenames);
 
 	std::vector<FrameMain *> frames;
+	bool restart_on_exit = false;
+	wxArrayString restart_arguments;
 public:
 	AegisubApp();
 	AegisubLocale locale;
 
 	agi::Context& NewProjectContext();
 	void CloseAll();
+	/// Close normally and relaunch after shutdown if every frame accepts closing.
+	bool RequestRestart(agi::Context *context);
 
 	// Apple events
 	void MacOpenFiles(wxArrayString const& filenames)
