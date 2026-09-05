@@ -520,17 +520,10 @@ void SubsTextEditCtrl::OnDoubleClick(wxStyledTextEvent &evt) {
 	int pos = evt.GetPosition();
 	ClearFontNameWordDrag();
 	if (pos != -1 && BeginFontNameWordDrag(pos)) {
-		auto clamp = [&](int value) {
-			return std::max(font_name_word_drag.start, std::min(value, font_name_word_drag.end));
-		};
-
-		// Scintilla has already made its ordinary word selection. Preserve that
-		// word-level behavior, changing only an edge which crossed the \fn
-		// tag/value boundary.
-		int anchor = clamp(GetAnchor());
-		int current = clamp(GetCurrentPos());
-		if (anchor != GetAnchor() || current != GetCurrentPos())
-			SetSelection(anchor, current);
+		// Spaces and punctuation are valid parts of an ASS font name, so do not
+		// retain Scintilla's ordinary word selection here. The ASS-aware helper
+		// has already bounded the payload after \fn by the next tag or brace.
+		SetSelection(font_name_word_drag.start, font_name_word_drag.end);
 		return;
 	}
 
