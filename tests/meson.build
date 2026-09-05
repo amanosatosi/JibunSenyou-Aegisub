@@ -25,6 +25,7 @@ all_test_sources += [
     'support/ass_file_resampler_stub.cpp',
 
     # Compile minimal Aegisub sources needed for AssKaraoke tests
+    '../src/ass_attachment.cpp',
     '../src/ass_dialogue.cpp',
     '../src/ass_file_script_info.cpp',
     '../src/ass_font_tag_selection.cpp',
