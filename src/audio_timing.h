@@ -201,9 +201,6 @@ public:
 	/// @return Was an edit applied?
 	virtual bool ApplyDialogTimeChanger(int drag_start_ms, int drag_end_ms, TimeRange *preview_range) { return false; }
 
-	/// Enable or disable ordered spectrogram karaoke boundary assignment.
-	virtual void SetSpectrogramKaraokeTiming(bool) { }
-
 	/// Notify the timing controller that the karaoke splitter is about to add a slot.
 	virtual void PrepareKaraokeSplit(size_t) { }
 
