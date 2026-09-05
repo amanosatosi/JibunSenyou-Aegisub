@@ -39,22 +39,157 @@
 #include "project.h"
 #include "selection_controller.h"
 #include "subs_edit_box.h"
+#include "text_selection_controller.h"
 #include "toast_popup.h"
 #include "video_controller.h"
 #include "video_display.h"
 #include "video_slider.h"
 
 #include <boost/range/algorithm/binary_search.hpp>
+#include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <limits>
 #include <wx/clipbrd.h>
 #include <wx/cursor.h>
 #include <wx/dataobj.h>
 #include <wx/combobox.h>
 #include <wx/choice.h>
+#include <wx/menu.h>
 #include <wx/sizer.h>
 #include <wx/statline.h>
 #include <wx/textctrl.h>
 #include <wx/toolbar.h>
+#include <wx/utils.h>
+
+namespace {
+
+struct FadeTagRange {
+	size_t start = std::string::npos;
+	size_t end = std::string::npos;
+	int fade_in = 0;
+	int fade_out = 0;
+	bool arguments_valid = false;
+
+	explicit operator bool() const { return start != std::string::npos; }
+};
+
+size_t SkipSpaces(std::string const& text, size_t pos, size_t end) {
+	while (pos < end && std::isspace(static_cast<unsigned char>(text[pos])))
+		++pos;
+	return pos;
+}
+
+size_t MatchingParen(std::string const& text, size_t open, size_t end) {
+	int depth = 0;
+	for (size_t pos = open; pos < end; ++pos) {
+		if (text[pos] == '(')
+			++depth;
+		else if (text[pos] == ')' && --depth == 0)
+			return pos;
+	}
+	return std::string::npos;
+}
+
+bool ParseFadeInteger(std::string token, int& value) {
+	auto not_space = [](unsigned char c) { return !std::isspace(c); };
+	token.erase(token.begin(), std::find_if(token.begin(), token.end(), not_space));
+	token.erase(std::find_if(token.rbegin(), token.rend(), not_space).base(), token.end());
+	if (token.empty())
+		return false;
+
+	char *end = nullptr;
+	long parsed = std::strtol(token.c_str(), &end, 10);
+	if (end != token.c_str() + token.size() || parsed < std::numeric_limits<int>::min() ||
+		parsed > std::numeric_limits<int>::max())
+		return false;
+	value = static_cast<int>(parsed);
+	return true;
+}
+
+bool ParseFadeArguments(std::string const& text, size_t open, size_t close, int& fade_in, int& fade_out) {
+	size_t comma = text.find(',', open + 1);
+	if (comma == std::string::npos || comma >= close || text.find(',', comma + 1) < close)
+		return false;
+	return ParseFadeInteger(text.substr(open + 1, comma - open - 1), fade_in) &&
+		ParseFadeInteger(text.substr(comma + 1, close - comma - 1), fade_out);
+}
+
+FadeTagRange FindEffectiveFadeTag(std::string const& text) {
+	FadeTagRange result;
+	for (size_t block_start = text.find('{'); block_start != std::string::npos;
+		block_start = text.find('{', block_start + 1)) {
+		size_t const block_end = text.find('}', block_start + 1);
+		if (block_end == std::string::npos)
+			break;
+		if (text.find('\\', block_start + 1) >= block_end)
+			continue; // An ASS comment block, not an override block.
+
+		for (size_t pos = block_start + 1; pos < block_end;) {
+			if (text[pos] != '\\') {
+				++pos;
+				continue;
+			}
+
+			size_t const tag_start = pos++;
+			while (pos < block_end && (std::isalnum(static_cast<unsigned char>(text[pos])) || text[pos] == '_'))
+				++pos;
+			std::string const name = text.substr(tag_start, pos - tag_start);
+			size_t const value_start = SkipSpaces(text, pos, block_end);
+			size_t tag_end = value_start;
+			size_t close = std::string::npos;
+			if (value_start < block_end && text[value_start] == '(') {
+				close = MatchingParen(text, value_start, block_end);
+				tag_end = close == std::string::npos ? block_end : close + 1;
+			}
+			else {
+				tag_end = text.find('\\', value_start);
+				if (tag_end == std::string::npos || tag_end > block_end)
+					tag_end = block_end;
+			}
+
+			// Parenthesized tags such as \t are skipped as one unit, so a
+			// nested \fad inside a transform is never mistaken for line-level.
+			if (name == "\\fad") {
+				result = {};
+				result.start = tag_start;
+				result.end = tag_end;
+				if (close != std::string::npos)
+					result.arguments_valid = ParseFadeArguments(text, value_start, close, result.fade_in, result.fade_out);
+			}
+			pos = std::max(tag_end, tag_start + 1);
+		}
+		block_start = block_end;
+	}
+	return result;
+}
+
+bool ParseSignedReadout(wxString value, int& milliseconds) {
+	value.Trim(true).Trim(false);
+	if (value.Lower().EndsWith("ms")) {
+		value.Truncate(value.length() - 2);
+		value.Trim(true).Trim(false);
+	}
+	long parsed = 0;
+	if (value.empty() || !value.ToLong(&parsed) || parsed < std::numeric_limits<int>::min() ||
+		parsed > std::numeric_limits<int>::max())
+		return false;
+	milliseconds = static_cast<int>(parsed);
+	return true;
+}
+
+int MoveOffsetPastEdit(int offset, int edit_start, int edit_end, int replacement_length) {
+	if (edit_start == edit_end)
+		return offset < edit_start ? offset : offset + replacement_length;
+	if (offset <= edit_start)
+		return offset;
+	if (offset >= edit_end)
+		return offset + replacement_length - (edit_end - edit_start);
+	return edit_start + replacement_length;
+}
+
+}
 
 VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 : wxPanel(parent, -1)
@@ -71,9 +206,10 @@ VideoBox::VideoBox(wxWindow *parent, bool isDetached, agi::Context *context)
 
 	VideoSubsPos = new wxTextCtrl(this, -1, "", wxDefaultPosition, wxSize(80, -1), wxTE_READONLY);
 	VideoSubsPos->SetMinSize(wxSize(60, -1));
-	VideoSubsPos->SetToolTip(_("Time of this frame relative to start and end of current subs"));
+	VideoSubsPos->SetToolTip(_("Time of this frame relative to start and end of current subs. Right-click for copy, insert, and fade actions."));
 	VideoSubsPos->SetCursor(wxCursor(wxCURSOR_HAND));
 	VideoSubsPos->Bind(wxEVT_LEFT_DOWN, &VideoBox::OnSubsReadoutClick, this);
+	VideoSubsPos->Bind(wxEVT_CONTEXT_MENU, &VideoBox::OnSubsReadoutContextMenu, this);
 
 	static const double playback_speeds[] = {
 		0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00,
@@ -206,7 +342,73 @@ void VideoBox::OnSubsReadoutClick(wxMouseEvent &event) {
 		HandleReadoutClick(value);
 }
 
-bool VideoBox::GetSubsReadoutForPosition(wxPoint const& position, wxString &value) {
+void VideoBox::OnSubsReadoutContextMenu(wxContextMenuEvent &event) {
+	event.Skip(false);
+	wxPoint position = event.GetPosition();
+	if (position == wxDefaultPosition)
+		position = VideoSubsPos->ScreenToClient(wxGetMousePosition());
+	else
+		position = VideoSubsPos->ScreenToClient(position);
+	wxString value;
+	SubsReadoutKind kind;
+	if (!GetSubsReadoutForPosition(position, value, &kind))
+		return;
+
+	wxString const normalized = NormalizeReadout(value);
+	if (normalized.empty())
+		return;
+
+	int signed_milliseconds = 0;
+	bool const parsed = ParseSignedReadout(value, signed_milliseconds);
+	long long const candidate = kind == SubsReadoutKind::Start ? signed_milliseconds :
+		-static_cast<long long>(signed_milliseconds);
+	AssDialogue *line = context && context->selectionController ?
+		context->selectionController->GetActiveLine() : nullptr;
+	int const duration = line ? static_cast<int>(line->End) - static_cast<int>(line->Start) : -1;
+	bool const fade_available = parsed && line && duration >= 0 && candidate >= 0 && candidate <= duration &&
+		candidate <= std::numeric_limits<int>::max();
+	int const fade_milliseconds = fade_available ? static_cast<int>(candidate) : 0;
+
+	wxMenu menu;
+	wxMenuItem *copy = menu.Append(wxID_ANY, _("Copy"));
+	wxMenuItem *insert = menu.Append(wxID_ANY, _("Insert at cursor"));
+	menu.AppendSeparator();
+	wxString fade_label;
+	if (fade_available) {
+		fade_label = kind == SubsReadoutKind::Start ?
+			wxString::Format(_("Set \\fad fade-in to %d ms"), fade_milliseconds) :
+			wxString::Format(_("Set \\fad fade-out to %d ms"), fade_milliseconds);
+	}
+	else {
+		fade_label = kind == SubsReadoutKind::Start ?
+			_("Set \\fad fade-in (current frame is outside the line)") :
+			_("Set \\fad fade-out (current frame is outside the line)");
+	}
+	wxMenuItem *fade = menu.Append(wxID_ANY, fade_label);
+	fade->Enable(fade_available);
+
+	menu.Bind(wxEVT_MENU, [=](wxCommandEvent& command) {
+		if (command.GetId() == copy->GetId()) {
+			if (CopyReadoutToClipboard(normalized)) {
+				if (context && context->subsEditBox)
+					context->subsEditBox->FocusTextCtrl();
+				if (!OPT_GET("Video/Disable Click Popup")->GetBool())
+					ShowToast(context && context->parent ? context->parent : this, _("Copied to clipboard"));
+			}
+		}
+		else if (command.GetId() == insert->GetId()) {
+			if (InsertReadoutIntoEditBox(normalized) && !OPT_GET("Video/Disable Click Popup")->GetBool())
+				ShowToast(context && context->parent ? context->parent : this, _("Inserted into edit box"));
+		}
+		else if (command.GetId() == fade->GetId() && fade_available && context && context->selectionController &&
+			context->selectionController->GetActiveLine() == line)
+			SetFadeFromReadout(kind, fade_milliseconds);
+	});
+
+	VideoSubsPos->PopupMenu(&menu, position);
+}
+
+bool VideoBox::GetSubsReadoutForPosition(wxPoint const& position, wxString &value, SubsReadoutKind *kind) {
 	if (!VideoSubsPos || subs_offset_readout_.IsEmpty() || subs_remaining_readout_.IsEmpty())
 		return false;
 
@@ -225,10 +427,86 @@ bool VideoBox::GetSubsReadoutForPosition(wxPoint const& position, wxString &valu
 	if (x < 0) x = 0;
 	if (client_width > 0 && x > client_width) x = client_width;
 
-	if (x <= text_width)
+	if (x <= text_width) {
 		value = subs_offset_readout_;
-	else
+		if (kind)
+			*kind = SubsReadoutKind::Start;
+	}
+	else {
 		value = subs_remaining_readout_;
+		if (kind)
+			*kind = SubsReadoutKind::End;
+	}
+	return true;
+}
+
+bool VideoBox::SetFadeFromReadout(SubsReadoutKind kind, int milliseconds) {
+	if (!context || !context->ass || !context->selectionController || !context->subsEditBox || milliseconds < 0)
+		return false;
+
+	AssDialogue *line = context->selectionController->GetActiveLine();
+	if (!line)
+		return false;
+	int const duration = static_cast<int>(line->End) - static_cast<int>(line->Start);
+	if (duration < 0 || milliseconds > duration)
+		return false;
+
+	std::string const old_text = line->Text.get();
+	FadeTagRange const existing = FindEffectiveFadeTag(old_text);
+	// Preserve well-formed existing arguments, while ensuring that editing an
+	// already-invalid tag never emits negative or over-duration fade values.
+	int fade_in = existing.arguments_valid ? std::clamp(existing.fade_in, 0, duration) : 0;
+	int fade_out = existing.arguments_valid ? std::clamp(existing.fade_out, 0, duration) : 0;
+	if (kind == SubsReadoutKind::Start)
+		fade_in = milliseconds;
+	else
+		fade_out = milliseconds;
+
+	std::string const tag = agi::format("\\fad(%d,%d)", fade_in, fade_out);
+	int edit_start = 0;
+	int edit_end = 0;
+	std::string replacement;
+	if (existing) {
+		edit_start = static_cast<int>(existing.start);
+		edit_end = static_cast<int>(existing.end);
+		replacement = tag;
+	}
+	else {
+		auto blocks = line->ParseTags();
+		bool const has_initial_override = !blocks.empty() && blocks.front()->GetType() == AssBlockType::OVERRIDE;
+		if (has_initial_override)
+			edit_start = edit_end = 1;
+		replacement = has_initial_override ? tag : "{" + tag + "}";
+	}
+
+	std::string const new_text = old_text.substr(0, edit_start) + replacement + old_text.substr(edit_end);
+	if (new_text == old_text)
+		return false;
+
+	int raw_selection_start = 0;
+	int raw_selection_end = 0;
+	bool restore_selection = false;
+	if (context->textSelectionController) {
+		int const display_start = context->textSelectionController->GetSelectionStart();
+		int const display_end = context->textSelectionController->GetSelectionEnd();
+		restore_selection = context->subsEditBox->MapDisplayRangeToRaw(
+			display_start, display_end, old_text, raw_selection_start, raw_selection_end);
+	}
+
+	line->Text = new_text;
+	context->ass->Commit(_("set fade"), AssFile::COMMIT_DIAG_TEXT, -1, line);
+
+	if (restore_selection) {
+		int const replacement_length = static_cast<int>(replacement.size());
+		raw_selection_start = MoveOffsetPastEdit(raw_selection_start, edit_start, edit_end, replacement_length);
+		raw_selection_end = MoveOffsetPastEdit(raw_selection_end, edit_start, edit_end, replacement_length);
+		context->subsEditBox->SetTextSelection(
+			context->subsEditBox->MapRawToDisplay(raw_selection_start, new_text),
+			context->subsEditBox->MapRawToDisplay(raw_selection_end, new_text));
+	}
+	context->subsEditBox->FocusTextCtrl();
+	if (context->videoDisplay)
+		context->videoDisplay->Render();
 	return true;
 }
 
