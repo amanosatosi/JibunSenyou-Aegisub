@@ -32,6 +32,7 @@
 
 #include <wx/button.h>
 #include <wx/choice.h>
+#include <wx/cursor.h>
 #include <wx/dcbuffer.h>
 #include <wx/dialog.h>
 #include <wx/intl.h>
@@ -46,6 +47,10 @@
 #include <libaegisub/signal.h>
 
 namespace {
+
+// Keep the add-stop marker easy to tune without changing the interaction code.
+constexpr int STOP_PLACEMENT_Y_SNAP_THRESHOLD = 40;
+constexpr int STOP_PLACEMENT_MARKER_SIZE = 10;
 
 static std::string trim_copy(std::string str) {
 	auto not_space = [](unsigned char c) { return !std::isspace(c); };
@@ -133,13 +138,25 @@ class DialogMangetsuGradient;
 class GradientStopBar final : public wxPanel {
 	DialogMangetsuGradient *dialog;
 	bool dragging = false;
+	bool add_placement = false;
+	bool add_pressing = false;
+	bool marker_visible = false;
+	wxPoint marker_pos;
 
 	void OnPaint(wxPaintEvent&);
 	void OnMouse(wxMouseEvent& event);
 	void OnKeyDown(wxKeyEvent& event);
+	void OnMouseCaptureLost(wxMouseCaptureLostEvent&);
+	wxPoint SnapMarkerY(wxPoint pos) const;
+	bool InPlacementArea(wxPoint pos) const;
+	void UpdateMarker(wxPoint pos, bool force = false);
+	void RestoreCursor();
 
 public:
 	GradientStopBar(wxWindow *parent, DialogMangetsuGradient *dialog);
+	void BeginAddPlacement();
+	void CancelAddPlacement();
+	bool IsAdding() const { return add_placement; }
 };
 
 class DialogMangetsuGradient final : public wxDialog {
@@ -185,8 +202,10 @@ class DialogMangetsuGradient final : public wxDialog {
 	wxToggleButton *alpha_button = nullptr;
 	wxToggleButton *lock_placement_button = nullptr;
 	wxStaticText *status_label = nullptr;
+	wxButton *add_button = nullptr;
 	wxButton *remove_button = nullptr;
 	GradientStopBar *stop_bar = nullptr;
+	wxString add_stop_status;
 
 	TagRef CurrentTag() const;
 	TagRef PlacementTag() const;
@@ -225,6 +244,9 @@ class DialogMangetsuGradient final : public wxDialog {
 	void ApplyCurrent(bool mark_dirty = true);
 	void ClearCurrent();
 	void ReverseStops();
+	void StartAddStopPlacement();
+	void CancelAddStopPlacement(bool show_status = true);
+	void FinishAddStopPlacement(double pos);
 	void AddStop(double pos);
 	void RemoveSelectedStop();
 	void FlatZone();
@@ -262,6 +284,7 @@ class DialogMangetsuGradient final : public wxDialog {
 	void SchedulePreview(wxString const& message, bool immediate);
 	void FlushPreview();
 	void OnPreviewTimer(wxTimerEvent&);
+	void OnDialogKeyDown(wxKeyEvent& event);
 	void FinishDialog(int result);
 
 public:
@@ -283,6 +306,7 @@ GradientStopBar::GradientStopBar(wxWindow *parent, DialogMangetsuGradient *dialo
 	Bind(wxEVT_MOTION, &GradientStopBar::OnMouse, this);
 	Bind(wxEVT_RIGHT_DOWN, &GradientStopBar::OnMouse, this);
 	Bind(wxEVT_CHAR_HOOK, &GradientStopBar::OnKeyDown, this);
+	Bind(wxEVT_MOUSE_CAPTURE_LOST, &GradientStopBar::OnMouseCaptureLost, this);
 }
 
 void GradientStopBar::OnPaint(wxPaintEvent&) {
@@ -357,11 +381,73 @@ void GradientStopBar::OnPaint(wxPaintEvent&) {
 			dc.DrawRectangle(swatch.Deflate(1, 1));
 		}
 	}
+
+	if (marker_visible && (add_placement || dragging)) {
+		// Draw an under-stroke so the small blue placement tip remains legible
+		// over both light and dark gradient colours.
+		wxRect marker(marker_pos.x - STOP_PLACEMENT_MARKER_SIZE / 2,
+			marker_pos.y - STOP_PLACEMENT_MARKER_SIZE / 2,
+			STOP_PLACEMENT_MARKER_SIZE, STOP_PLACEMENT_MARKER_SIZE);
+		dc.SetBrush(*wxTRANSPARENT_BRUSH);
+		dc.SetPen(wxPen(wxColour(15, 35, 55), 4));
+		dc.DrawRectangle(marker);
+		dc.SetPen(wxPen(wxColour(55, 155, 255), 2));
+		dc.DrawRectangle(marker);
+
+		if (add_placement) {
+			dc.SetPen(wxPen(wxColour(55, 155, 255), 1, wxPENSTYLE_DOT));
+			dc.DrawLine(marker_pos.x, bar.GetTop(), marker_pos.x, bar.GetBottom());
+			wxString percent = wxString::Format("%.1f%%", dialog->PosFromMouse(marker_pos));
+			dc.SetTextForeground(wxColour(35, 125, 220));
+			dc.DrawText(percent, marker_pos.x + 8, std::max(0, marker_pos.y - 18));
+		}
+	}
 }
 
 void GradientStopBar::OnMouse(wxMouseEvent& event) {
 	SetFocus();
 	wxPoint pos = event.GetPosition();
+
+	if (event.Leaving() && !add_pressing && !dragging) {
+		marker_visible = false;
+		RestoreCursor();
+		Refresh(false);
+		return;
+	}
+
+	if (add_placement) {
+		if (event.RightDown()) {
+			dialog->CancelAddStopPlacement();
+			return;
+		}
+
+		if (event.Moving() || event.Dragging() || event.Entering())
+			UpdateMarker(pos, add_pressing);
+
+		if (event.LeftDown()) {
+			if (!InPlacementArea(pos)) {
+				dialog->add_stop_status = _("Move over the gradient strip to place the new stop.");
+				dialog->RefreshLightControls();
+				return;
+			}
+			add_pressing = true;
+			UpdateMarker(pos, true);
+			if (!HasCapture())
+				CaptureMouse();
+			return;
+		}
+
+		if (event.LeftUp() && add_pressing) {
+			add_pressing = false;
+			UpdateMarker(pos, true);
+			if (HasCapture())
+				ReleaseMouse();
+			dialog->FinishAddStopPlacement(dialog->PosFromMouse(pos));
+			return;
+		}
+		return;
+	}
+
 	int hit = dialog->HitTestStop(pos);
 
 	if (event.RightDown() && hit >= 0) {
@@ -392,6 +478,7 @@ void GradientStopBar::OnMouse(wxMouseEvent& event) {
 	}
 
 	if (event.Dragging() && event.LeftIsDown() && dragging) {
+		UpdateMarker(pos, true);
 		dialog->stops[dialog->selected_stop].pos = dialog->PosFromMouse(pos);
 		dialog->SortStops();
 		dialog->MarkGradientChanged(false);
@@ -400,6 +487,7 @@ void GradientStopBar::OnMouse(wxMouseEvent& event) {
 
 	if (event.LeftUp() && dragging) {
 		dragging = false;
+		marker_visible = false;
 		if (HasCapture())
 			ReleaseMouse();
 		dialog->FlushPreview();
@@ -408,11 +496,77 @@ void GradientStopBar::OnMouse(wxMouseEvent& event) {
 }
 
 void GradientStopBar::OnKeyDown(wxKeyEvent& event) {
+	if (event.GetKeyCode() == WXK_ESCAPE && add_placement) {
+		dialog->CancelAddStopPlacement();
+		return;
+	}
 	if (event.GetKeyCode() == WXK_DELETE) {
 		dialog->RemoveSelectedStop();
 		return;
 	}
 	event.Skip();
+}
+
+void GradientStopBar::OnMouseCaptureLost(wxMouseCaptureLostEvent&) {
+	dragging = false;
+	add_pressing = false;
+	marker_visible = false;
+	RestoreCursor();
+	if (add_placement)
+		dialog->CancelAddStopPlacement();
+	else
+		Refresh(false);
+}
+
+wxPoint GradientStopBar::SnapMarkerY(wxPoint pos) const {
+	wxRect const bar = dialog->BarRect();
+	int const top_distance = std::abs(pos.y - bar.GetTop());
+	int const bottom_distance = std::abs(pos.y - bar.GetBottom());
+	if (std::min(top_distance, bottom_distance) <= STOP_PLACEMENT_Y_SNAP_THRESHOLD)
+		pos.y = top_distance <= bottom_distance ? bar.GetTop() : bar.GetBottom();
+	return pos;
+}
+
+bool GradientStopBar::InPlacementArea(wxPoint pos) const {
+	wxRect area = dialog->BarRect();
+	area.Inflate(0, STOP_PLACEMENT_Y_SNAP_THRESHOLD);
+	return area.Contains(pos);
+}
+
+void GradientStopBar::UpdateMarker(wxPoint pos, bool force) {
+	marker_visible = force || InPlacementArea(pos);
+	if (marker_visible) {
+		marker_pos = SnapMarkerY(pos); // Deliberately leaves X completely untouched.
+		if (add_placement)
+			SetCursor(wxCursor(wxCURSOR_BLANK));
+	}
+	else
+		RestoreCursor();
+	Refresh(false);
+}
+
+void GradientStopBar::RestoreCursor() {
+	SetCursor(wxNullCursor);
+}
+
+void GradientStopBar::BeginAddPlacement() {
+	if (add_placement)
+		return;
+	add_placement = true;
+	add_pressing = false;
+	marker_visible = false;
+	SetFocus();
+	Refresh(false);
+}
+
+void GradientStopBar::CancelAddPlacement() {
+	add_placement = false;
+	add_pressing = false;
+	marker_visible = false;
+	if (HasCapture())
+		ReleaseMouse();
+	RestoreCursor();
+	Refresh(false);
 }
 
 DialogMangetsuGradient::DialogMangetsuGradient(wxWindow *parent, agi::Context *context)
@@ -437,6 +591,8 @@ DialogMangetsuGradient::DialogMangetsuGradient(wxWindow *parent, agi::Context *c
 }
 
 DialogMangetsuGradient::~DialogMangetsuGradient() {
+	if (stop_bar)
+		stop_bar->CancelAddPlacement();
 	EndPlacementSession();
 }
 
@@ -455,6 +611,7 @@ void DialogMangetsuGradient::BuildControls() {
 	};
 	static const QuickAngle quick_angles[] = {
 		{"\xE2\x86\x92", 0},
+		{"\xE2\x86\x93", 90},
 		{"\xE2\x86\x91", 270},
 		{"\xE2\x86\x96", 225},
 		{"\xE2\x86\x97", 315},
@@ -494,7 +651,8 @@ void DialogMangetsuGradient::BuildControls() {
 	status_label = new wxStaticText(this, wxID_ANY, wxEmptyString);
 
 	auto *ops = new wxBoxSizer(wxHORIZONTAL);
-	auto *add_button = new wxButton(this, wxID_ANY, _("+ Stop"));
+	add_button = new wxButton(this, wxID_ANY, _("+ Stop"));
+	add_button->SetToolTip(_("Choose a position for a new stop on the gradient strip."));
 	remove_button = new wxButton(this, wxID_ANY, _("Remove"));
 	auto *reverse_button = new wxButton(this, wxID_ANY, _("Reverse"));
 	auto *flat_button = new wxButton(this, wxID_ANY, _("Flat Zone"));
@@ -529,15 +687,28 @@ void DialogMangetsuGradient::BuildControls() {
 	color_button->Bind(wxEVT_TOGGLEBUTTON, [=](wxCommandEvent&) { OnMode(ChannelMode::Color); });
 	alpha_button->Bind(wxEVT_TOGGLEBUTTON, [=](wxCommandEvent&) { OnMode(ChannelMode::Alpha); });
 	lock_placement_button->Bind(wxEVT_TOGGLEBUTTON, &DialogMangetsuGradient::OnPlacementToggle, this);
-	add_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { AddStop(50.0); });
-	remove_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { RemoveSelectedStop(); });
-	reverse_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { ReverseStops(); });
-	flat_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { FlatZone(); });
-	clear_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { ClearCurrent(); });
+	add_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) { StartAddStopPlacement(); });
+	remove_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) {
+		if (stop_bar->IsAdding()) CancelAddStopPlacement(false);
+		RemoveSelectedStop();
+	});
+	reverse_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) {
+		if (stop_bar->IsAdding()) CancelAddStopPlacement(false);
+		ReverseStops();
+	});
+	flat_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) {
+		if (stop_bar->IsAdding()) CancelAddStopPlacement(false);
+		FlatZone();
+	});
+	clear_button->Bind(wxEVT_BUTTON, [=](wxCommandEvent&) {
+		if (stop_bar->IsAdding()) CancelAddStopPlacement(false);
+		ClearCurrent();
+	});
 	ok->Bind(wxEVT_BUTTON, &DialogMangetsuGradient::OnOK, this);
 	apply->Bind(wxEVT_BUTTON, &DialogMangetsuGradient::OnApply, this);
 	cancel->Bind(wxEVT_BUTTON, &DialogMangetsuGradient::OnCancel, this);
 	preview_timer.Bind(wxEVT_TIMER, &DialogMangetsuGradient::OnPreviewTimer, this);
+	Bind(wxEVT_CHAR_HOOK, &DialogMangetsuGradient::OnDialogKeyDown, this);
 	Bind(wxEVT_CLOSE_WINDOW, [=](wxCloseEvent&) {
 		wxCommandEvent evt;
 		OnCancel(evt);
@@ -798,6 +969,8 @@ std::string DialogMangetsuGradient::CurrentStatus() const {
 		" -> " + tag.status_name + "\nExisting: " + (existing ? "yes" : "no");
 	if (!placement_status.empty())
 		status += "\n" + from_wx(placement_status);
+	if (!add_stop_status.empty())
+		status += "\n" + from_wx(add_stop_status);
 	return status;
 }
 
@@ -1036,6 +1209,7 @@ void DialogMangetsuGradient::OnPlacementToolDeactivated() {
 void DialogMangetsuGradient::OnActiveLineChanged(AssDialogue *line) {
 	if (line == active_line)
 		return;
+	CancelAddStopPlacement(false);
 	if (preview_pending) {
 		preview_timer.Stop();
 		preview_pending = false;
@@ -1065,9 +1239,11 @@ void DialogMangetsuGradient::OnFileCommit(int type, AssDialogue const*) {
 void DialogMangetsuGradient::OnPlacementToggle(wxCommandEvent&) {
 	if (updating_controls || !lock_placement_button)
 		return;
+	bool const requested_lock = lock_placement_button->GetValue();
+	CancelAddStopPlacement(false);
 
 	bool const was_placed = PlacementTagActive();
-	if (!lock_placement_button->GetValue()) {
+	if (!requested_lock) {
 		EndPlacementSession();
 		lock_placement = false;
 		placement_status = _("Gradient placement unlocked.");
@@ -1166,6 +1342,14 @@ void DialogMangetsuGradient::OnPreviewTimer(wxTimerEvent&) {
 	FlushPreview();
 }
 
+void DialogMangetsuGradient::OnDialogKeyDown(wxKeyEvent& event) {
+	if (event.GetKeyCode() == WXK_ESCAPE && stop_bar && stop_bar->IsAdding()) {
+		CancelAddStopPlacement();
+		return;
+	}
+	event.Skip();
+}
+
 void DialogMangetsuGradient::ApplyCurrent(bool mark_dirty) {
 	if (!active_line)
 		return;
@@ -1211,12 +1395,49 @@ void DialogMangetsuGradient::ReverseStops() {
 	MarkGradientChanged(true);
 }
 
+void DialogMangetsuGradient::StartAddStopPlacement() {
+	if (!stop_bar || !add_button)
+		return;
+	if (stop_bar->IsAdding()) {
+		CancelAddStopPlacement();
+		return;
+	}
+
+	stop_bar->BeginAddPlacement();
+	add_button->SetLabel(_("Cancel Add"));
+	add_stop_status = _("Add stop: click or drag on the gradient strip; Esc or right-click cancels.");
+	RefreshLightControls();
+	Layout();
+}
+
+void DialogMangetsuGradient::CancelAddStopPlacement(bool show_status) {
+	if (stop_bar)
+		stop_bar->CancelAddPlacement();
+	if (add_button)
+		add_button->SetLabel(_("+ Stop"));
+	add_stop_status = show_status ? _("Stop placement cancelled.") : wxString();
+	RefreshLightControls();
+	Layout();
+}
+
+void DialogMangetsuGradient::FinishAddStopPlacement(double pos) {
+	if (stop_bar)
+		stop_bar->CancelAddPlacement();
+	if (add_button)
+		add_button->SetLabel(_("+ Stop"));
+	add_stop_status = wxString::Format(_("Stop placed at %.1f%%."), clamp_percent(pos));
+	AddStop(pos);
+	Layout();
+}
+
 void DialogMangetsuGradient::AddStop(double pos) {
 	GradientStop stop = SampleAt(pos);
 	stop.pos = clamp_percent(pos);
 	stops.push_back(stop);
 	SortStops();
-	for (size_t i = 0; i < stops.size(); ++i) {
+	// SortStops is stable, so the newly appended stop is the last matching
+	// position even when the user deliberately places it over another stop.
+	for (size_t i = stops.size(); i-- > 0;) {
 		if (std::abs(stops[i].pos - stop.pos) < 0.01) {
 			selected_stop = static_cast<int>(i);
 			break;
@@ -1305,7 +1526,7 @@ GradientStop DialogMangetsuGradient::SampleAt(double pos) const {
 }
 
 void DialogMangetsuGradient::SortStops() {
-	std::sort(stops.begin(), stops.end(), [](GradientStop const& a, GradientStop const& b) {
+	std::stable_sort(stops.begin(), stops.end(), [](GradientStop const& a, GradientStop const& b) {
 		return a.pos < b.pos;
 	});
 	if (!stops.empty()) {
@@ -1632,6 +1853,7 @@ void DialogMangetsuGradient::OnQuickAngle(int new_angle) {
 void DialogMangetsuGradient::OnMainChoice(wxCommandEvent&) {
 	if (updating_controls)
 		return;
+	CancelAddStopPlacement(false);
 	EndPlacementSession();
 	FlushPreview();
 	TargetGroup old_group = group;
@@ -1652,6 +1874,7 @@ void DialogMangetsuGradient::OnMainChoice(wxCommandEvent&) {
 void DialogMangetsuGradient::OnBorderChoice(wxCommandEvent&) {
 	if (updating_controls)
 		return;
+	CancelAddStopPlacement(false);
 	EndPlacementSession();
 	FlushPreview();
 	int sel = border_choice->GetSelection();
@@ -1675,6 +1898,7 @@ void DialogMangetsuGradient::OnBorderChoice(wxCommandEvent&) {
 void DialogMangetsuGradient::OnMode(ChannelMode new_mode) {
 	if (updating_controls)
 		return;
+	CancelAddStopPlacement(false);
 	EndPlacementSession();
 	FlushPreview();
 	ChannelMode old_mode = mode;
@@ -1690,6 +1914,8 @@ void DialogMangetsuGradient::OnMode(ChannelMode new_mode) {
 }
 
 void DialogMangetsuGradient::OnApply(wxCommandEvent&) {
+	if (stop_bar && stop_bar->IsAdding())
+		CancelAddStopPlacement(false);
 	if (lock_placement && !placement_rect.valid) {
 		placement_status = _("Drag a fixed gradient area before applying placement mode.");
 		RefreshLightControls();
@@ -1705,6 +1931,7 @@ void DialogMangetsuGradient::OnApply(wxCommandEvent&) {
 }
 
 void DialogMangetsuGradient::OnOK(wxCommandEvent&) {
+	CancelAddStopPlacement(false);
 	FlushPreview();
 	EndPlacementSession();
 	commit_id = -1;
@@ -1712,6 +1939,7 @@ void DialogMangetsuGradient::OnOK(wxCommandEvent&) {
 }
 
 void DialogMangetsuGradient::OnCancel(wxCommandEvent&) {
+	CancelAddStopPlacement(false);
 	EndPlacementSession();
 	if (preview_pending) {
 		preview_timer.Stop();
