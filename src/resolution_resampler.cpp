@@ -76,7 +76,6 @@ namespace {
 					val = (val + shift_x) * scale_x;
 				else
 					val = (val + shift_y) * scale_y;
-				val = round(val * 8) / 8.0; // round to eighth-pixels
 				final += float_to_string(val);
 				final += ' ';
 				is_x = !is_x;
@@ -100,6 +99,7 @@ namespace {
 		const int *margin;
 		double rx;
 		double ry;
+		double rm;
 		double ar;
 		agi::ycbcr_converter conv;
 		bool convert_colors;
@@ -112,8 +112,16 @@ namespace {
 		int shift = 0;
 
 		switch (cur->classification) {
-			case AssParameterClass::ABSOLUTE_SIZE:
+			case AssParameterClass::ABSOLUTE_SIZE_X:
+				resizer = state->rx;
+				break;
+
+			case AssParameterClass::ABSOLUTE_SIZE_Y:
 				resizer = state->ry;
+				break;
+
+			case AssParameterClass::ABSOLUTE_SIZE_XY:
+				resizer = state->rm;
 				break;
 
 			case AssParameterClass::ABSOLUTE_POS_X:
@@ -180,7 +188,7 @@ namespace {
 		style.fontsize = int(style.fontsize * state->ry + 0.5);
 		style.outline_w *= state->ry;
 		style.shadow_w *= state->ry;
-		style.spacing *= state->rx;
+		style.spacing *= state->ry; // gets multiplied by scalex (and hence by ar) during rendering
 		style.scalex *= state->ar;
 		for (int i = 0; i < 3; i++)
 			style.Margin[i] = int((style.Margin[i] + state->margin[i]) * (i < 2 ? state->rx : state->ry) + 0.5);
@@ -222,7 +230,7 @@ namespace {
 	}
 }
 
-void ResampleResolution(AssFile *ass, ResampleSettings settings) {
+void ApplyResolutionResample(AssFile *ass, ResampleSettings settings) {
 	auto horizontal_stretch = 1.0;
 	auto old_ar = double(settings.source_x) / settings.source_y;
 	auto new_ar = double(settings.dest_x) / settings.dest_y;
@@ -233,6 +241,7 @@ void ResampleResolution(AssFile *ass, ResampleSettings settings) {
 		switch (settings.ar_mode) {
 		case ResampleARMode::RemoveBorder:
 			border_horizontally = !border_horizontally;
+			[[fallthrough]];
 		case ResampleARMode::AddBorder:
 			if (border_horizontally) // Wider/Shorter
 				settings.margin[LEFT] = settings.margin[RIGHT] = (settings.source_y * new_ar - settings.source_x) / 2;
@@ -253,9 +262,21 @@ void ResampleResolution(AssFile *ass, ResampleSettings settings) {
 		}
 	}
 
+	// Preserve the current relationship between LayoutRes and PlayRes using
+	// the same rules as upstream Aegisub's resolution resampler.
+	int lrx = 0, lry = 0;
+	int new_lrx = 0, new_lry = 0;
+	ass->GetLayoutResolution(lrx, lry);
+	if (lrx != 0 && lry != 0) {
+		new_lry = lry + std::round(lry * (settings.margin[TOP] + settings.margin[BOTTOM]) / double(settings.source_x));
+		new_lrx = std::round(lrx * (double(new_lry) / double(lry)) * (double(settings.dest_x) / double(settings.dest_y)) / (double(settings.source_x) / double(settings.source_y)));
+	}
+
 	// Add margins to original resolution
 	settings.source_x += settings.margin[LEFT] + settings.margin[RIGHT];
 	settings.source_y += settings.margin[TOP] + settings.margin[BOTTOM];
+	double rx = double(settings.dest_x) / double(settings.source_x);
+	double ry = double(settings.dest_y) / double(settings.source_y);
 
 	bool resample_colors =
 		settings.source_matrix != settings.dest_matrix &&
@@ -264,8 +285,9 @@ void ResampleResolution(AssFile *ass, ResampleSettings settings) {
 
 	resample_state state = {
 		settings.margin,
-		double(settings.dest_x) / double(settings.source_x),
-		double(settings.dest_y) / double(settings.source_y),
+		rx,
+		ry,
+		rx == ry ? rx : std::sqrt(rx * ry),
 		horizontal_stretch,
 		agi::ycbcr_converter{
 			matrix(settings.source_matrix),
@@ -285,6 +307,13 @@ void ResampleResolution(AssFile *ass, ResampleSettings settings) {
 	ass->SetScriptInfo("PlayResY", std::to_string(settings.dest_y));
 	if (resample_colors)
 		ass->SetScriptInfo("YCbCr Matrix", MatrixToString(settings.dest_matrix));
+	if (lrx != 0 && lry != 0) {
+		ass->SetScriptInfo("LayoutResX", std::to_string(new_lrx));
+		ass->SetScriptInfo("LayoutResY", std::to_string(new_lry));
+	}
+}
 
+void ResampleResolution(AssFile *ass, ResampleSettings settings) {
+	ApplyResolutionResample(ass, settings);
 	ass->Commit(_("resolution resampling"), AssFile::COMMIT_SCRIPTINFO | AssFile::COMMIT_DIAG_FULL);
 }

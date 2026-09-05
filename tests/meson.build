@@ -46,6 +46,7 @@ all_test_sources += [
     'tests/ifind.cpp',
     'tests/ass_karaoke_preserve_split.cpp',
     'tests/ass_font_tag_selection.cpp',
+    'tests/resolution_resampler_classification.cpp',
     'tests/toshiki_k_timing_model.cpp',
     'tests/karaoke_split.cpp',
     'tests/karaoke_matcher.cpp',

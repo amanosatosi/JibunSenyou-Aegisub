@@ -58,3 +58,7 @@ struct ResampleSettings {
 /// @param file Subtitles to resample
 /// @param settings Resample configuration settings
 void ResampleResolution(AssFile *file, ResampleSettings settings);
+
+/// Apply the same transformation as ResampleResolution without committing it.
+/// This lets callers combine resampling with other changes in one undo step.
+void ApplyResolutionResample(AssFile *file, ResampleSettings settings);
