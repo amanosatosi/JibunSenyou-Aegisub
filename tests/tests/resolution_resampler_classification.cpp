@@ -49,4 +49,67 @@ TEST(resolution_resampler_classification, identifies_positions_clips_and_drawing
 	ExpectParameter("\\fscy125", 0, AssParameterClass::RELATIVE_SIZE_Y, VariableDataType::FLOAT);
 }
 
+TEST(resolution_resampler_classification, identifies_mangetsu_spatial_parameters) {
+	for (int layer = 1; layer <= 10; ++layer) {
+		auto prefix = "\\" + std::to_string(layer);
+		ExpectParameter(prefix + "bs2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+		ExpectParameter(prefix + "bsx2", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+		ExpectParameter(prefix + "bsy2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+		ExpectParameter(prefix + "bbs2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	}
+	ExpectParameter("\\bbs2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\boxp2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\boxpx2", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\boxpy2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\colsp2", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\fsvp2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\fshp2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\furifsp2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\furipos(2,3)", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\furipos(2,3)", 1, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\rnd2", 0, AssParameterClass::ABSOLUTE_SIZE_XY, VariableDataType::FLOAT);
+	ExpectParameter("\\rndx2", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\rndy2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\rndz2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\z2", 0, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\jitter(1,2,3,4,250,42)", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\jitter(1,2,3,4,250,42)", 1, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\jitter(1,2,3,4,250,42)", 2, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\jitter(1,2,3,4,250,42)", 3, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\movevc(1,2)", 0, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\movevc(1,2)", 1, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\movevc(1,2,3,4,5,6)", 2, AssParameterClass::ABSOLUTE_SIZE_X, VariableDataType::FLOAT);
+	ExpectParameter("\\movevc(1,2,3,4,5,6)", 3, AssParameterClass::ABSOLUTE_SIZE_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\mover(1,2,3,4,0,90,5,6)", 0, AssParameterClass::ABSOLUTE_POS_X, VariableDataType::FLOAT);
+	ExpectParameter("\\mover(1,2,3,4,0,90,5,6)", 1, AssParameterClass::ABSOLUTE_POS_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\mover(1,2,3,4,0,90,5,6)", 2, AssParameterClass::ABSOLUTE_POS_X, VariableDataType::FLOAT);
+	ExpectParameter("\\mover(1,2,3,4,0,90,5,6)", 3, AssParameterClass::ABSOLUTE_POS_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\mover(1,2,3,4,0,90,5,6)", 6, AssParameterClass::ABSOLUTE_SIZE_XY, VariableDataType::FLOAT);
+	ExpectParameter("\\mover(1,2,3,4,0,90,5,6)", 7, AssParameterClass::ABSOLUTE_SIZE_XY, VariableDataType::FLOAT);
+	for (size_t parameter = 0; parameter < 6; ++parameter)
+		ExpectParameter("\\moves3(1,2,3,4,5,6)", parameter,
+			parameter % 2 ? AssParameterClass::ABSOLUTE_POS_Y : AssParameterClass::ABSOLUTE_POS_X,
+			VariableDataType::FLOAT);
+	for (size_t parameter = 0; parameter < 8; ++parameter)
+		ExpectParameter("\\moves4(1,2,3,4,5,6,7,8)", parameter,
+			parameter % 2 ? AssParameterClass::ABSOLUTE_POS_Y : AssParameterClass::ABSOLUTE_POS_X,
+			VariableDataType::FLOAT);
+	ExpectParameter("\\pgrd(1,2,3,4,45,&H000000&,&HFFFFFF&)", 0, AssParameterClass::ABSOLUTE_POS_X, VariableDataType::FLOAT);
+	ExpectParameter("\\pgrd(1,2,3,4,45,&H000000&,&HFFFFFF&)", 1, AssParameterClass::ABSOLUTE_POS_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\pgrd(1,2,3,4,45,&H000000&,&HFFFFFF&)", 2, AssParameterClass::ABSOLUTE_POS_X, VariableDataType::FLOAT);
+	ExpectParameter("\\pgrd(1,2,3,4,45,&H000000&,&HFFFFFF&)", 3, AssParameterClass::ABSOLUTE_POS_Y, VariableDataType::FLOAT);
+	ExpectParameter("\\1pgrd(1,2,3,4,45,&H000000&,&HFFFFFF&)", 0, AssParameterClass::ABSOLUTE_POS_X, VariableDataType::FLOAT);
+}
+
+TEST(resolution_resampler_classification, keeps_mangetsu_non_spatial_values_normal) {
+	ExpectParameter("\\pgrd(1,2,3,4,45,&H000000&,50%,&HFFFFFF&)", 4, AssParameterClass::NORMAL, VariableDataType::FLOAT);
+	ExpectParameter("\\pgrd(1,2,3,4,45,&H000000&,50%,&HFFFFFF&)", 6, AssParameterClass::NORMAL, VariableDataType::TEXT);
+	ExpectParameter("\\scale125", 0, AssParameterClass::NORMAL, VariableDataType::FLOAT);
+	ExpectParameter("\\fsc125", 0, AssParameterClass::NORMAL, VariableDataType::FLOAT);
+	ExpectParameter("\\frs45", 0, AssParameterClass::NORMAL, VariableDataType::FLOAT);
+	ExpectParameter("\\xblur2", 0, AssParameterClass::NORMAL, VariableDataType::FLOAT);
+	ExpectParameter("\\yblur2", 0, AssParameterClass::NORMAL, VariableDataType::FLOAT);
+	ExpectParameter("\\img(texture.png,10,20)", 1, AssParameterClass::NORMAL, VariableDataType::INT);
+}
+
 } // namespace

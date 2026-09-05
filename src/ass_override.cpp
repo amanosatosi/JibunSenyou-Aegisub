@@ -123,14 +123,17 @@ namespace {
 /// as optional; this is just to know which parameters to skip when there are
 /// earlier optional arguments
 enum AssParameterOptional {
-	NOT_OPTIONAL = 0xFF,
+	NOT_OPTIONAL = -1,
 	OPTIONAL_1 = 0x01,
 	OPTIONAL_2 = 0x02,
 	OPTIONAL_3 = 0x04,
 	OPTIONAL_4 = 0x08,
 	OPTIONAL_5 = 0x10,
 	OPTIONAL_6 = 0x20,
-	OPTIONAL_7 = 0x40
+	OPTIONAL_7 = 0x40,
+	OPTIONAL_8 = 0x80,
+	OPTIONAL_9 = 0x100,
+	OPTIONAL_10 = 0x200
 };
 
 /// Prototype of a single override parameter
@@ -151,6 +154,8 @@ struct AssOverrideTagProto {
 
 	/// Parameters to this tag
 	std::vector<AssOverrideParamProto> params;
+	std::vector<AssOverrideParamProto> variadic_params;
+	size_t minimum_parameters = 0;
 
 	typedef std::vector<AssOverrideTagProto>::iterator iterator;
 
@@ -160,6 +165,11 @@ struct AssOverrideTagProto {
 	/// @param opt Situations in which this parameter is present
 	void AddParam(VariableDataType type, AssParameterClass classi = AssParameterClass::NORMAL, int opt = NOT_OPTIONAL) {
 		params.push_back(AssOverrideParamProto{opt, type, classi});
+	}
+
+	/// Add a prototype which is repeated for every remaining parameter.
+	void AddVariadicParam(VariableDataType type, AssParameterClass classi = AssParameterClass::NORMAL) {
+		variadic_params.push_back(AssOverrideParamProto{NOT_OPTIONAL, type, classi});
 	}
 
 	/// @brief Convenience function for single-argument tags
@@ -177,22 +187,150 @@ static std::vector<AssOverrideTagProto> proto;
 static void load_protos() {
 	if (!proto.empty()) return;
 
-	proto.resize(56);
+	proto.resize(256);
 	int i = 0;
 
 	// Longer tag names must appear before shorter tag names
+	// Mangetsu extension tags are part of this table so that every resampler
+	// user, including nested \t blocks, shares the same semantic definitions.
+	auto add_positioned_gradient = [&](char const *name) {
+		auto& gradient = proto[i++];
+		gradient.name = name;
+		gradient.minimum_parameters = 7;
+		gradient.AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
+		gradient.AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
+		gradient.AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
+		gradient.AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
+		gradient.AddParam(VariableDataType::FLOAT); // angle
+		gradient.AddVariadicParam(VariableDataType::TEXT); // colors and percentage stops
+	};
+	add_positioned_gradient("\\1pgrd");
+	add_positioned_gradient("\\pgrd");
 
-	proto[0].Set("\\alpha", VariableDataType::TEXT, AssParameterClass::ALPHA); // \alpha&H<aa>&
+	auto add_motion_coordinates = [&](char const *name, int points, int timing_parameter_count) {
+		auto& motion = proto[i++];
+		motion.name = name;
+		for (int point = 0; point < points; ++point) {
+			motion.AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
+			motion.AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
+		}
+		if (timing_parameter_count) {
+			motion.AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START, timing_parameter_count);
+			motion.AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START, timing_parameter_count);
+		}
+	};
+	add_motion_coordinates("\\moves4", 4, OPTIONAL_10);
+	add_motion_coordinates("\\moves3", 3, OPTIONAL_8);
+
+	// \mover(x1,y1,x2,y2[,angle1,angle2,radius1,radius2][,t1,t2])
+	proto[i].name = "\\mover";
+	for (int point = 0; point < 2; ++point) {
+		proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
+		proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
+	}
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::NORMAL, OPTIONAL_8 | OPTIONAL_10); // angle1
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::NORMAL, OPTIONAL_8 | OPTIONAL_10); // angle2
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_XY, OPTIONAL_8 | OPTIONAL_10);
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_XY, OPTIONAL_8 | OPTIONAL_10);
+	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START, OPTIONAL_6 | OPTIONAL_10);
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START, OPTIONAL_6 | OPTIONAL_10);
+
+	// \movevc offsets a vector clip rather than positioning the event itself.
+	proto[i].name = "\\movevc";
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X);
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X, OPTIONAL_4 | OPTIONAL_6);
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y, OPTIONAL_4 | OPTIONAL_6);
+	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START, OPTIONAL_6);
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START, OPTIONAL_6);
+
+	// This reset form must precede \jitter due to prefix matching.
+	proto[i++].Set("\\jitter0", VariableDataType::INT);
+	proto[i].name = "\\jitter";
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X); // left
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X); // right
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // up
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // down
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::NORMAL, OPTIONAL_5 | OPTIONAL_6); // period
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::NORMAL, OPTIONAL_6); // seed
+
+	proto[i++].Set("\\rndx", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X);
+	proto[i++].Set("\\rndy", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\rndz", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\rnd", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_XY);
+
+	// Scalar border/padding sizes follow upstream's \bord Y-axis rule; the
+	// explicit x/y variants use their named axes.
+	proto[i++].Set("\\boxpx", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X);
+	proto[i++].Set("\\boxpy", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\boxp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\box", VariableDataType::INT);
+	proto[i++].Set("\\bbs", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\bbc", VariableDataType::TEXT, AssParameterClass::COLOR);
+	proto[i++].Set("\\bba", VariableDataType::TEXT, AssParameterClass::ALPHA);
+	proto[i++].Set("\\bs", VariableDataType::INT);
+
+	for (int layer = 1; layer <= 10; ++layer) {
+		auto prefix = "\\" + std::to_string(layer);
+		proto[i++].Set((prefix + "bbs").c_str(), VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+		proto[i++].Set((prefix + "bsx").c_str(), VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X);
+		proto[i++].Set((prefix + "bsy").c_str(), VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+		proto[i++].Set((prefix + "bs").c_str(), VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	}
+
+	proto[i++].Set("\\colsp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X);
+	proto[i++].Set("\\colan", VariableDataType::INT);
+	proto[i++].Set("\\col", VariableDataType::INT);
+	// These spacing/offset tags are expressed in local script pixels. furipos
+	// is local rather than an event position, so margins must not be added.
+	proto[i++].Set("\\fsvp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\fshp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\furifsp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i].name = "\\furipos";
+	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X);
+	proto[i++].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\furistyle", VariableDataType::INT);
+	proto[i++].Set("\\furisx", VariableDataType::FLOAT);
+	proto[i++].Set("\\furisy", VariableDataType::FLOAT);
+	proto[i++].Set("\\furis", VariableDataType::FLOAT);
+	proto[i++].Set("\\furiap", VariableDataType::BOOL);
+	proto[i++].Set("\\furi", VariableDataType::BOOL);
+
+	proto[i++].Set("\\xblur", VariableDataType::FLOAT);
+	proto[i++].Set("\\yblur", VariableDataType::FLOAT);
+	proto[i++].Set("\\scale", VariableDataType::FLOAT);
+	proto[i].name = "\\distort";
+	for (int parameter = 0; parameter < 6; ++parameter)
+		proto[i].AddParam(VariableDataType::FLOAT);
+	++i;
+	proto[i++].Set("\\ortho", VariableDataType::BOOL);
+	proto[i++].Set("\\z", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y);
+	proto[i++].Set("\\tan", VariableDataType::INT);
+	proto[i++].Set("\\kt", VariableDataType::INT, AssParameterClass::KARAOKE);
+
+	auto add_image = [&](char const *name) {
+		auto& image = proto[i++];
+		image.name = name;
+		image.AddParam(VariableDataType::TEXT);
+		image.AddParam(VariableDataType::INT);
+		image.AddParam(VariableDataType::INT);
+	};
+	add_image("\\1img");
+	add_image("\\2img");
+	add_image("\\3img");
+	add_image("\\4img");
+	add_image("\\img");
+
+	proto[i++].Set("\\alpha", VariableDataType::TEXT, AssParameterClass::ALPHA); // \alpha&H<aa>&
 	// FIXME: convert \bord and \shad to \xbord\ybord and \xshad\yshad during anamorphic resampling
-	proto[++i].Set("\\bord", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \bord<depth>
-	proto[++i].Set("\\xbord", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X); // \xbord<depth>
-	proto[++i].Set("\\ybord", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \ybord<depth>
-	proto[++i].Set("\\shad", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \shad<depth>
-	proto[++i].Set("\\xshad", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X); // \xshad<depth>
-	proto[++i].Set("\\yshad", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \yshad<depth>
+	proto[i++].Set("\\bord", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \bord<depth>
+	proto[i++].Set("\\xbord", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X); // \xbord<depth>
+	proto[i++].Set("\\ybord", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \ybord<depth>
+	proto[i++].Set("\\shad", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \shad<depth>
+	proto[i++].Set("\\xshad", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_X); // \xshad<depth>
+	proto[i++].Set("\\yshad", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \yshad<depth>
 
 	// \fade(<a1>,<a2>,<a3>,<t1>,<t2>,<t3>,<t4>)
-	i++;
 	proto[i].name = "\\fade";
 	proto[i].AddParam(VariableDataType::INT);
 	proto[i].AddParam(VariableDataType::INT);
@@ -200,112 +338,110 @@ static void load_protos() {
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
-	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
 
 	// \move(<x1>,<y1>,<x2>,<y2>[,<t1>,<t2>])
-	i++;
 	proto[i].name = "\\move";
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
-	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
 
 	// If these are rearranged, keep rect clip and vector clip adjacent in this order
 	// \clip(<x1>,<y1>,<x2>,<y2>)
-	i++;
 	proto[i].name = "\\clip";
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_X);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_Y);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_X);
-	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_Y);
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_Y);
 
 	// \clip([<scale>,]<some drawings>)
-	i++;
 	proto[i].name = "\\clip";
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::NORMAL,OPTIONAL_2);
-	proto[i].AddParam(VariableDataType::TEXT, AssParameterClass::DRAWING);
+	proto[i++].AddParam(VariableDataType::TEXT, AssParameterClass::DRAWING);
 
 	// \iclip(<x1>,<y1>,<x2>,<y2>)
-	i++;
 	proto[i].name = "\\iclip";
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_X);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_Y);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_X);
-	proto[i].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_Y);
+	proto[i++].AddParam(VariableDataType::INT, AssParameterClass::ABSOLUTE_POS_Y);
 
 	// \iclip([<scale>,]<some drawings>)
-	i++;
 	proto[i].name = "\\iclip";
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::NORMAL,OPTIONAL_2);
-	proto[i].AddParam(VariableDataType::TEXT, AssParameterClass::DRAWING);
+	proto[i++].AddParam(VariableDataType::TEXT, AssParameterClass::DRAWING);
 
-	proto[++i].Set("\\fscx", VariableDataType::FLOAT, AssParameterClass::RELATIVE_SIZE_X); // \fscx<percent>
-	proto[++i].Set("\\fscy", VariableDataType::FLOAT, AssParameterClass::RELATIVE_SIZE_Y); // \fscy<percent>
+	proto[i++].Set("\\fscx", VariableDataType::FLOAT, AssParameterClass::RELATIVE_SIZE_X); // \fscx<percent>
+	proto[i++].Set("\\fscy", VariableDataType::FLOAT, AssParameterClass::RELATIVE_SIZE_Y); // \fscy<percent>
+	proto[i++].Set("\\fsc", VariableDataType::FLOAT); // Mangetsu uniform percentage scale
 	// \pos(<x>,<y>)
-	i++;
 	proto[i].name = "\\pos";
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
-	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
+	proto[i++].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
 
 	// \org(<x>,<y>)
-	i++;
 	proto[i].name = "\\org";
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_X);
-	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
+	proto[i++].AddParam(VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_POS_Y);
 
-	proto[++i].Set("\\pbo", VariableDataType::INT, AssParameterClass::ABSOLUTE_SIZE_Y); // \pbo<y>
+	proto[i++].Set("\\pbo", VariableDataType::INT, AssParameterClass::ABSOLUTE_SIZE_Y); // \pbo<y>
 	// \fad(<t1>,<t2>)
-	i++;
 	proto[i].name = "\\fad";
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_END);
+	// Mangetsu accepts two optional fade colors after the standard times.
+	proto[i].AddParam(VariableDataType::TEXT, AssParameterClass::COLOR);
+	proto[i++].AddParam(VariableDataType::TEXT, AssParameterClass::COLOR);
 
-	proto[++i].Set("\\fsp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \fsp<pixels> (affected by \fscx)
-	proto[++i].Set("\\frx", VariableDataType::FLOAT); // \frx<degrees>
-	proto[++i].Set("\\fry", VariableDataType::FLOAT); // \fry<degrees>
-	proto[++i].Set("\\frz", VariableDataType::FLOAT); // \frz<degrees>
-	proto[++i].Set("\\fr", VariableDataType::FLOAT); // \fr<degrees>
-	proto[++i].Set("\\fax", VariableDataType::FLOAT); // \fax<factor>
-	proto[++i].Set("\\fay", VariableDataType::FLOAT); // \fay<factor>
-	proto[++i].Set("\\1c", VariableDataType::TEXT, AssParameterClass::COLOR); // \1c&H<bbggrr>&
-	proto[++i].Set("\\2c", VariableDataType::TEXT, AssParameterClass::COLOR); // \2c&H<bbggrr>&
-	proto[++i].Set("\\3c", VariableDataType::TEXT, AssParameterClass::COLOR); // \3c&H<bbggrr>&
-	proto[++i].Set("\\4c", VariableDataType::TEXT, AssParameterClass::COLOR); // \4c&H<bbggrr>&
-	proto[++i].Set("\\1a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \1a&H<aa>&
-	proto[++i].Set("\\2a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \2a&H<aa>&
-	proto[++i].Set("\\3a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \3a&H<aa>&
-	proto[++i].Set("\\4a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \4a&H<aa>&
-	proto[++i].Set("\\fe", VariableDataType::TEXT); // \fe<charset>
-	proto[++i].Set("\\ko", VariableDataType::INT, AssParameterClass::KARAOKE); // \ko<duration>
-	proto[++i].Set("\\kf", VariableDataType::INT, AssParameterClass::KARAOKE); // \kf<duration>
-	proto[++i].Set("\\be", VariableDataType::INT); // \be<strength>
-	proto[++i].Set("\\blur", VariableDataType::FLOAT); // \blur<strength>
-	proto[++i].Set("\\fn", VariableDataType::TEXT); // \fn<name>
-	proto[++i].Set("\\fs+", VariableDataType::FLOAT); // \fs+<size>
-	proto[++i].Set("\\fs-", VariableDataType::FLOAT); // \fs-<size>
-	proto[++i].Set("\\fs", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \fs<size>
-	proto[++i].Set("\\an", VariableDataType::INT); // \an<alignment>
-	proto[++i].Set("\\c", VariableDataType::TEXT, AssParameterClass::COLOR); // \c&H<bbggrr>&
-	proto[++i].Set("\\b", VariableDataType::INT); // \b<0/1/weight>
-	proto[++i].Set("\\i", VariableDataType::BOOL); // \i<0/1>
-	proto[++i].Set("\\u", VariableDataType::BOOL); // \u<0/1>
-	proto[++i].Set("\\s", VariableDataType::BOOL); // \s<0/1>
-	proto[++i].Set("\\a", VariableDataType::INT); // \a<alignment>
-	proto[++i].Set("\\k", VariableDataType::INT, AssParameterClass::KARAOKE); // \k<duration>
-	proto[++i].Set("\\K", VariableDataType::INT, AssParameterClass::KARAOKE); // \K<duration>
-	proto[++i].Set("\\q", VariableDataType::INT); // \q<0-3>
-	proto[++i].Set("\\p", VariableDataType::INT); // \p<n>
-	proto[++i].Set("\\r", VariableDataType::TEXT); // \r[<name>]
+	proto[i++].Set("\\fsp", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \fsp<pixels> (affected by \fscx)
+	proto[i++].Set("\\frx", VariableDataType::FLOAT); // \frx<degrees>
+	proto[i++].Set("\\fry", VariableDataType::FLOAT); // \fry<degrees>
+	proto[i++].Set("\\frz", VariableDataType::FLOAT); // \frz<degrees>
+	proto[i++].Set("\\frs", VariableDataType::FLOAT); // Mangetsu uniform rotation in degrees
+	proto[i++].Set("\\fr", VariableDataType::FLOAT); // \fr<degrees>
+	proto[i++].Set("\\fax", VariableDataType::FLOAT); // \fax<factor>
+	proto[i++].Set("\\fay", VariableDataType::FLOAT); // \fay<factor>
+	proto[i++].Set("\\1c", VariableDataType::TEXT, AssParameterClass::COLOR); // \1c&H<bbggrr>&
+	proto[i++].Set("\\2c", VariableDataType::TEXT, AssParameterClass::COLOR); // \2c&H<bbggrr>&
+	proto[i++].Set("\\3c", VariableDataType::TEXT, AssParameterClass::COLOR); // \3c&H<bbggrr>&
+	proto[i++].Set("\\4c", VariableDataType::TEXT, AssParameterClass::COLOR); // \4c&H<bbggrr>&
+	proto[i++].Set("\\1a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \1a&H<aa>&
+	proto[i++].Set("\\2a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \2a&H<aa>&
+	proto[i++].Set("\\3a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \3a&H<aa>&
+	proto[i++].Set("\\4a", VariableDataType::TEXT, AssParameterClass::ALPHA); // \4a&H<aa>&
+	proto[i++].Set("\\fe", VariableDataType::TEXT); // \fe<charset>
+	proto[i++].Set("\\ko", VariableDataType::INT, AssParameterClass::KARAOKE); // \ko<duration>
+	proto[i++].Set("\\kf", VariableDataType::INT, AssParameterClass::KARAOKE); // \kf<duration>
+	proto[i++].Set("\\be", VariableDataType::INT); // \be<strength>
+	proto[i++].Set("\\blur", VariableDataType::FLOAT); // \blur<strength>
+	proto[i++].Set("\\fn", VariableDataType::TEXT); // \fn<name>
+	proto[i++].Set("\\fs+", VariableDataType::FLOAT); // \fs+<size>
+	proto[i++].Set("\\fs-", VariableDataType::FLOAT); // \fs-<size>
+	proto[i++].Set("\\fs", VariableDataType::FLOAT, AssParameterClass::ABSOLUTE_SIZE_Y); // \fs<size>
+	proto[i++].Set("\\an", VariableDataType::INT); // \an<alignment>
+	proto[i++].Set("\\c", VariableDataType::TEXT, AssParameterClass::COLOR); // \c&H<bbggrr>&
+	proto[i++].Set("\\b", VariableDataType::INT); // \b<0/1/weight>
+	proto[i++].Set("\\i", VariableDataType::BOOL); // \i<0/1>
+	proto[i++].Set("\\u", VariableDataType::BOOL); // \u<0/1>
+	proto[i++].Set("\\s", VariableDataType::BOOL); // \s<0/1>
+	proto[i++].Set("\\a", VariableDataType::INT); // \a<alignment>
+	proto[i++].Set("\\k", VariableDataType::INT, AssParameterClass::KARAOKE); // \k<duration>
+	proto[i++].Set("\\K", VariableDataType::INT, AssParameterClass::KARAOKE); // \K<duration>
+	proto[i++].Set("\\q", VariableDataType::INT); // \q<0-3>
+	proto[i++].Set("\\p", VariableDataType::INT); // \p<n>
+	proto[i++].Set("\\r", VariableDataType::TEXT); // \r[<name>]
 
 	// \t([<t1>,<t2>,][<accel>,]<style modifiers>)
-	i++;
 	proto[i].name = "\\t";
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START,OPTIONAL_3 | OPTIONAL_4);
 	proto[i].AddParam(VariableDataType::INT, AssParameterClass::RELATIVE_TIME_START,OPTIONAL_3 | OPTIONAL_4);
 	proto[i].AddParam(VariableDataType::FLOAT, AssParameterClass::NORMAL,OPTIONAL_2 | OPTIONAL_4);
-	proto[i].AddParam(VariableDataType::BLOCK);
+	proto[i++].AddParam(VariableDataType::BLOCK);
+
+	proto.resize(i);
 }
 
 std::vector<std::string> tokenize(const std::string &text) {
@@ -356,14 +492,19 @@ std::vector<std::string> tokenize(const std::string &text) {
 	return paramList;
 }
 
-void parse_parameters(AssOverrideTag *tag, const std::string &text, AssOverrideTagProto::iterator proto_it) {
+bool parse_parameters(AssOverrideTag *tag, const std::string &text, AssOverrideTagProto::iterator proto_it) {
 	tag->Clear();
 
 	// Tokenize text, attempting to find all parameters
 	std::vector<std::string> paramList = tokenize(text);
 	size_t totalPars = paramList.size();
 
-	int parsFlag = 1 << (totalPars - 1); // Get optional parameters flag
+	if (proto_it->minimum_parameters && totalPars < proto_it->minimum_parameters)
+		return false;
+
+	int parsFlag = totalPars && totalPars < sizeof(int) * 8
+		? 1 << (totalPars - 1)
+		: 0; // Get optional parameters flag
 	// vector (i)clip is the second clip proto_ittype in the list
 	if ((tag->Name == "\\clip" || tag->Name == "\\iclip") && totalPars != 4) {
 		++proto_it;
@@ -375,11 +516,18 @@ void parse_parameters(AssOverrideTag *tag, const std::string &text, AssOverrideT
 		tag->Params.emplace_back(curproto.type, curproto.classification);
 
 		// Check if it's optional and not present
-		if (!(curproto.optional & parsFlag) || curPar >= totalPars)
+		if ((curproto.optional != NOT_OPTIONAL && !(curproto.optional & parsFlag)) || curPar >= totalPars)
 			continue;
 
 		tag->Params.back().Set(paramList[curPar++]);
 	}
+
+	while (curPar < totalPars && !proto_it->variadic_params.empty()) {
+		auto const& curproto = proto_it->variadic_params.front();
+		tag->Params.emplace_back(curproto.type, curproto.classification);
+		tag->Params.back().Set(paramList[curPar++]);
+	}
+	return true;
 }
 
 }
@@ -446,7 +594,11 @@ void AssOverrideTag::SetText(const std::string &text) {
 	for (auto cur = proto.begin(); cur != proto.end(); ++cur) {
 		if (boost::starts_with(text, cur->name)) {
 			Name = cur->name;
-			parse_parameters(this, text.substr(Name.size()), cur);
+			if (!parse_parameters(this, text.substr(Name.size()), cur)) {
+				Clear();
+				Name = text;
+				return;
+			}
 			valid = true;
 			return;
 		}

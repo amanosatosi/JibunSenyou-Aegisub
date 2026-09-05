@@ -46,6 +46,7 @@
 #include "resolution_resampler.h"
 #include "selection_controller.h"
 #include "subtitle_format.h"
+#include "style_import.h"
 
 #include <libaegisub/fs.h>
 #include <libaegisub/make_unique.h>
@@ -696,13 +697,12 @@ void DialogStyleManager::OnCurrentImport() {
 	}
 
 	// [Satoshi replace-all import] Warn when resolutions differ before showing selection UI
-	int style_res_x = temp.GetScriptInfoAsInt("PlayResX");
-	int style_res_y = temp.GetScriptInfoAsInt("PlayResY");
-	int current_res_x = c->ass->GetScriptInfoAsInt("PlayResX");
-	int current_res_y = c->ass->GetScriptInfoAsInt("PlayResY");
+	int style_res_x, style_res_y;
+	int current_res_x, current_res_y;
+	temp.GetResolution(style_res_x, style_res_y);
+	c->ass->GetResolution(current_res_x, current_res_y);
 	bool match_resolution = false;
-	if (style_res_x && style_res_y && current_res_x && current_res_y &&
-		(style_res_x != current_res_x || style_res_y != current_res_y)) {
+	if (style_res_x != current_res_x || style_res_y != current_res_y) {
 		wxMessageDialog res_dialog(
 			this,
 			_("Selected subtitle has a different resolution than the current subtitle. How do you want to continue?"),
@@ -767,11 +767,11 @@ void DialogStyleManager::OnCurrentImport() {
 
 	// Loop through selection
 	for (auto const& sel : selections) {
+		auto source_style = temp.GetStyle(styles[sel]);
 		// Check if there is already a style with that name
-		if (AssStyle *existing = c->ass->GetStyle(styles[sel])) {
+		if (c->ass->GetStyle(styles[sel])) {
 			if (replace_all) {
-				styles_modified = true;
-				*existing = *temp.GetStyle(styles[sel]);
+				styles_modified |= ImportStyle(*c->ass, *source_style, true);
 				continue;
 			}
 
@@ -781,29 +781,27 @@ void DialogStyleManager::OnCurrentImport() {
 					_("Style name collision"),
 					wxYES_NO);
 				if (answer == wxYES) {
-					styles_modified = true;
-					*existing = *temp.GetStyle(styles[sel]);
+					styles_modified |= ImportStyle(*c->ass, *source_style, true);
 				}
 			}
 			continue;
 		}
 
 		// Copy
-		styles_modified = true;
-		c->ass->Styles.push_back(*new AssStyle(*temp.GetStyle(styles[sel])));
+		styles_modified |= ImportStyle(*c->ass, *source_style, false);
 	}
 
 	// Keep runtime project state authoritative rather than importing metadata
 	// from the subtitle which supplied the styles.
 	if (match_resolution && c->project->VideoProvider())
-		c->project->UpdateRelativePaths();
+		c->project->UpdateVideoRelativePath();
 
 	// Commit the subtitle transformations together after synchronizing project
 	// metadata, so an immediate save/autosave sees the current runtime paths.
 	if (match_resolution || styles_modified) {
 		int commit_type = styles_modified ? AssFile::COMMIT_STYLES : 0;
 		if (match_resolution)
-			commit_type |= AssFile::COMMIT_SCRIPTINFO | AssFile::COMMIT_DIAG_FULL;
+			commit_type |= AssFile::COMMIT_SCRIPTINFO | AssFile::COMMIT_STYLES | AssFile::COMMIT_DIAG_FULL;
 		c->ass->Commit(match_resolution ? _("style import and resolution resampling") : _("style import"), commit_type);
 	}
 }

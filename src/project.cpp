@@ -31,6 +31,7 @@
 #include "include/aegisub/video_provider.h"
 #include "mkv_wrap.h"
 #include "options.h"
+#include "project_properties.h"
 #include "selection_controller.h"
 #include "subs_controller.h"
 #include "utils.h"
@@ -68,9 +69,13 @@ Project::Project(agi::Context *c) : context(c) {
 
 Project::~Project() { }
 
+void Project::UpdateVideoRelativePath() {
+	project::UpdateVideoRelativePath(context->ass->Properties, *context->path, video_file);
+}
+
 void Project::UpdateRelativePaths() {
 	context->ass->Properties.audio_file     = context->path->MakeRelative(audio_file, "?script").generic_string();
-	context->ass->Properties.video_file     = context->path->MakeRelative(video_file, "?script").generic_string();
+	UpdateVideoRelativePath();
 	context->ass->Properties.timecodes_file = context->path->MakeRelative(timecodes_file, "?script").generic_string();
 	context->ass->Properties.keyframes_file = context->path->MakeRelative(keyframes_file, "?script").generic_string();
 }

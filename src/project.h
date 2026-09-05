@@ -60,14 +60,15 @@ class Project {
 	void DoLoadKeyframes(agi::fs::path const& path);
 
 	void LoadUnloadFiles(ProjectProperties properties);
+	void UpdateRelativePaths();
 	void SetPath(agi::fs::path& var, const char *token, const char *mru, agi::fs::path const& value);
 
 public:
 	Project(agi::Context *context);
 	~Project();
 
-	/// Synchronize subtitle project metadata with the currently loaded files.
-	void UpdateRelativePaths();
+	/// Synchronize only the subtitle's video metadata with the loaded video.
+	void UpdateVideoRelativePath();
 
 	void LoadSubtitles(agi::fs::path path, std::string encoding="", bool load_linked=true);
 	void CloseSubtitles();
