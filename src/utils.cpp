@@ -99,11 +99,22 @@ int SmallestPowerOf2(int x) {
 
 #ifndef __WXMAC__
 void RestartAegisub(wxArrayString const& arguments) {
-	wxArrayString command;
-	command.Add(wxStandardPaths::Get().GetExecutablePath());
+	std::vector<wxString> command;
+	command.reserve(arguments.size() + 1);
+	command.push_back(wxStandardPaths::Get().GetExecutablePath());
 	for (auto const& argument : arguments)
-		command.Add(argument);
-	wxExecute(command, wxEXEC_ASYNC);
+		command.push_back(argument);
+
+	// wxWidgets 3.0 does not have the wxArrayString overload of wxExecute.
+	// Keep the arguments separate (and paths with spaces safe) via its argv API.
+	std::vector<wxChar *> argv;
+	argv.reserve(command.size() + 1);
+	for (auto& argument : command) {
+		const wxChar *value = argument.c_str();
+		argv.push_back(const_cast<wxChar *>(value));
+	}
+	argv.push_back(nullptr);
+	wxExecute(argv.data(), wxEXEC_ASYNC);
 }
 #endif
 
