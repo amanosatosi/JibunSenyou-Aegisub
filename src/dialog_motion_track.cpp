@@ -790,7 +790,7 @@ class MotionTrackPreviewPanel final : public wxPanel {
 
 public:
 	MotionTrackPreviewPanel(wxWindow *parent, DialogMotionTrack *dialog)
-	: wxPanel(parent, -1, wxDefaultPosition, wxSize(640, 360), wxBORDER_SIMPLE)
+	: wxPanel(parent, -1, wxDefaultPosition, wxSize(640, 360), wxBORDER_SIMPLE | wxFULL_REPAINT_ON_RESIZE)
 	, dialog(dialog) {
 		SetBackgroundStyle(wxBG_STYLE_PAINT);
 		SetMinSize(wxSize(320, 220));
